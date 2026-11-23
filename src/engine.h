@@ -28,6 +28,8 @@ public:
 
     virtual QString id() const = 0;        // stable id, e.g. "vibe"
     virtual QString displayName() const = 0;
+    // Model/tool detail for the capture log (e.g. the local model name).
+    virtual QString modelInfo() const { return QString(); }
 
     // False when a required external tool is missing (e.g. "vibe" not on
     // PATH); whyNot then says what is missing. Engines that need no external
@@ -101,5 +103,16 @@ private:
 // Factories; the concrete classes live in their own engine_*.cpp files.
 std::unique_ptr<AiEngine> createVibeEngine(QObject *parent = nullptr);
 std::unique_ptr<AiEngine> createClaudeEngine(QObject *parent = nullptr);
-std::unique_ptr<AiEngine> createOllamaEngine(const QString &model = QString(), QObject *parent = nullptr);
+// One generic local engine ("lokal") speaking Ollama's /api/chat and
+// OpenAI-compatible /v1/chat/completions; endpoint/model/api are the user's
+// choice (config.toml or CLI flags), nothing is hardcoded.
+std::unique_ptr<AiEngine> createLocalEngine(const QString &endpoint, const QString &model,
+                                             const QString &api, QObject *parent = nullptr);
 std::unique_ptr<AiEngine> createCommandEngine(const QString &commandLine, QObject *parent = nullptr);
+
+// Creates an engine by id ("vibe", "claude", "lokal", "command") from the app
+// config; modelOverride/endpointOverride (CLI flags) win over config.toml.
+// Returns nullptr with an error message when the id is unknown or required
+// configuration is missing.
+std::unique_ptr<AiEngine> createEngine(const QString &id, const QString &modelOverride = QString(),
+                                       const QString &endpointOverride = QString(), QString *error = nullptr);

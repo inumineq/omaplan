@@ -2,9 +2,18 @@
 set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+
+# Core tests (store, actions, CLI, models, date annotation).
 mkdir -p "$ROOT/build/tests"
 cd "$ROOT/build/tests"
-
 qmake6 "$ROOT/tests/omaplan_tests.pro"
 make -j"$(nproc)"
 QT_QPA_PLATFORM=offscreen ./omaplan_tests
+
+# AI-layer unit tests (engines with fakes, prompt, proposal, fixtures).
+# No test calls a real AI.
+mkdir -p "$ROOT/build/ai-tests"
+cd "$ROOT/build/ai-tests"
+qmake6 "$ROOT/tests/unit/unit.pro"
+make -j"$(nproc)"
+QT_QPA_PLATFORM=offscreen ./ai-unit-tests

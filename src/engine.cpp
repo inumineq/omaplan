@@ -1,4 +1,5 @@
 #include "engine.h"
+#include "config.h"
 
 #include <QProcess>
 #include <QStandardPaths>
@@ -46,7 +47,7 @@ void AiEngine::propose(const QString &text, const PromptContext &context)
     m_stderr.clear();
     m_startFailed = false;
     m_timer->start(m_timeoutMs);
-    start(buildSystemPrompt(context), buildUserPrompt(text));
+    start(buildSystemPrompt(context), buildUserPrompt(text, context.existingTasks));
 }
 
 void AiEngine::cancel()
@@ -188,4 +189,31 @@ void AiEngine::fail(const QString &message)
     kill();
     m_running = false;
     emit failed(message);
+}
+
+std::unique_ptr<AiEngine> createEngine(const QString &id, const QString &modelOverride,
+                                       const QString &endpointOverride, QString *error)
+{
+    const AppConfig config = AppConfig::load();
+    if (id == QLatin1String("vibe"))
+        return createVibeEngine();
+    if (id == QLatin1String("claude"))
+        return createClaudeEngine();
+    if (id == QLatin1String("lokal")) {
+        const QString model = !modelOverride.isEmpty() ? modelOverride : config.localModel;
+        const QString endpoint = !endpointOverride.isEmpty() ? endpointOverride : config.localEndpoint;
+        return createLocalEngine(endpoint, model, config.localApi);
+    }
+    if (id == QLatin1String("command")) {
+        if (config.command.isEmpty()) {
+            if (error)
+                *error = QStringLiteral("Engine 'command' needs a command in ~/.config/omaplan/config.toml: "
+                                        "[motor]\ncommand = \"...\"");
+            return nullptr;
+        }
+        return createCommandEngine(config.command);
+    }
+    if (error)
+        *error = QStringLiteral("Unknown engine '%1'. Choose vibe, claude, lokal or command.").arg(id);
+    return nullptr;
 }

@@ -4,6 +4,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonValue>
+#include <QRegularExpression>
 #include <cmath>
 
 // ---------------------------------------------------------------------------
@@ -92,6 +93,10 @@ static void validate(const QJsonValue &value, const QJsonValue &schemaValue,
             errors.append(QStringLiteral("%1: shorter than minLength %2").arg(path).arg(minLength));
         if (maxLength >= 0 && s.size() > maxLength)
             errors.append(QStringLiteral("%1: longer than maxLength %2").arg(path).arg(maxLength));
+        const QString pattern = schema.value(QStringLiteral("pattern")).toString();
+        if (!pattern.isEmpty()
+            && !QRegularExpression(pattern).match(s).hasMatch())
+            errors.append(QStringLiteral("%1: does not match pattern %2").arg(path, pattern));
     }
 
     if (value.isDouble()) {
@@ -125,9 +130,12 @@ static void validate(const QJsonValue &value, const QJsonValue &schemaValue,
     }
 
     if (value.isArray()) {
+        const QJsonArray arr = value.toArray();
+        const int maxItems = schema.value(QStringLiteral("maxItems")).toInt(-1);
+        if (maxItems >= 0 && arr.size() > maxItems)
+            errors.append(QStringLiteral("%1: more than maxItems %2").arg(path).arg(maxItems));
         const QJsonValue items = schema.value(QStringLiteral("items"));
         if (items.isObject()) {
-            const QJsonArray arr = value.toArray();
             for (int i = 0; i < arr.size(); ++i)
                 validate(arr.at(i), items, QStringLiteral("%1[%2]").arg(path).arg(i), errors);
         }
@@ -208,6 +216,16 @@ static QJsonObject unwrapEnvelopes(const QJsonObject &obj, bool *ok, int depth =
         payload = obj.value(QStringLiteral("result")).toString();
     else if (obj.value(QStringLiteral("response")).isString())
         payload = obj.value(QStringLiteral("response")).toString();
+    else if (obj.value(QStringLiteral("choices")).isArray()
+             && !obj.value(QStringLiteral("choices")).toArray().isEmpty()) {
+        // OpenAI-compatible chat envelope: choices[0].message.content
+        const QJsonObject choice = obj.value(QStringLiteral("choices")).toArray().first().toObject();
+        const QJsonObject message = choice.value(QStringLiteral("message")).toObject();
+        if (message.value(QStringLiteral("content")).isString())
+            payload = message.value(QStringLiteral("content")).toString();
+        else if (choice.value(QStringLiteral("text")).isString())
+            payload = choice.value(QStringLiteral("text")).toString();
+    }
     else if (obj.value(QStringLiteral("message")).isObject()
              && obj.value(QStringLiteral("message")).toObject().value(QStringLiteral("content")).isString())
         payload = obj.value(QStringLiteral("message")).toObject().value(QStringLiteral("content")).toString();

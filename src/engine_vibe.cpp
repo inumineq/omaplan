@@ -43,8 +43,13 @@ protected:
 
     void kill() override
     {
+        // Only stop the process here. The system prompt file must outlive
+        // the process (vibe reads it asynchronously after start), so it is
+        // NOT reset in kill() -- launch() calls kill() right before starting,
+        // and resetting here would delete the file before vibe reads it.
+        // The file is replaced at the next start() and freed by the
+        // unique_ptr at destruction.
         AiEngine::kill();
-        m_systemPromptFile.reset();
     }
 
 private:

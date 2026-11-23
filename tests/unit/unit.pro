@@ -16,14 +16,16 @@ SOURCES += \
     ../../src/engine.cpp \
     ../../src/engine_vibe.cpp \
     ../../src/engine_claude.cpp \
-    ../../src/engine_ollama.cpp \
+    ../../src/engine_local.cpp \
     ../../src/engine_command.cpp \
     ../../src/prompt.cpp \
-    ../../src/proposal.cpp
+    ../../src/proposal.cpp \
+    ../../src/config.cpp
 
 HEADERS += \
     ../../src/engine.h \
     ../../src/prompt.h \
-    ../../src/proposal.h
+    ../../src/proposal.h \
+    ../../src/config.h
 
 RESOURCES += ../../src/ai-skema.qrc

@@ -43,17 +43,20 @@ QString buildSystemPrompt(const PromptContext &context)
                              "priority), list the schema field name in \"gaet\".\n"
                              "- Put text you could not turn into a task into \"uafklaret\".\n"
                              "- Keep titles short and imperative.\n");
-    if (!context.existingTasks.isEmpty()) {
-        prompt += QStringLiteral("\nExisting tasks in the plan (context, do not repeat them unless asked):\n");
-        for (const QString &line : context.existingTasks)
-            prompt += QStringLiteral("- %1\n").arg(line);
-    }
+    // NOTE: existing tasks deliberately go into the USER prompt (see
+    // buildUserPrompt), so this system prompt is identical all day.
     return prompt;
 }
 
-QString buildUserPrompt(const QString &inputText)
+QString buildUserPrompt(const QString &inputText, const QStringList &existingTasks)
 {
-    return inputText.trimmed();
+    QString prompt = inputText.trimmed();
+    if (!existingTasks.isEmpty()) {
+        prompt += QStringLiteral("\n\nExisting tasks in the plan (context, do not repeat them unless asked):\n");
+        for (const QString &line : existingTasks)
+            prompt += QStringLiteral("- %1\n").arg(line);
+    }
+    return prompt;
 }
 
 QString buildFullPrompt(const PromptContext &context, const QString &inputText)
