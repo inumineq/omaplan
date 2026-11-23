@@ -450,6 +450,34 @@ private slots:
         QVERIFY(!parseProposal(extra).ok);
     }
 
+    void topLevelGuessMovesIntoSingleTask()
+    {
+        // eval-vibe-3, case 07: vibe put "gaet" beside "opgaver". With one
+        // task it belongs to that task; with several it is dropped, and the
+        // proposal is accepted either way.
+        const ParseResult one = parseProposal(QStringLiteral(
+            R"({"opgaver": [{"titel": "Skriv blogindlæg", "start": "2026-11-27"}], "gaet": ["start"]})"));
+        QVERIFY2(one.ok, qPrintable(one.error));
+        QCOMPARE(one.proposal.tasks.first().guessed, QStringList{QStringLiteral("start")});
+
+        const ParseResult two = parseProposal(QStringLiteral(
+            R"({"opgaver": [{"titel": "A"}, {"titel": "B", "gaet": ["projekt"]}], "gaet": ["start"]})"));
+        QVERIFY2(two.ok, qPrintable(two.error));
+        QVERIFY(two.proposal.tasks.at(0).guessed.isEmpty());
+        QCOMPARE(two.proposal.tasks.at(1).guessed, QStringList{QStringLiteral("projekt")});
+    }
+
+    void systemPromptSeparatesDeadlineFromStart()
+    {
+        // eval-vibe-3: "skal være klar fredag" / "inden søndag" became start.
+        PromptContext ctx;
+        ctx.today = QDate(2026, 11, 23);
+        const QString prompt = buildSystemPrompt(ctx);
+        for (const char *word : {"inden", "senest", "skal være klar", "aflever"})
+            QVERIFY2(prompt.contains(QString::fromUtf8(word)), word);
+        QVERIFY(prompt.contains(QStringLiteral("\"frist\": \"<that Friday>T12:00\"")));
+    }
+
     void datePatternIsEnforced()
     {
         // pattern on start/frist: ^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$

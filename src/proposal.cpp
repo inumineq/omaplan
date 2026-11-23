@@ -351,6 +351,24 @@ ParseResult parseProposal(const QString &rawResponse)
     if (obj.contains(QStringLiteral("opgaver"))) {
         for (const char *key : {"$schema", "title", "description", "type"})
             obj.remove(QString::fromLatin1(key));
+        // Vibe sometimes puts "gaet" next to "opgaver" instead of inside the
+        // task. With exactly one task the meaning is unambiguous, so move it
+        // in; with several it cannot be attributed and is dropped rather than
+        // failing the whole proposal.
+        if (obj.contains(QStringLiteral("gaet"))) {
+            const QJsonValue topGuess = obj.take(QStringLiteral("gaet"));
+            QJsonArray tasks = obj.value(QStringLiteral("opgaver")).toArray();
+            if (tasks.size() == 1 && topGuess.isArray()) {
+                QJsonObject only = tasks.first().toObject();
+                QJsonArray merged = only.value(QStringLiteral("gaet")).toArray();
+                for (const QJsonValue &g : topGuess.toArray())
+                    if (!merged.contains(g))
+                        merged.append(g);
+                only.insert(QStringLiteral("gaet"), merged);
+                tasks.replace(0, only);
+                obj.insert(QStringLiteral("opgaver"), tasks);
+            }
+        }
     }
 
     const QStringList errors = validateAgainstSchema(obj);
