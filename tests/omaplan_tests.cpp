@@ -1233,8 +1233,9 @@ private slots:
         const auto tasks = cliJson(store, {QStringLiteral("list"), QStringLiteral("--json")}, &err, &code)["tasks"].toArray();
         QCOMPARE(tasks.size(), 1);
         QCOMPARE(tasks.first().toObject()["capture_id"].toString(), stored["capture_id"].toString());
-        // gaet from the schema maps to Task guess keys.
-        QCOMPARE(tasks.first().toObject()["guesses"].toArray().first().toString(), QStringLiteral("project"));
+        // The schema's guessed maps to Task guess keys, under the same name.
+        QCOMPARE(tasks.first().toObject()["guessed"].toArray().first().toString(), QStringLiteral("project"));
+        QVERIFY(!tasks.first().toObject().contains(QStringLiteral("guesses")));
 
         // Unknown engine: exit 1 with a clear error.
         err.clear();
@@ -2037,6 +2038,35 @@ private slots:
 
     // Every string the window or the CLI shows has a Danish translation: a
     // missing key shows English in the middle of the Danish window.
+    void guessedIsTheKeyEverywhereAndGuessesStillReads() {
+        QTemporaryDir dir;
+        Store store(dir.filePath("test.db"));
+        QString error;
+        QVERIFY(store.open(&error));
+        Actions actions(&store);
+        Task task;
+        task.title = QStringLiteral("Write");
+        task.guesses = {QStringLiteral("start")};
+        const ActionResult created = actions.create(task, QStringLiteral("cli"));
+        QVERIFY2(created.ok, qPrintable(created.error));
+        const QJsonObject json = created.payload["task"].toObject();
+        QCOMPARE(json["guessed"].toArray(), QJsonArray{QStringLiteral("start")});
+        QVERIFY(!json.contains(QStringLiteral("guesses")));
+
+        // A patch and stored history from before 0.2 say "guesses".
+        const QString id = json["id"].toString();
+        const ActionResult patched = actions.update(id, {{QStringLiteral("guesses"), QJsonArray{QStringLiteral("project")}}},
+                                                    QStringLiteral("cli"));
+        QVERIFY2(patched.ok, qPrintable(patched.error));
+        QCOMPARE(patched.payload["task"].toObject()["guessed"].toArray(), QJsonArray{QStringLiteral("project")});
+        QJsonObject old = json;
+        old.remove(QStringLiteral("guessed"));
+        old["guesses"] = QJsonArray{QStringLiteral("deadline")};
+        bool ok = false;
+        QCOMPARE(Task::fromJson(old, &ok).guesses, QStringList{QStringLiteral("deadline")});
+        QVERIFY(ok);
+    }
+
     void languagePrecedence() {
         const QStringList available{QStringLiteral("en"), QStringLiteral("da")};
         using S = UiLanguage::Sources;

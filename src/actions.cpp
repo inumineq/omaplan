@@ -52,12 +52,16 @@ ActionResult Actions::create(const Task &task, const QString &source) {
     return {true, {}, tr("Created %1: %2").arg(id, stored.title), payload};
 }
 
-ActionResult Actions::update(const QString &id, const QJsonObject &patch, const QString &source) {
+ActionResult Actions::update(const QString &id, const QJsonObject &given, const QString &source) {
     QString error;
     Task current;
     if (!m_store->task(id, &current, &error))
         return {false, error, {}, {}};
 
+    // "guesses" is accepted as the key before 0.2.
+    QJsonObject patch = given;
+    if (patch.contains(QStringLiteral("guesses")) && !patch.contains(QStringLiteral("guessed")))
+        patch.insert(QStringLiteral("guessed"), patch.take(QStringLiteral("guesses")));
     // Merge the patch over the current JSON, then re-validate the whole task.
     QJsonObject json = current.toJson();
     for (auto it = patch.begin(); it != patch.end(); ++it)

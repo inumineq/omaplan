@@ -92,7 +92,7 @@ QJsonObject Task::toJson() const {
     json["duration_minutes"] = durationMinutes;
     json["deadline"] = toIso(deadline, deadlineHasTime);
     json["deadline_has_time"] = deadlineHasTime;
-    json["guesses"] = guessArray;
+    json["guessed"] = guessArray;
     json["capture_id"] = captureId;
     json["created"] = toIso(created, true);
     json["modified"] = toIso(modified, true);
@@ -113,7 +113,9 @@ Task Task::fromJson(const QJsonObject &json, bool *ok) {
     task.durationMinutes = json["duration_minutes"].toInt(0);
     task.deadlineHasTime = json["deadline_has_time"].toBool(false);
     task.deadline = fromIso(json["deadline"].toString(), task.deadlineHasTime);
-    const QJsonArray guessArray = json["guesses"].toArray();
+    // "guesses" is the key before 0.2 (still in older undo history).
+    const QJsonArray guessArray =
+        (json.contains("guessed") ? json["guessed"] : json["guesses"]).toArray();
     for (const auto &value : guessArray)
         task.guesses.append(value.toString());
     task.captureId = json["capture_id"].toString();

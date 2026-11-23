@@ -180,6 +180,7 @@ QJsonObject withEnglishKeys(const QJsonObject &proposal)
         {QStringLiteral("opgaver"), QStringLiteral("tasks")},
         {QStringLiteral("uafklaret"), QStringLiteral("unresolved")},
         {QStringLiteral("gaet"), QStringLiteral("guessed")},
+        {QStringLiteral("guesses"), QStringLiteral("guessed")},
     };
     static const QHash<QString, QString> taskNames = {
         {QStringLiteral("titel"), QStringLiteral("title")},
@@ -189,6 +190,7 @@ QJsonObject withEnglishKeys(const QJsonObject &proposal)
         {QStringLiteral("varighed_min"), QStringLiteral("duration_min")},
         {QStringLiteral("frist"), QStringLiteral("deadline")},
         {QStringLiteral("gaet"), QStringLiteral("guessed")},
+        {QStringLiteral("guesses"), QStringLiteral("guessed")}, // the CLI's key before 0.2
         {QStringLiteral("uafklaret"), QStringLiteral("unresolved")},
     };
     QJsonObject out = renameKeys(proposal, topNames);

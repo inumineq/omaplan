@@ -494,6 +494,16 @@ private slots:
         QVERIFY(prompt.contains(QStringLiteral("\"deadline\": \"<that Friday>T12:00\"")));
     }
 
+    void guessesIsReadAsGuessed()
+    {
+        // The CLI's --json said "guesses" before 0.2; an agent may pass that back.
+        const ParseResult r = parseProposal(QStringLiteral(
+            R"({"tasks": [{"title": "Write", "start": "2026-11-24", "guesses": ["start"]}]})"));
+        QVERIFY2(r.ok, qPrintable(r.error));
+        QCOMPARE(r.proposal.tasks.first().guessed, QStringList{QStringLiteral("start")});
+        QVERIFY(!QJsonDocument(r.proposal.toJson()).toJson().contains("guesses"));
+    }
+
     void legacyDanishKeysAreAcceptedAndEmittedInEnglish()
     {
         // Until 0.1 the schema was Danish; a model may still answer that way.
