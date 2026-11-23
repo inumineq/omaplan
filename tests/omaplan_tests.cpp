@@ -10,6 +10,7 @@
 
 #include "actions.h"
 #include "cli.h"
+#include "config.h"
 #include "dateannotate.h"
 #include "planmodel.h"
 #include "skill.h"
@@ -1184,6 +1185,30 @@ private slots:
         QVERIFY2(r.error.contains(QStringLiteral("Nær opgave")), qPrintable(r.error));
         QVERIFY(!r.error.contains(QStringLiteral("Gammel opgave")));
         QVERIFY(!r.error.contains(QStringLiteral("Afsluttet opgave")));
+    }
+
+    void configReadsTheReadmeExampleWithComments()
+    {
+        // The README's own example puts comments after quoted values; they
+        // used to end up in the value ("Unknown engine '"vibe"   # ...'").
+        QTemporaryDir dir;
+        const QString path = dir.filePath("config.toml");
+        QFile f(path);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("[motor]\nengine = \"claude\"            # standardmotor: vibe | claude\n"
+                "compare = \"claude, lokal\"  # sammenlign\n"
+                "[motor.lokal]\napi = 'openai' # endpoint-type\nendpoint = http://127.0.0.1:8080 # uden citat\n"
+                "model = \"navn#med#hegn\"\n");
+        f.close();
+        const AppConfig config = AppConfig::load(path);
+        QCOMPARE(config.engine, QStringLiteral("claude"));
+        QCOMPARE(config.compare, (QStringList{QStringLiteral("claude"), QStringLiteral("lokal")}));
+        QCOMPARE(config.localApi, QStringLiteral("openai"));
+        QCOMPARE(config.localEndpoint, QStringLiteral("http://127.0.0.1:8080"));
+        QCOMPARE(config.localModel, QStringLiteral("navn#med#hegn"));
+        // Defaults without a file: vibe, and Sammenlign = vibe vs claude.
+        const AppConfig none = AppConfig::load(dir.filePath("findes-ikke.toml"));
+        QCOMPARE(none.compare, (QStringList{QStringLiteral("vibe"), QStringLiteral("claude")}));
     }
 
     void dataVersionDetectsOtherConnections()

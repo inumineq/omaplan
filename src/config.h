@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QString>
+#include <QStringList>
 
 // ~/.config/omaplan/config.toml, parsed by hand (no TOML dependency). Only
 // what Omaplan needs:
@@ -8,6 +9,7 @@
 //   [motor]
 //   engine = "vibe"            # standardmotor: vibe | claude | lokal | command
 //   command = "..."            # for engine = "command"
+//   compare = "vibe, claude"   # the two engines of Sammenlign
 //
 //   [motor.lokal]
 //   api = "ollama"             # ollama | openai (OpenAI-kompatibelt endpoint)
@@ -16,6 +18,7 @@
 struct AppConfig {
     QString engine = QStringLiteral("vibe"); // standardmotor
     QString command;                          // [motor] command
+    QStringList compare = {QStringLiteral("vibe"), QStringLiteral("claude")}; // [motor] compare
     QString localApi = QStringLiteral("ollama");
     QString localEndpoint;
     QString localModel;
