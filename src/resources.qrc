@@ -1,0 +1,24 @@
+<RCC>
+    <qresource prefix="/">
+        <file alias="Main.qml">Main.qml</file>
+        <file alias="OverviewView.qml">OverviewView.qml</file>
+        <file alias="PlanCalendar.qml">PlanCalendar.qml</file>
+        <file alias="PlanList.qml">PlanList.qml</file>
+        <file alias="GanttView.qml">GanttView.qml</file>
+        <file alias="HelpOverlay.qml">HelpOverlay.qml</file>
+        <file alias="InputOverlay.qml">InputOverlay.qml</file>
+        <file alias="ProposalView.qml">ProposalView.qml</file>
+        <file alias="HeaderButton.qml">HeaderButton.qml</file>
+        <file alias="CheckMark.qml">CheckMark.qml</file>
+        <file alias="Tag.qml">Tag.qml</file>
+        <file alias="EmptyState.qml">EmptyState.qml</file>
+        <file alias="TaskRow.qml">TaskRow.qml</file>
+        <file alias="Segmented.qml">Segmented.qml</file>
+        <file alias="ProposalColumn.qml">ProposalColumn.qml</file>
+        <file alias="ProposalTask.qml">ProposalTask.qml</file>
+        <file alias="TaskEditor.qml">TaskEditor.qml</file>
+        <file alias="Fmt.qml">Fmt.qml</file>
+        <file alias="i18n/en.json">i18n/en.json</file>
+        <file alias="i18n/da.json">i18n/da.json</file>
+    </qresource>
+</RCC>

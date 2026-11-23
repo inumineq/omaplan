@@ -1,0 +1,21 @@
+[
+  {
+    "id": "evt-01",
+    "type": "message",
+    "role": "user",
+    "content": [{"type": "text", "text": "køb mælk i morgen"}]
+  },
+  {
+    "id": "evt-02",
+    "type": "reasoning",
+    "text": "Brugeren vil have mælk købt. Jeg svarer med JSON pr. skemaet."
+  },
+  {
+    "id": "evt-03",
+    "type": "message",
+    "role": "assistant",
+    "content": [
+      {"type": "text", "text": "{\"opgaver\": [{\"titel\": \"Køb mælk\", \"start\": \"2026-11-24\"}]}"}
+    ]
+  }
+]
