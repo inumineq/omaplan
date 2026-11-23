@@ -6,6 +6,8 @@
         <file alias="PlanList.qml">PlanList.qml</file>
         <file alias="GanttView.qml">GanttView.qml</file>
         <file alias="HelpOverlay.qml">HelpOverlay.qml</file>
+        <file alias="InputOverlay.qml">InputOverlay.qml</file>
+        <file alias="ProposalView.qml">ProposalView.qml</file>
         <file alias="i18n/en.json">i18n/en.json</file>
         <file alias="i18n/da.json">i18n/da.json</file>
     </qresource>

@@ -21,6 +21,9 @@ ApplicationWindow {
     property int currentView: 0
     property bool helpVisible: false
     property string calendarMode: "week" // "week" | "month"
+    property bool inputOpen: false
+    property bool proposalOpen: false
+    property bool proposing: false
 
     Shortcut { sequence: "1"; context: Qt.ApplicationShortcut; onActivated: win.currentView = 0 }
     Shortcut { sequence: "2"; context: Qt.ApplicationShortcut; onActivated: win.currentView = 1 }
@@ -28,6 +31,10 @@ ApplicationWindow {
     Shortcut { sequence: "4"; context: Qt.ApplicationShortcut; onActivated: win.currentView = 3 }
     Shortcut { sequence: "?"; context: Qt.ApplicationShortcut; onActivated: win.helpVisible = !win.helpVisible }
     Shortcut { sequence: "q"; context: Qt.ApplicationShortcut; onActivated: Qt.quit() }
+    Shortcut { sequence: "n"; context: Qt.ApplicationShortcut; enabled: !win.inputOpen && !win.proposalOpen && !win.helpVisible
+        onActivated: { win.inputOpen = true; inputOverlay.open() } }
+    Shortcut { sequence: "Space"; context: Qt.ApplicationShortcut; enabled: !win.inputOpen && !win.proposalOpen && !win.helpVisible
+        onActivated: { win.inputOpen = true; inputOverlay.open() } }
     Shortcut { sequences: [StandardKey.Undo]; context: Qt.ApplicationShortcut; onActivated: actions.guiUndo() }
     Shortcut { sequences: [StandardKey.Redo]; context: Qt.ApplicationShortcut; onActivated: actions.guiRedo() }
     Shortcut { sequence: "w"; context: Qt.ApplicationShortcut; enabled: win.currentView === 1; onActivated: win.calendarMode = "week" }
@@ -85,6 +92,43 @@ ApplicationWindow {
             anchors.fill: parent
             visible: win.helpVisible
             onCloseRequested: win.helpVisible = false
+        }
+
+        InputOverlay {
+            id: inputOverlay
+            anchors.fill: parent
+            busy: win.proposing
+            onSubmitted: text => {
+                win.proposing = true
+                win.inputOpen = false
+                inputOverlay.close()
+                actions.guiPropose(text, "")
+            }
+            onCloseRequested: {
+                win.inputOpen = false
+                inputOverlay.close()
+            }
+        }
+
+        ProposalView {
+            id: proposalView
+            anchors.fill: parent
+            onApproved: win.proposalOpen = false
+            onCloseRequested: win.proposalOpen = false
+        }
+
+        Connections {
+            target: actions
+            function onProposalReady(proposalJson, captureId) {
+                win.proposing = false
+                win.proposalOpen = true
+                proposalView.open(proposalJson, captureId)
+            }
+            function onProposalFailed(message) {
+                win.proposing = false
+                win.proposalOpen = true
+                proposalView.showError(message)
+            }
         }
     }
 }
