@@ -517,6 +517,15 @@ Item {
         title: qsTr("Nothing planned this week")
         hint: qsTr("Press n to write tasks, or double-click a free spot. h / l pages between weeks.")
     }
+    // The month grid shows dates even without tasks; a friendly hint names the
+    // month, so an empty month says so too. Text does not take clicks, so
+    // double-clicking a cell to create a task still works.
+    EmptyState {
+        anchors.centerIn: parent
+        visible: rangeModel.count === 0 && cal.mode === "month"
+        title: qsTr("Nothing planned this month")
+        hint: qsTr("Press n to write tasks, or double-click a free spot. h / l pages between months.")
+    }
 
     // Geometry.
     readonly property int gutter: 52
