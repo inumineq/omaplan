@@ -734,6 +734,14 @@ bool Actions::parseDateTime(const QString &text, const QDate &today, QDateTime *
             rest = rest.mid(5).trimmed();
         }
 
+        // "mandag i dag" means today; remember that and drop the phrase
+        // before tokenizing (a bare weekday alone means NEXT week when the
+        // weekday is today — see below).
+        const bool todayMentioned = rest.contains(QStringLiteral("i dag"))
+                                    || rest.contains(QLatin1String("today"));
+        if (todayMentioned)
+            rest = QString(rest).remove(QStringLiteral("i dag")).remove(QLatin1String("today")).trimmed();
+
         // Tokens: weekday, "den 12.", "12.", "12/12", "12. december", bare "25".
         int weekday = 0, day = 0, month = 0;
         bool hasDen = false, bad = false;
@@ -806,9 +814,11 @@ bool Actions::parseDateTime(const QString &text, const QDate &today, QDateTime *
                 }
             }
         } else {
-            // Weekday only: the next occurrence, today included.
+            // Weekday only: the next occurrence of that weekday. When the
+            // weekday IS today, a bare weekday means next week ("til mandag"
+            // on a Monday = +7 days), unless "i dag"/"today" is also present.
             int delta = (weekday - today.dayOfWeek() + 7) % 7;
-            if (strictlyNext && delta == 0)
+            if (delta == 0 && (strictlyNext || !todayMentioned))
                 delta = 7;
             date = today.addDays(delta);
         }

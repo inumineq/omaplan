@@ -148,7 +148,10 @@ void AiEngine::onProcessFinished(int exitCode, QProcess::ExitStatus status)
         m_stderr += m_process->readAllStandardError();
     }
     if (status != QProcess::NormalExit || exitCode != 0) {
-        const QString err = QString::fromUtf8(m_stderr).trimmed();
+        QString err = QString::fromUtf8(m_stderr).trimmed();
+        if (err.contains(QStringLiteral("turn_limit"), Qt::CaseInsensitive))
+            err += QStringLiteral("\n") + tr("The engine stopped at its turn limit, often because it tried a tool "
+                                            "call; Omaplan runs vibe with tools disabled.");
         fail(QStringLiteral("Engine '%1' exited with code %2.%3")
                  .arg(displayName())
                  .arg(exitCode)

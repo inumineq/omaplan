@@ -345,6 +345,14 @@ ParseResult parseProposal(const QString &rawResponse)
         return result;
     }
 
+    // Some engines echo the schema's own metadata at the top level ($schema,
+    // title, description, type). Ignore exactly those four keys when a valid
+    // "opgaver" array is present; anything else is still rejected.
+    if (obj.contains(QStringLiteral("opgaver"))) {
+        for (const char *key : {"$schema", "title", "description", "type"})
+            obj.remove(QString::fromLatin1(key));
+    }
+
     const QStringList errors = validateAgainstSchema(obj);
     if (!errors.isEmpty()) {
         result.error = QStringLiteral("Response does not match docs/ai-skema.json: %1\n\nRaw response:\n%2")

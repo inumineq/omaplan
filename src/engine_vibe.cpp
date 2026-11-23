@@ -30,11 +30,14 @@ protected:
 
         // Run in an empty temporary directory: vibe would otherwise load the
         // current project's AGENTS.md/context and could read the system prompt
-        // as an injection from the user.
+        // as an injection from the user. Tools are disabled with a glob that
+        // matches no real tool (headless: --enabled-tools disables all others),
+        // so vibe cannot wander off into tool calls (turn_limit).
         launch(QStringLiteral("vibe"),
                {QStringLiteral("-p"), userPrompt,
                 QStringLiteral("--output"), QStringLiteral("json"),
                 QStringLiteral("--max-turns"), QStringLiteral("1"),
+                QStringLiteral("--enabled-tools"), QStringLiteral("__omaplan_no_tools__"),
                 QStringLiteral("--system-prompt-file"), m_systemPromptFile->fileName()},
                QByteArray(),
                QStringLiteral("Install Mistral Vibe (the 'vibe' command) to use the Mistral engine."),

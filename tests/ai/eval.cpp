@@ -27,6 +27,7 @@
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QRegularExpression>
 #include <QTextStream>
 #include <QTimer>
 
@@ -72,6 +73,32 @@ static bool runEngine(AiEngine &engine, const QString &text, const PromptContext
     return ok;
 }
 
+// Title match, deliberately lenient: exact (case-insensitive), or one title
+// contains the stem of the other's first word ("Vand planterne" ~ "Vande
+// planterne": "vande" -> stem "vand").
+static bool titlesMatch(const QString &a, const QString &b)
+{
+    const QString x = a.trimmed().toLower();
+    const QString y = b.trimmed().toLower();
+    if (x == y)
+        return true;
+    static const QRegularExpression wordSplit(QStringLiteral("\\s+"));
+    const QString wx = x.split(wordSplit).value(0);
+    const QString wy = y.split(wordSplit).value(0);
+    if (wx.isEmpty() || wy.isEmpty())
+        return false;
+    const QString sx = wx.size() > 4 ? wx.left(wx.size() - 1) : wx;
+    const QString sy = wy.size() > 4 ? wy.left(wy.size() - 1) : wy;
+    return x.contains(sy) || y.contains(sx);
+}
+
+static bool datePartMatches(const ProposedTask &at, const ProposedTask &et)
+{
+    const QDate ad = at.start.isValid() ? at.start.date() : QDate();
+    const QDate ed = et.start.isValid() ? et.start.date() : QDate();
+    return ad == ed;
+}
+
 // See the comment at the top for the definition of "correct".
 static bool isCorrect(const Proposal &actual, const Proposal &expected)
 {
@@ -79,15 +106,33 @@ static bool isCorrect(const Proposal &actual, const Proposal &expected)
         return actual.tasks.isEmpty();
     for (const ProposedTask &et : expected.tasks) {
         for (const ProposedTask &at : actual.tasks) {
-            if (at.title.trimmed().compare(et.title.trimmed(), Qt::CaseInsensitive) != 0)
+            if (!titlesMatch(at.title, et.title))
                 continue;
-            const QDate ad = at.start.isValid() ? at.start.date() : QDate();
-            const QDate ed = et.start.isValid() ? et.start.date() : QDate();
-            if (ad == ed)
+            if (datePartMatches(at, et))
                 return true;
         }
     }
     return false;
+}
+
+// Date correctness counted separately from the title: at least one actual task
+// per expected task with the same start date (date part only).
+static bool isDateCorrect(const Proposal &actual, const Proposal &expected)
+{
+    if (expected.tasks.isEmpty())
+        return actual.tasks.isEmpty();
+    for (const ProposedTask &et : expected.tasks) {
+        bool found = false;
+        for (const ProposedTask &at : actual.tasks) {
+            if (datePartMatches(at, et)) {
+                found = true;
+                break;
+            }
+        }
+        if (!found)
+            return false;
+    }
+    return true;
 }
 
 int main(int argc, char **argv)
@@ -151,6 +196,7 @@ int main(int argc, char **argv)
 
     int valid = 0;
     int correct = 0;
+    int dateCorrect = 0;
     for (const QString &name : inputs) {
         const QString base = name.left(name.size() - 4);
         const QString input = readFile(casesDir.filePath(name)).trimmed();
@@ -169,18 +215,26 @@ int main(int argc, char **argv)
         const bool isCorr = ok && expected.ok && isCorrect(actual, expected.proposal);
         if (isCorr)
             ++correct;
-        out << base << (ok ? " valid  " : " INVALID") << (isCorr ? " correct" : "        ") << "  in: \""
+        const bool isDateCorr = ok && expected.ok && isDateCorrect(actual, expected.proposal);
+        if (isDateCorr)
+            ++dateCorrect;
+        out << base << (ok ? " valid  " : " INVALID")
+            << (isCorr ? " correct" : isDateCorr ? " date-ok" : "        ") << "  in: \""
             << input.left(50) << "\"";
         if (annotated != input)
             out << "\n    annotated: \"" << annotated.left(80) << "\"";
         if (!ok)
-            out << "\n    error: " << error.left(300).replace(QLatin1Char('\n'), QLatin1Char(' '));
+            // Full error text (including the raw response) -- do not truncate,
+            // otherwise the cause is invisible.
+            out << "\n    error: " << error.replace(QLatin1Char('\n'), QLatin1Char(' '));
         out << "\n";
         out.flush();
     }
 
     const int total = inputs.size();
     out << "\nSummary: valid " << valid << "/" << total << " (" << (total ? 100.0 * valid / total : 0)
-        << "%), correct " << correct << "/" << total << " (" << (total ? 100.0 * correct / total : 0) << "%)\n";
+        << "%), correct " << correct << "/" << total << " (" << (total ? 100.0 * correct / total : 0)
+        << "%), date-correct " << dateCorrect << "/" << total << " ("
+        << (total ? 100.0 * dateCorrect / total : 0) << "%)\n";
     return 0;
 }

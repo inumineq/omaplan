@@ -189,6 +189,9 @@ private slots:
         QVERIFY(prompt.contains(QStringLiteral("gaet")));       // guessing rules
         QVERIFY(prompt.contains(QStringLiteral("uafklaret")));
         QVERIFY(prompt.contains(QStringLiteral("på tirsdag"))); // Danish date expressions mentioned
+        // eval-vibe-2: engines must not wander into prose or tool calls.
+        QVERIFY(prompt.contains(QStringLiteral("no tool calls"), Qt::CaseInsensitive));
+        QVERIFY(prompt.contains(QStringLiteral("only the JSON object"), Qt::CaseInsensitive));
         // Existing tasks moved to the user prompt: the system prompt is
         // identical all day, so engines can cache it.
         QVERIFY(!prompt.contains(QStringLiteral("Research (Blog)")));
@@ -428,6 +431,25 @@ private slots:
         QVERIFY(!parseProposal(tooManyUnclear).ok);
     }
 
+    void schemaEchoAtTopLevelIsIgnored()
+    {
+        // Some engines echo the schema's own metadata ($schema, title,
+        // description, type) at the top level; it must be ignored when a
+        // valid "opgaver" array is present (eval-vibe-2, case 09).
+        const QString raw = QStringLiteral(
+            R"({"$schema": "https://json-schema.org/draft/2020-12/schema",)"
+            R"("title": "Forslag", "description": "Svar", "type": "object",)"
+            R"("opgaver": [{"titel": "Køb mælk", "start": "2026-11-24"}], "uafklaret": []})");
+        const ParseResult r = parseProposal(raw);
+        QVERIFY2(r.ok, qPrintable(r.error));
+        QCOMPARE(r.proposal.tasks.size(), 1);
+        QCOMPARE(r.proposal.tasks.first().title, QStringLiteral("Køb mælk"));
+        // ...but other unknown top-level keys are still rejected.
+        const QString extra = QStringLiteral(
+            R"({"opgaver": [{"titel": "X"}], "ukendt_ting": 1})");
+        QVERIFY(!parseProposal(extra).ok);
+    }
+
     void datePatternIsEnforced()
     {
         // pattern on start/frist: ^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$
@@ -654,6 +676,7 @@ private slots:
         const QString script = QStringLiteral(
             "#!/bin/sh\n"
             "dir=\"%1\"\n"
+            "printf '%s\\n' \"$@\" > \"$dir/args.txt\"\n"
             "prev=\n"
             "for a in \"$@\"; do\n"
             "  if [ \"$prev\" = \"--system-prompt-file\" ]; then f=\"$a\"; fi\n"
@@ -689,6 +712,14 @@ private slots:
         const QString spText = QString::fromUtf8(sp.readAll());
         QVERIFY(spText.contains(QStringLiteral("2026-11-23"))); // fixture date in the prompt
         QVERIFY(spText.contains(QStringLiteral("opgaver")));    // schema embedded
+
+        // Tools must be disabled (a glob matching no real tool) and one turn.
+        QFile argsFile(dir.filePath(QStringLiteral("args.txt")));
+        QVERIFY(argsFile.open(QIODevice::ReadOnly));
+        const QString argsText = QString::fromUtf8(argsFile.readAll());
+        QVERIFY(argsText.contains(QStringLiteral("--enabled-tools")));
+        QVERIFY(argsText.contains(QStringLiteral("__omaplan_no_tools__")));
+        QVERIFY(argsText.contains(QStringLiteral("--max-turns")));
     }
 
     void claudeEngineUnwrapsResultEnvelope()

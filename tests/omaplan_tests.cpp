@@ -511,8 +511,18 @@ private slots:
         QCOMPARE(out.date(), today.addDays(4));
         QVERIFY(!hasTime);
 
+        // A bare weekday that IS today means next week (eval-vibe-2, punkt 1).
         QVERIFY(Actions::parseDateTime(QStringLiteral("mandag"), today, &out, &hasTime, &error));
-        QCOMPARE(out.date(), today); // today is Monday
+        QCOMPARE(out.date(), today.addDays(7)); // today is Monday -> next Monday
+        QVERIFY(Actions::parseDateTime(QStringLiteral("monday"), today, &out, &hasTime, &error));
+        QCOMPARE(out.date(), today.addDays(7));
+        // ...unless "i dag"/"today" is also in the text.
+        QVERIFY(Actions::parseDateTime(QStringLiteral("mandag i dag"), today, &out, &hasTime, &error));
+        QCOMPARE(out.date(), today);
+        QVERIFY(Actions::parseDateTime(QStringLiteral("mandag 9"), today, &out, &hasTime, &error));
+        QCOMPARE(out.date(), today.addDays(7));
+        QVERIFY(hasTime);
+        QCOMPARE(out.time(), QTime(9, 0));
 
         QVERIFY(Actions::parseDateTime(QStringLiteral("next monday"), today, &out, &hasTime, &error));
         QCOMPARE(out.date(), today.addDays(7));
@@ -532,7 +542,7 @@ private slots:
         QVERIFY(hasTime);
 
         QVERIFY(Actions::parseDateTime(QStringLiteral("mandag 9.30"), today, &out, &hasTime, &error));
-        QCOMPARE(out.date(), today);
+        QCOMPARE(out.date(), today.addDays(7)); // mandag == i dag -> næste mandag
         QCOMPARE(out.time(), QTime(9, 30));
         QVERIFY(hasTime);
 
@@ -754,6 +764,9 @@ private slots:
         // Ugedage, nøgleord, tal+måned, tider, halv/kvart.
         QCOMPARE(annotateDates(QStringLiteral("podcast-klip til linkedin tirsdag"), today),
                  QStringLiteral("podcast-klip til linkedin tirsdag [tirsdag 2026-11-24]"));
+        // Ugedag == i dag (mandag) betyder næste mandag.
+        QCOMPARE(annotateDates(QStringLiteral("til mandag"), today),
+                 QStringLiteral("til mandag [mandag 2026-11-30]"));
         // Longest phrase wins: "i morgen kl. 14:30" is annotated as one unit.
         QCOMPARE(annotateDates(QStringLiteral("møde i morgen kl. 14:30"), today),
                  QStringLiteral("møde i morgen kl. 14:30 [tirsdag 2026-11-24 kl. 14:30]"));

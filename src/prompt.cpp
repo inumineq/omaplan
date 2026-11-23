@@ -31,10 +31,11 @@ QString buildSystemPrompt(const PromptContext &context)
                              "such as \"på tirsdag\", \"fredag 12\", \"hver torsdag i november\", "
                              "\"engang næste uge\", \"i morgen\" and resolve them against today.\n")
                   .arg(context.language);
-    prompt += QStringLiteral("\nReply with JSON only, following this schema exactly "
+    prompt += QStringLiteral("\nReply with ONLY the JSON object -- no prose, no code fences, no tool calls -- following this schema exactly "
                              "(additional properties are rejected):\n%1\n")
                   .arg(schemaText().trimmed());
     prompt += QStringLiteral("\nRules:\n"
+                             "- Do not use any tools; answer with only the JSON object.\n"
                              "- \"start\" and \"frist\" are ISO 8601 local dates (YYYY-MM-DD) or date+time "
                              "(YYYY-MM-DDTHH:MM).\n"
                              "- Unfold recurring tasks (\"hver torsdag i november\") into one task per "
