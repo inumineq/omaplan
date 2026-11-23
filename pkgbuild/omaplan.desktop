@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Omaplan
+Name[da]=Omaplan
+Comment=Write your tasks in plain text and let AI schedule them
+Comment[da]=Skriv dine opgaver i almindelig tekst, og få dem planlagt
+Exec=omaplan
+Icon=omaplan
+Terminal=false
+Categories=Utility;
+StartupWMClass=omaplan
