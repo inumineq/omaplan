@@ -5,7 +5,7 @@ import QtQuick.Layouts
 // Every key in the window, shown with ?. Esc, ? or a click closes it.
 Rectangle {
     id: overlay
-    color: Qt.rgba(0, 0, 0, 0.6)
+    color: Qt.alpha(theme.background, 0.82) // a scrim in the theme's own colour, light or dark
     visible: false
 
     signal closeRequested()

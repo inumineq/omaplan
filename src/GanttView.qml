@@ -273,6 +273,9 @@ Item {
                             drag.target: barItem
                             drag.axis: Drag.XAxis
                             drag.threshold: 6
+                            // Follow the pointer from the press, not from where
+                            // the threshold was crossed, or the bar lands early.
+                            drag.smoothed: false
                             onPressed: win.selectedId = barItem.task.taskId
                             onDoubleClicked: win.editTask(barItem.task.taskId)
                             onReleased: {

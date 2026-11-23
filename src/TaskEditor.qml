@@ -11,7 +11,7 @@ import Omaplan
 // Ctrl+Delete sletter.
 Rectangle {
     id: editor
-    color: Qt.rgba(0, 0, 0, 0.6)
+    color: Qt.alpha(theme.background, 0.82) // a scrim in the theme's own colour, light or dark
     visible: false
 
     property string taskId: ""          // "" = new task
