@@ -22,7 +22,7 @@ protected:
         // Keep the temp file alive until the process has read it.
         m_systemPromptFile = std::make_unique<QTemporaryFile>();
         if (!m_systemPromptFile->open()) {
-            fail(QStringLiteral("Could not create a temporary file for the system prompt."));
+            fail(tr("Could not create a temporary file for the system prompt."));
             return;
         }
         m_systemPromptFile->write(systemPrompt.toUtf8());

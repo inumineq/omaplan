@@ -44,7 +44,7 @@ protected:
     void start(const QString &systemPrompt, const QString &userPrompt) override
     {
         if (m_model.isEmpty() || m_endpoint.isEmpty()) {
-            fail(QStringLiteral("The local engine needs a model and an endpoint. Example config "
+            fail(tr("The local engine needs a model and an endpoint. Example config "
                                 "(~/.config/omaplan/config.toml):\n\n"
                                 "[motor.lokal]\n"
                                 "api = \"ollama\"\n"
@@ -57,7 +57,7 @@ protected:
 
         const QUrl base(m_endpoint);
         if (!base.isValid() || base.host().isEmpty()) {
-            fail(QStringLiteral("Invalid endpoint '%1'. Example: http://127.0.0.1:11434").arg(m_endpoint));
+            fail(tr("Invalid endpoint '%1'. Example: http://127.0.0.1:11434").arg(m_endpoint));
             return;
         }
 
@@ -112,18 +112,18 @@ protected:
             // HTTP status errors (QNetworkAccessManager also reports them as
             // network errors) carry the body -- show status + raw response.
             if (httpStatus >= 400) {
-                fail(QStringLiteral("Local engine at %1 answered HTTP %2.\n\nRaw response:\n%3")
+                fail(tr("Local engine at %1 answered HTTP %2.\n\nRaw response:\n%3")
                          .arg(m_endpoint).arg(httpStatus).arg(QString::fromUtf8(bodyBytes)));
                 return;
             }
             if (netError != QNetworkReply::NoError) {
-                fail(QStringLiteral("Local engine at %1 is not reachable (%2, HTTP %3). Is the server running?")
+                fail(tr("Local engine at %1 is not reachable (%2, HTTP %3). Is the server running?")
                          .arg(m_endpoint, errorString).arg(httpStatus));
                 return;
             }
             const QJsonObject obj = QJsonDocument::fromJson(bodyBytes).object();
             if (obj.value(QStringLiteral("error")).isString()) {
-                fail(QStringLiteral("Local engine error: %1\n\nRaw response:\n%2")
+                fail(tr("Local engine error: %1\n\nRaw response:\n%2")
                          .arg(obj.value(QStringLiteral("error")).toString(), QString::fromUtf8(bodyBytes)));
                 return;
             }
@@ -138,7 +138,7 @@ protected:
                                        : finishReason == QLatin1String("length") ? finishReason
                                                                                    : QString();
             if (!truncation.isEmpty()) {
-                fail(QStringLiteral("The model's answer was truncated (%1) before it finished. "
+                fail(tr("The model's answer was truncated (%1) before it finished. "
                                     "Raw response:\n%2").arg(truncation, QString::fromUtf8(bodyBytes)));
                 return;
             }

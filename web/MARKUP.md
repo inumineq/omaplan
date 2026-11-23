@@ -193,7 +193,7 @@ Grupper sorteret efter projektnavn (dansk), `Ingen projekt` til sidst. Opgaver u
         <div class="spor" style="--spor:3">
           <div class="stang stang-heldag" style="--start:8;--laengde:10;--spor-index:0" data-id="…" title="…"><span class="stang-titel">…</span></div>
           <div class="stang" style="--start:14;--laengde:1.5;--spor-index:1" data-id="…" title="…"></div>
-          <span class="stang-label" style="--start:14;--laengde:1.5;--spor-index:1" data-id="…">Rediger podcast-klip</span>
+          <span class="stang-label" style="--start:14;--laengde:1.5;--spor-index:1" data-id="…" title="…">Rediger podcast-klip</span>
           <div class="frist-maerke" style="--start:12" data-id="…" title="frist: …"></div>
         </div>
       </section>
@@ -212,9 +212,11 @@ Grupper sorteret efter projektnavn (dansk), `Ingen projekt` til sidst. Opgaver u
 - Time-aksen viser labels hver 1/2/3 time efter vinduets bredde som `<span style="--t:8">8</span>`.
 - Heldagsopgaver (start uden tid) spænder hele vinduet: `--start: vs`, `--laengde: vu - vs`, klasse `stang-heldag`.
   Opgave med tid men uden varighed: 30 minutters bjælke (`--laengde:0.5`). Færdige opgaver: `status-done` på bjælken.
-- **Titel**: står i bjælken (`<span class="stang-titel">`) når den kan være der – heuristik: titel-længde ≤
-  `--laengde` × 7 tegn pr. time; ellers som `<span class="stang-label">` lige efter bjælken (samme `--start`,
-  `--laengde`, `--spor-index`), medmindre der ikke er plads før vinduets slut – så i bjælken alligevel (klippet).
+- **Titel**: står i bjælken (`<span class="stang-titel">`) når den kan være der – konservativt estimat:
+  titel-længde ≤ `--laengde` × 64 tegn pr. heldagsvindue (kolonnens mindste bredde er 34rem), delt på
+  vinduets længde (`vu - vs`), så en time er smallere i et bredt vindue. Ellers som
+  `<span class="stang-label">` lige efter bjælken (samme `--start`, `--laengde`, `--spor-index`, samme
+  `title` som bjælken) – aldrig klippet i bjælken, heller ikke når der ikke er plads til højre.
 - **Spor-algoritmen** (overlap): sorter dagens bjælker efter start (stigende), ved start længst først; læg hver
   bjælke i det første spor hvis seneste slut ≤ bjælkens start, ellers i et nyt spor. `--spor` = antal spor (min. 1).
 - Frister vises som `frist-maerke` (diamant) på frist-dagen ved frist-tidspunktet (`--start` = timer inden for

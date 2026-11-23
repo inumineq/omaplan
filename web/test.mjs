@@ -206,9 +206,18 @@ for (let t = Math.ceil(vs / skridt) * skridt; t <= vu; t += skridt) forventedeTi
 const timerAntal = (tidslinje.match(/<div class="gantt-timer">.*?<\/div>/s) || [''])[0].match(/<span style="--t:/g)?.length || 0;
 tjek(timerAntal === forventedeTimer, 'time-aksen har ' + timerAntal + ' labels (skridt ' + skridt + ' t)');
 tjek(tidslinje.includes('stang-heldag" style="--start:' + vs + ';--laengde:' + (vu - vs)), 'heldagsbjælke spænder hele vinduet');
-// titel ved siden af bjælken når den ikke kan være i den (Møde med Kunde A: 16 tegn i 0,75 t)
-tjek(/<span class="stang-label"[^>]*>Møde med Kunde A<\/span>/.test(tidslinje), 'kort bjælke får titel ved siden af (stang-label)');
+// titel ved siden af bjælken når den ikke kan være i den (Møde med Kunde A: 16 tegn i 0,75 t af vinduet 8–18)
+tjek(/<span class="stang-label"[^>]*title="[^"]*"[^>]*>Møde med Kunde A<\/span>/.test(tidslinje), 'kort bjælke får titel ved siden af (stang-label med title');
 tjek(/<div class="stang stang-heldag"[^>]*><span class="stang-titel">/.test(tidslinje), 'lang bjælke har titlen i sig');
+// ingen titel klippes i en for kort bjælke: stang-titel findes kun, når estimatet siger den kan være der
+{
+  const TEGN_PR_DAG = 64;
+  const forKorte = [];
+  for (const m of tidslinje.matchAll(/<div class="stang[^"]*" style="--start:([^;]+);--laengde:([^;]+);--spor-index:\d+"[^>]*><span class="stang-titel">([^<]*)</g)) {
+    if (m[3].length > (Number(m[2]) * TEGN_PR_DAG) / (vu - vs)) forKorte.push(m[3]);
+  }
+  tjek(forKorte.length === 0, 'ingen titel i en bjælke, hvor den ikke kan være der (' + forKorte.join(', ') + ')');
+}
 
 // ---------- 4. index.html: statisk markup = renderSide, ingen eksterne ressourcer ----------
 
