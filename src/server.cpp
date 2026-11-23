@@ -90,7 +90,7 @@ QString PlanServer::htmlStyle(const QJsonObject &plan) const {
     // The theme of this machine when it runs Omarchy (follows it live),
     // otherwise the theme the app wrote into the snapshot.
     const QJsonObject local = Snapshot::omarchyTheme(m_options.themeDirectory);
-    return Snapshot::themeStyle(local.isEmpty() ? plan.value("tema").toObject() : local);
+    return Snapshot::themeStyle(local.isEmpty() ? plan.value("theme").toObject() : local);
 }
 
 PlanServer::Response PlanServer::respond(const QByteArray &method, const QByteArray &target) const {
@@ -133,7 +133,7 @@ PlanServer::Response PlanServer::respond(const QByteArray &method, const QByteAr
     if (path == "/plan.json") {
         QFile file(m_options.snapshotPath);
         if (!file.open(QIODevice::ReadOnly))
-            return {404, "application/json; charset=utf-8", "{\"fejl\": \"plan.json findes ikke endnu\"}\n", {}};
+            return {404, "application/json; charset=utf-8", "{\"error\": \"plan.json does not exist yet\"}\n", {}};
         return {200, "application/json; charset=utf-8", file.readAll(), {}};
     }
     if (path == "/style.css" || path == "/app.js") {

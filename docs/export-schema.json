@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Omaplan plan",
+  "description": "Snapshot of the plan (plan.json), written atomically by omaplan after every change. See docs/export.md for the semantics and web/MARKUP.md for the markup contract.",
+  "type": "object",
+  "required": ["format", "version", "exported", "timezone", "language", "tasks"],
+  "additionalProperties": false,
+  "properties": {
+    "format": {"const": "omaplan-plan"},
+    "version": {"const": 2, "description": "Format version; 2 is this edition (English keys)"},
+    "exported": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}[+-]\\d{2}:\\d{2}$", "description": "ISO 8601 with offset, the time of the export"},
+    "timezone": {"type": "string", "description": "IANA name of the local time zone, e.g. Europe/Copenhagen"},
+    "language": {"type": "string", "pattern": "^[a-z]{2}(-[A-Z]{2})?$", "description": "BCP 47 code of the app's user interface language, e.g. en or da"},
+    "theme": {
+      "type": "object",
+      "description": "Optional theme colours from the Omarchy theme, so the read-only edition follows it. Hex #RRGGBB.",
+      "additionalProperties": false,
+      "properties": {
+        "accent": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
+        "accent_fg": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Text colour readable on accent"},
+        "bg": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
+        "bg_raised": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
+        "fg": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
+        "muted": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
+        "border": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
+        "danger": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
+        "ok": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"}
+      }
+    },
+    "tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "priority", "status", "guessed", "source", "created", "modified"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
+          "title": {"type": "string", "minLength": 1, "maxLength": 200},
+          "notes": {"type": "string"},
+          "project": {"type": "string", "maxLength": 100},
+          "priority": {"type": "integer", "minimum": 1, "maximum": 3, "description": "1 = high"},
+          "status": {"enum": ["todo", "done"]},
+          "start": {"type": ["string", "null"], "pattern": "^\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2})?$", "description": "Optional. ISO 8601 date (YYYY-MM-DD) or date and time (YYYY-MM-DDTHH:MM), local time without offset. null or absent = not scheduled (the group No date)"},
+          "duration_min": {"type": "integer", "minimum": 1, "description": "Duration in minutes; absent when the task is all-day or only has a deadline"},
+          "deadline": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2})?$", "description": "ISO 8601 date or date and time, local time without offset; separate from start"},
+          "guessed": {"type": "array", "items": {"enum": ["start", "duration_min", "deadline", "project", "priority"]}},
+          "source": {"type": ["string", "null"], "description": "UUID of the capture it came from, or null when created directly"},
+          "created": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}[+-]\\d{2}:\\d{2}$", "description": "ISO 8601 with offset"},
+          "modified": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}[+-]\\d{2}:\\d{2}$", "description": "ISO 8601 with offset"}
+        }
+      }
+    }
+  }
+}

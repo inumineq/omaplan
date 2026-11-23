@@ -136,7 +136,13 @@ QList<Item> sorted(QList<Item> items) {
     return items;
 }
 
-QString guessName(const QString &g) { return g == QLatin1String("varighed_min") ? QStringLiteral("varighed") : g; }
+QString guessName(const QString &g) {
+    if (g == QLatin1String("duration_min")) return QStringLiteral("varighed");
+    if (g == QLatin1String("deadline")) return QStringLiteral("frist");
+    if (g == QLatin1String("project")) return QStringLiteral("projekt");
+    if (g == QLatin1String("priority")) return QStringLiteral("prioritet");
+    return g;
+}
 
 // renderOpgave
 QString renderTask(const Item &o) {
@@ -452,19 +458,19 @@ QString renderTimeline(const QList<Item> &items, const QString &today, const QSt
 
 QList<Item> itemsOf(const QJsonObject &plan) {
     QList<Item> items;
-    for (const QJsonValue &value : plan.value("opgaver").toArray()) {
+    for (const QJsonValue &value : plan.value("tasks").toArray()) {
         const QJsonObject json = value.toObject();
         Item o;
         o.id = json.value("id").toString();
-        o.titel = json.value("titel").toString();
-        o.noter = json.value("noter").toString();
-        o.projekt = json.value("projekt").toString();
-        o.prioritet = json.value("prioritet").toInt(3);
+        o.titel = json.value("title").toString();
+        o.noter = json.value("notes").toString();
+        o.projekt = json.value("project").toString();
+        o.prioritet = json.value("priority").toInt(3);
         o.status = json.value("status").toString(QStringLiteral("todo"));
         o.start = json.value("start").toString();
-        o.frist = json.value("frist").toString();
-        o.varighed = std::max(0, json.value("varighed_min").toInt(0));
-        for (const QJsonValue &g : json.value("gaet").toArray())
+        o.frist = json.value("deadline").toString();
+        o.varighed = std::max(0, json.value("duration_min").toInt(0));
+        for (const QJsonValue &g : json.value("guessed").toArray())
             o.gaet << g.toString();
         items << o;
     }
@@ -532,18 +538,18 @@ QString page(const QJsonObject &plan, const QDate &today, const QString &htmlSty
     const QList<Item> items = itemsOf(plan);
     const QString iDag = today.toString(Qt::ISODate);
     const QString active = isView(activeView) ? activeView : QString();
-    const QString exported = plan.value("eksporteret").toString();
+    const QString exported = plan.value("exported").toString();
     // renderMeta
     const QString meta = "Eksporteret <time datetime=\"" + esc(exported) + "\">" + esc(timestamp(exported)) + "</time>"
                          + u(" <span class=\"prik\">·</span> <span class=\"tidszone\">")
-                         + esc(plan.value("tidszone").toString()) + "</span>"
+                         + esc(plan.value("timezone").toString()) + "</span>"
                          + u(" <span class=\"prik\">·</span> <span class=\"sprog\">")
-                         + esc(plan.value("sprog").toString()) + "</span>";
+                         + esc(plan.value("language").toString()) + "</span>";
     // renderMain
     const QString body = QStringList{renderOverview(items, iDag, active), renderListByDate(items, active),
                                      renderListByProject(items, active), renderTimeline(items, iDag, active)}
                              .join('\n');
-    const QString lang = plan.value("sprog").toString();
+    const QString lang = plan.value("language").toString();
     return frame(lang.isEmpty() ? QStringLiteral("da") : lang, htmlStyle, meta, " data-idag=\"" + iDag + "\"", body);
 }
 

@@ -4,10 +4,10 @@
 #include <QJsonObject>
 #include <QString>
 
-// Server-side rendering of the read-only edition: plan.json (docs/eksport.md)
+// Server-side rendering of the read-only edition: plan.json (docs/export.md)
 // to exactly the markup web/MARKUP.md describes. A line-by-line port of
 // renderSide() in web/app.js, so web/index.html is byte-identical to
-// page(web/eksempel/plan.json, 2026-11-23) -- a test holds the two together.
+// page(web/example/plan.json, 2026-11-23) -- a test holds the two together.
 namespace Render {
 
 // The four view ids, in page order.

@@ -7,7 +7,7 @@
 const UGE_DAGE = ['mandag', 'tirsdag', 'onsdag', 'torsdag', 'fredag', 'lørdag', 'søndag']; // mandag først
 const UGE_DAGE_KORT = ['man', 'tir', 'ons', 'tor', 'fre', 'lør', 'søn'];
 const MAANEDER = ['januar', 'februar', 'marts', 'april', 'maj', 'juni', 'juli', 'august', 'september', 'oktober', 'november', 'december'];
-const GAET_NAVNE = { start: 'start', varighed_min: 'varighed', frist: 'frist', projekt: 'projekt', prioritet: 'prioritet' };
+const GAET_NAVNE = { start: 'start', duration_min: "varighed", deadline: "frist", project: "projekt", priority: "prioritet" };
 
 // ---------- små hjælpere ----------
 
@@ -120,7 +120,7 @@ function num(x) {
 function tidligsteDato(o) {
   const datoer = [];
   if (o.start) datoer.push(o.start.slice(0, 10));
-  if (o.frist) datoer.push(o.frist.slice(0, 10));
+  if (o.deadline) datoer.push(o.deadline.slice(0, 10));
   return datoer.length ? datoer.sort()[0] : null;
 }
 
@@ -139,8 +139,8 @@ function sorterOpgaver(opgaver) {
     if (sa.dato && sa.dato !== sb.dato) return sa.dato < sb.dato ? -1 : 1;
     if (sa.dato && !!sa.tid !== !!sb.tid) return sa.tid ? -1 : 1;
     if (sa.tid && sb.tid && sa.tid !== sb.tid) return sa.tid < sb.tid ? -1 : 1;
-    if (a.prioritet !== b.prioritet) return a.prioritet - b.prioritet;
-    return a.titel.localeCompare(b.titel, 'da');
+    if (a.priority !== b.priority) return a.priority - b.priority;
+    return a.title.localeCompare(b.title, 'da');
   });
 }
 
@@ -154,23 +154,23 @@ function renderOpgave(o) {
     tidTekst = 'ingen dato';
     tidKlasse += ' tid-ingen';
   } else if (s.tid) {
-    tidTekst = o.varighed_min ? s.tid + '–' + slutTid(s.tid, o.varighed_min) : s.tid;
+    tidTekst = o.duration_min ? s.tid + '–' + slutTid(s.tid, o.duration_min) : s.tid;
   } else {
     tidTekst = 'heldag';
     tidKlasse += ' tid-heldag';
   }
   const meta = [];
-  if (o.projekt) meta.push('<span class="projekt-tag">' + esc(o.projekt) + '</span>');
-  if (o.frist) meta.push('<span class="frist">frist ' + esc(formaterFrist(o.frist)) + '</span>');
-  if (o.varighed_min) meta.push('<span class="varighed">' + esc(formaterVarighed(o.varighed_min)) + '</span>');
-  if (o.gaet && o.gaet.length) meta.push('<span class="gaet">gæt: ' + esc(o.gaet.map((g) => GAET_NAVNE[g] || g).join(', ')) + '</span>');
-  meta.push('<span class="badge badge-p' + o.prioritet + '">P' + o.prioritet + '</span>');
+  if (o.project) meta.push('<span class="projekt-tag">' + esc(o.project) + '</span>');
+  if (o.deadline) meta.push('<span class="frist">frist ' + esc(formaterFrist(o.deadline)) + '</span>');
+  if (o.duration_min) meta.push('<span class="varighed">' + esc(formaterVarighed(o.duration_min)) + '</span>');
+  if (o.guessed && o.guessed.length) meta.push('<span class="gaet">gæt: ' + esc(o.guessed.map((g) => GAET_NAVNE[g] || g).join(', ')) + '</span>');
+  meta.push('<span class="badge badge-p' + o.priority + '">P' + o.priority + '</span>');
   if (o.status === 'done') meta.push('<span class="badge badge-done">færdig</span>');
-  const projektAttr = o.projekt ? ' data-projekt="' + esc(o.projekt) + '"' : '';
-  const noter = o.noter ? '\n    <details class="noter"><summary>Noter</summary><p>' + esc(o.noter) + '</p></details>' : '';
+  const projektAttr = o.project ? ' data-projekt="' + esc(o.project) + '"' : '';
+  const noter = o.notes ? '\n    <details class="noter"><summary>Noter</summary><p>' + esc(o.notes) + '</p></details>' : '';
   return (
-    '<li class="opgave status-' + o.status + '" data-id="' + esc(o.id) + '" data-prioritet="' + o.prioritet + '"' + projektAttr + '>\n' +
-    '    <p class="opgave-rad"><span class="' + tidKlasse + '">' + esc(tidTekst) + '</span><span class="titel">' + esc(o.titel) + '</span></p>\n' +
+    '<li class="opgave status-' + o.status + '" data-id="' + esc(o.id) + '" data-prioritet="' + o.priority + '"' + projektAttr + '>\n' +
+    '    <p class="opgave-rad"><span class="' + tidKlasse + '">' + esc(tidTekst) + '</span><span class="titel">' + esc(o.title) + '</span></p>\n' +
     '    <p class="opgave-meta">' + meta.join('') + '</p>' + noter + '\n' +
     '  </li>'
   );
@@ -194,7 +194,7 @@ function renderDagSektion(dato, opgaver, ekstraKlasse, badge) {
 }
 
 function renderOverblik(plan, iDag) {
-  const opgaver = plan.opgaver;
+  const opgaver = plan.tasks;
   const forfaldne = opgaver.filter((o) => erForfalden(o, iDag));
   const grupper = new Map();
   for (const o of forfaldne) {
@@ -224,7 +224,7 @@ function renderOverblik(plan, iDag) {
 function renderListeDato(plan) {
   const grupper = new Map();
   const udaterede = [];
-  for (const o of plan.opgaver) {
+  for (const o of plan.tasks) {
     if (!o.start) {
       udaterede.push(o); // gruppen "Uden dato" ligger sidst
       continue;
@@ -263,8 +263,8 @@ function renderListeDato(plan) {
 function renderListeProjekt(plan) {
   const INGEN = 'Ingen projekt';
   const grupper = new Map();
-  for (const o of plan.opgaver) {
-    const p = o.projekt || INGEN;
+  for (const o of plan.tasks) {
+    const p = o.project || INGEN;
     if (!grupper.has(p)) grupper.set(p, []);
     grupper.get(p).push(o);
   }
@@ -296,10 +296,10 @@ function renderListeProjekt(plan) {
 const TEGN_PR_DAG = 64; // tegn der højst passer i en heldagsbjælke ved kolonnens mindste bredde (34rem)
 
 function renderTidslinje(plan, iDag) {
-  const daterede = plan.opgaver.filter((o) => o.start);
+  const daterede = plan.tasks.filter((o) => o.start);
   const datoer = new Set();
   for (const o of daterede) datoer.add(o.start.slice(0, 10));
-  for (const o of plan.opgaver) if (o.frist) datoer.add(o.frist.slice(0, 10));
+  for (const o of plan.tasks) if (o.deadline) datoer.add(o.deadline.slice(0, 10));
   let dage = [...datoer].sort();
   if (dage.length === 0) dage = [iDag];
   const raekke = [];
@@ -316,7 +316,7 @@ function renderTidslinje(plan, iDag) {
           const s = parseStart(o.start);
           if (!s.tid) return { o, s, start: 0, laengde: 0, heldag: true };
           const start = Number(s.tid.slice(0, 2)) + Number(s.tid.slice(3, 5)) / 60;
-          const laengde = o.varighed_min ? o.varighed_min / 60 : 0.5;
+          const laengde = o.duration_min ? o.duration_min / 60 : 0.5;
           return { o, s, start, laengde, heldag: false };
         })
     );
@@ -349,7 +349,7 @@ function renderTidslinje(plan, iDag) {
   const dagDele = [];
   for (const dag of raekke) {
     const bjælker = raa.get(dag)
-      .sort((a, b) => a.start - b.start || b.laengde - a.laengde || a.o.titel.localeCompare(b.o.titel, 'da'));
+      .sort((a, b) => a.start - b.start || b.laengde - a.laengde || a.o.title.localeCompare(b.o.title, 'da'));
     // spor: første ledige spor hvor bjælken ikke overlapper (start >= sporets slut)
     const sporSlut = [];
     for (const b of bjælker) {
@@ -364,7 +364,7 @@ function renderTidslinje(plan, iDag) {
     const sporAntal = Math.max(1, sporSlut.length);
     const stangDele = [];
     for (const b of bjælker) {
-      const titel = b.o.titel + ' – ' + formaterDatoKort(dag) + (b.s.tid ? ' ' + b.s.tid + (b.o.varighed_min ? '–' + slutTid(b.s.tid, b.o.varighed_min) : '') : ' (heldag)');
+      const titel = b.o.title + ' – ' + formaterDatoKort(dag) + (b.s.tid ? ' ' + b.s.tid + (b.o.duration_min ? '–' + slutTid(b.s.tid, b.o.duration_min) : '') : ' (heldag)');
       const stang =
         '        <div class="stang' + (b.heldag ? ' stang-heldag' : '') + (b.o.status === 'done' ? ' status-done' : '') + '" style="--start:' + num(b.start) + ';--laengde:' + num(b.laengde) + ';--spor-index:' + b.spor + '" data-id="' + esc(b.o.id) + '" title="' + esc(titel) + '">';
       // titel ved siden af bjælken, når den ikke kan være i den. Hvor mange
@@ -372,23 +372,23 @@ function renderTidslinje(plan, iDag) {
       // er mindst 34rem, og en time af vinduet (vu - vs) giver en brøkdel af
       // dem. Falder man bagud i estimatet, klippes titlen af overflow:hidden,
       // så regn konservativt og vælg i stedet titlen ved siden af.
-      const passerI = b.o.titel.length <= (b.laengde * TEGN_PR_DAG) / (vu - vs);
+      const passerI = b.o.title.length <= (b.laengde * TEGN_PR_DAG) / (vu - vs);
       if (passerI) {
-        stangDele.push(stang + '<span class="stang-titel">' + esc(b.o.titel) + '</span></div>');
+        stangDele.push(stang + '<span class="stang-titel">' + esc(b.o.title) + '</span></div>');
       } else {
         stangDele.push(stang + '</div>');
         stangDele.push(
-          '        <span class="stang-label" style="--start:' + num(b.start) + ';--laengde:' + num(b.laengde) + ';--spor-index:' + b.spor + '" data-id="' + esc(b.o.id) + '" title="' + esc(titel) + '">' + esc(b.o.titel) + '</span>'
+          '        <span class="stang-label" style="--start:' + num(b.start) + ';--laengde:' + num(b.laengde) + ';--spor-index:' + b.spor + '" data-id="' + esc(b.o.id) + '" title="' + esc(titel) + '">' + esc(b.o.title) + '</span>'
         );
       }
     }
-    const fristDele = plan.opgaver
-      .filter((o) => o.frist && o.frist.slice(0, 10) === dag)
+    const fristDele = plan.tasks
+      .filter((o) => o.deadline && o.deadline.slice(0, 10) === dag)
       .map((o) => {
-        const f = parseStart(o.frist);
+        const f = parseStart(o.deadline);
         const start = f.tid ? Number(f.tid.slice(0, 2)) + Number(f.tid.slice(3, 5)) / 60 : vu;
         const iVindue = !!f.tid && start < vu;
-        return '        <div class="frist-maerke' + (iVindue ? '' : ' frist-maerke-heldag') + '" style="--start:' + num(Math.min(start, vu)) + '" data-id="' + esc(o.id) + '" title="frist: ' + esc(formaterFrist(o.frist)) + ' – ' + esc(o.titel) + '"></div>';
+        return '        <div class="frist-maerke' + (iVindue ? '' : ' frist-maerke-heldag') + '" style="--start:' + num(Math.min(start, vu)) + '" data-id="' + esc(o.id) + '" title="frist: ' + esc(formaterFrist(o.deadline)) + ' – ' + esc(o.title) + '"></div>';
       });
     dagDele.push(
       '    <section class="gantt-dag' + (dag === iDag ? ' i-dag' : '') + '" data-dato="' + dag + '">\n' +
@@ -422,16 +422,16 @@ function renderMain(plan, iDag) {
 
 function renderMeta(plan) {
   return (
-    'Eksporteret <time datetime="' + esc(plan.eksporteret) + '">' + esc(formaterTidsstempel(plan.eksporteret)) + '</time>' +
-    ' <span class="prik">·</span> <span class="tidszone">' + esc(plan.tidszone) + '</span>' +
-    ' <span class="prik">·</span> <span class="sprog">' + esc(plan.sprog) + '</span>'
+    'Eksporteret <time datetime="' + esc(plan.exported) + '">' + esc(formaterTidsstempel(plan.exported)) + '</time>' +
+    ' <span class="prik">·</span> <span class="tidszone">' + esc(plan.timezone) + '</span>' +
+    ' <span class="prik">·</span> <span class="sprog">' + esc(plan.language) + '</span>'
   );
 }
 
 function renderSide(plan, iDag) {
   return (
     '<!doctype html>\n' +
-    '<html lang="' + esc(plan.sprog || 'da') + '">\n' +
+    '<html lang="' + esc(plan.language || 'da') + '">\n' +
     '<head>\n' +
     '<meta charset="utf-8">\n' +
     '<meta name="viewport" content="width=device-width, initial-scale=1">\n' +
@@ -497,14 +497,14 @@ function sætAktivVisning() {
 async function boot() {
   const main = document.getElementById('plan');
   // plan.json fra samme oprindelse først; eksempel-mappen som fallback når siden åbnes statisk.
-  for (const url of ['plan.json', 'eksempel/plan.json']) {
+  for (const url of ['plan.json', 'example/plan.json']) {
     try {
       const res = await fetch(url, { cache: 'no-store' });
       if (!res.ok) continue;
       const plan = await res.json();
       if (!plan || plan.format !== 'omaplan-plan') continue;
-      anvendTema(plan.tema, document.documentElement);
-      document.documentElement.lang = plan.sprog || 'da';
+      anvendTema(plan.theme, document.documentElement);
+      document.documentElement.lang = plan.language || 'da';
       const iDag = iDagStr();
       main.setAttribute('data-idag', iDag);
       main.innerHTML = renderMain(plan, iDag);

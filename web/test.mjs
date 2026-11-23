@@ -1,4 +1,4 @@
-// Test for læseudgaven: validerer web/eksempel/plan.json mod docs/eksport-skema.json
+// Test for læseudgaven: validerer web/example/plan.json mod docs/export-schema.json
 // og tjekker at renderingen af hver visning giver de forventede elementer.
 // Ingen afhængigheder: kør med `node web/test.mjs` (valgfrit: `node web/test.mjs --opdater`
 // regenererer web/index.html fra eksemplet). Tjekker også at index.html ikke trækker
@@ -80,8 +80,8 @@ function valider(node, skema, sti, fejl) {
 
 // ---------- læs filer ----------
 
-const plan = JSON.parse(fs.readFileSync(path.join(WEB, 'eksempel', 'plan.json'), 'utf8'));
-const skema = JSON.parse(fs.readFileSync(path.join(ROOT, 'docs', 'eksport-skema.json'), 'utf8'));
+const plan = JSON.parse(fs.readFileSync(path.join(WEB, 'example', 'plan.json'), 'utf8'));
+const skema = JSON.parse(fs.readFileSync(path.join(ROOT, 'docs', 'export-schema.json'), 'utf8'));
 const indexHtml = fs.readFileSync(path.join(WEB, 'index.html'), 'utf8');
 const appJs = fs.readFileSync(path.join(WEB, 'app.js'), 'utf8');
 const styleCss = fs.readFileSync(path.join(WEB, 'style.css'), 'utf8');
@@ -92,34 +92,34 @@ const iDag = iDagMatch ? iDagMatch[1] : app.iDagStr();
 
 // ---------- 1. plan.json mod skemaet ----------
 
-sektion('plan.json mod docs/eksport-skema.json');
+sektion('plan.json mod docs/export-schema.json');
 const skemaFejl = [];
 valider(plan, skema, 'plan', skemaFejl);
 tjek(skemaFejl.length === 0, 'skema-validering uden fejl' + (skemaFejl.length ? ':\n    ' + skemaFejl.join('\n    ') : ''));
-tjek(plan.opgaver.length >= 15 && plan.opgaver.length <= 30, 'eksemplet har 15-30 opgaver (' + plan.opgaver.length + ')');
+tjek(plan.tasks.length >= 15 && plan.tasks.length <= 30, 'eksemplet har 15-30 opgaver (' + plan.tasks.length + ')');
 
 // ---------- 2. semantik i eksemplet ----------
 
 sektion('eksemplet dækker kravene');
-const ider = new Set(plan.opgaver.map((o) => o.id));
-tjek(ider.size === plan.opgaver.length, 'alle id-er unikke');
-tjek(plan.opgaver.some((o) => app.erForfalden(o, iDag)), 'der er forfaldne opgaver (todo før i dag)');
-tjek(plan.opgaver.some((o) => !o.start.includes('T') && !o.varighed_min), 'der er heldagsopgaver');
-tjek(plan.opgaver.some((o) => o.start.includes('T') && o.varighed_min), 'der er opgaver med tid og varighed');
-tjek(plan.opgaver.some((o) => o.gaet && o.gaet.length > 0), 'der er gættede felter');
-tjek(plan.opgaver.some((o) => o.status === 'done'), 'der er færdige opgaver');
-tjek(new Set(plan.opgaver.map((o) => o.projekt).filter(Boolean)).size >= 3, 'der er flere projekter');
-const udaterede = plan.opgaver.filter((o) => !o.start);
+const ider = new Set(plan.tasks.map((o) => o.id));
+tjek(ider.size === plan.tasks.length, 'alle id-er unikke');
+tjek(plan.tasks.some((o) => app.erForfalden(o, iDag)), 'der er forfaldne opgaver (todo før i dag)');
+tjek(plan.tasks.some((o) => !o.start.includes('T') && !o.duration_min), 'der er heldagsopgaver');
+tjek(plan.tasks.some((o) => o.start.includes('T') && o.duration_min), 'der er opgaver med tid og varighed');
+tjek(plan.tasks.some((o) => o.guessed && o.guessed.length > 0), 'der er gættede felter');
+tjek(plan.tasks.some((o) => o.status === 'done'), 'der er færdige opgaver');
+tjek(new Set(plan.tasks.map((o) => o.project).filter(Boolean)).size >= 3, 'der er flere projekter');
+const udaterede = plan.tasks.filter((o) => !o.start);
 tjek(udaterede.length >= 2 && udaterede.length <= 3, 'der er 2-3 udaterede opgaver (Uden dato) (' + udaterede.length + ')');
 // overlap: to opgaver samme dag der overlapper i tid
 let overlap = false;
-for (const o of plan.opgaver) {
-  for (const p of plan.opgaver) {
+for (const o of plan.tasks) {
+  for (const p of plan.tasks) {
     if (o === p || !o.start || !p.start || !o.start.includes('T') || !p.start.includes('T') || o.start.slice(0, 10) !== p.start.slice(0, 10)) continue;
     const a = app.parseStart(o.start), b = app.parseStart(p.start);
-    if (!o.varighed_min || !p.varighed_min) continue;
-    const oStart = +a.tid.slice(0, 2) + +a.tid.slice(3, 5) / 60, oSlut = oStart + o.varighed_min / 60;
-    const pStart = +b.tid.slice(0, 2) + +b.tid.slice(3, 5) / 60, pSlut = pStart + p.varighed_min / 60;
+    if (!o.duration_min || !p.duration_min) continue;
+    const oStart = +a.tid.slice(0, 2) + +a.tid.slice(3, 5) / 60, oSlut = oStart + o.duration_min / 60;
+    const pStart = +b.tid.slice(0, 2) + +b.tid.slice(3, 5) / 60, pSlut = pStart + p.duration_min / 60;
     if (oStart < pSlut && pStart < oSlut) overlap = true;
   }
 }
@@ -138,7 +138,7 @@ for (let k = 0; k < 8; k++) forventedeDage.push(app.tilfoejDage(iDag, k));
 tjek(forventedeDage.every((d) => overblikDage.includes(d)), 'i dag + 7 dage er alle med (' + forventedeDage[0] + '..' + forventedeDage[7] + ')');
 tjek(overblik.includes('badge-i-dag'), 'i dag er markeret');
 const overblikOpgaver = [...overblik.matchAll(/<li class="opgave /g)];
-const daterede = plan.opgaver.filter((o) => o.start);
+const daterede = plan.tasks.filter((o) => o.start);
 const forventedeIOverblik = daterede.filter((o) => {
   const d = o.start.slice(0, 10);
   return (d >= iDag && d <= app.tilfoejDage(iDag, 7)) || app.erForfalden(o, iDag);
@@ -155,11 +155,11 @@ const listeProjekt = app.renderListeProjekt(plan, iDag);
 const datoGrupper = [...liste.matchAll(/data-gruppe="dato:([^"]+)"/g)].map((m) => m[1]);
 const projektGrupper = [...listeProjekt.matchAll(/data-gruppe="projekt:([^"]+)"/g)].map((m) => m[1]);
 tjek(datoGrupper.length === new Set(daterede.map((o) => o.start.slice(0, 10))).size, 'liste efter dato: en gruppe pr. start-dato (' + datoGrupper.length + ')');
-tjek(projektGrupper.includes('Blog') && projektGrupper.includes('Podcast') && projektGrupper.includes('Kunde A') && projektGrupper.includes('Ingen projekt'), 'liste efter projekt: Blog, Podcast, Kunde A, Ingen projekt');
+tjek(projektGrupper.includes('Blog') && projektGrupper.includes('Podcast') && projektGrupper.includes('Client A') && projektGrupper.includes('Ingen projekt'), 'liste efter projekt: Blog, Podcast, Client A, Ingen projekt');
 tjek(projektGrupper[projektGrupper.length - 1] === 'Ingen projekt', 'Ingen projekt ligger til sidst');
 const listeLi = [...liste.matchAll(/<li class="opgave /g)].length;
 const listeProjektLi = [...listeProjekt.matchAll(/<li class="opgave /g)].length;
-tjek(listeLi === plan.opgaver.length && listeProjektLi === plan.opgaver.length, 'alle opgaver med i begge lister (' + listeLi + ')');
+tjek(listeLi === plan.tasks.length && listeProjektLi === plan.tasks.length, 'alle opgaver med i begge lister (' + listeLi + ')');
 tjek(liste.includes('1 opgave') || liste.includes(' opgaver'), 'antal vises pr. gruppe');
 tjek(liste.includes('data-gruppe="uden-dato"'), 'liste efter dato har gruppen Uden dato');
 tjek(liste.lastIndexOf('data-gruppe="dato:') < liste.indexOf('data-gruppe="uden-dato"'), 'Uden dato ligger sidst i liste efter dato');
@@ -169,22 +169,22 @@ sektion('rendering: tidslinje');
 const tidslinje = app.renderTidslinje(plan, iDag);
 const ganttDage = [...tidslinje.matchAll(/<section class="gantt-dag[^"]*" data-dato="([^"]+)"/g)].map((m) => m[1]);
 const alleDatoer = new Set();
-for (const o of plan.opgaver) {
+for (const o of plan.tasks) {
   if (o.start) alleDatoer.add(o.start.slice(0, 10));
-  if (o.frist) alleDatoer.add(o.frist.slice(0, 10));
+  if (o.deadline) alleDatoer.add(o.deadline.slice(0, 10));
 }
 const alle = [...alleDatoer].sort();
 const min = alle[0];
 const max = alle[alle.length - 1];
 tjek(ganttDage[0] === min && ganttDage[ganttDage.length - 1] === max, 'tidslinje spænder ' + min + '..' + max + ' (' + ganttDage.length + ' dage)');
 const stangCount = [...tidslinje.matchAll(/<div class="stang[ "]/g)].length;
-tjek(stangCount === daterede.length, 'én bjælke pr. dateret opgave (' + stangCount + ' af ' + plan.opgaver.length + ')');
+tjek(stangCount === daterede.length, 'én bjælke pr. dateret opgave (' + stangCount + ' af ' + plan.tasks.length + ')');
 tjek(udaterede.every((o) => !new RegExp('<div class="stang[^"]*"[^>]*data-id="' + o.id + '"').test(tidslinje)), 'udaterede opgaver har ingen bjælke i tidslinjen');
 const dag23 = tidslinje.split('data-dato="2026-11-23"')[1].split('</section>')[0];
 tjek(dag23.includes('--spor:3'), 'overlap-dagen 2026-11-23 har 3 spor');
 tjek((dag23.match(/--spor-index:2/g) || []).length >= 1, 'den overlappende opgave ligger i spor 2');
 const fristMaerker = [...tidslinje.matchAll(/<div class="frist-maerke/g)].length;
-const forventedeFrister = plan.opgaver.filter((o) => o.frist).length;
+const forventedeFrister = plan.tasks.filter((o) => o.deadline).length;
 tjek(fristMaerker === forventedeFrister, 'frist-mærker for alle opgaver med frist (' + fristMaerker + ')');
 tjek(tidslinje.includes('stang-heldag'), 'heldagsbjælker har stang-heldag');
 
@@ -193,7 +193,7 @@ let vs = 8, vu = 18;
 const medTid = daterede.filter((o) => o.start.includes('T')).map((o) => {
   const t = app.parseStart(o.start).tid;
   const start = Number(t.slice(0, 2)) + Number(t.slice(3, 5)) / 60;
-  return { start, slut: start + (o.varighed_min ? o.varighed_min / 60 : 0.5) };
+  return { start, slut: start + (o.duration_min ? o.duration_min / 60 : 0.5) };
 });
 if (medTid.length) {
   vs = Math.min(8, Math.floor(Math.min(...medTid.map((b) => b.start))));
@@ -206,8 +206,8 @@ for (let t = Math.ceil(vs / skridt) * skridt; t <= vu; t += skridt) forventedeTi
 const timerAntal = (tidslinje.match(/<div class="gantt-timer">.*?<\/div>/s) || [''])[0].match(/<span style="--t:/g)?.length || 0;
 tjek(timerAntal === forventedeTimer, 'time-aksen har ' + timerAntal + ' labels (skridt ' + skridt + ' t)');
 tjek(tidslinje.includes('stang-heldag" style="--start:' + vs + ';--laengde:' + (vu - vs)), 'heldagsbjælke spænder hele vinduet');
-// titel ved siden af bjælken når den ikke kan være i den (Møde med Kunde A: 16 tegn i 0,75 t af vinduet 8–18)
-tjek(/<span class="stang-label"[^>]*title="[^"]*"[^>]*>Møde med Kunde A<\/span>/.test(tidslinje), 'kort bjælke får titel ved siden af (stang-label med title');
+// titel ved siden af bjælken når den ikke kan være i den (Meeting with Client A: 16 tegn i 0,75 t af vinduet 8–18)
+tjek(/<span class="stang-label"[^>]*title="[^"]*"[^>]*>Meeting with Client A<\/span>/.test(tidslinje), 'kort bjælke får titel ved siden af (stang-label med title');
 tjek(/<div class="stang stang-heldag"[^>]*><span class="stang-titel">/.test(tidslinje), 'lang bjælke har titlen i sig');
 // ingen titel klippes i en for kort bjælke: stang-titel findes kun, når estimatet siger den kan være der
 {
@@ -238,7 +238,7 @@ tjek(/:root:not\(:has\(:target\)\):not\(:has\(\.view\.aktiv\)\)/.test(styleCss),
 
 if (process.argv.includes('--opdater')) {
   fs.writeFileSync(path.join(WEB, 'index.html'), app.renderSide(plan, app.iDagStr()));
-  console.log('\nindex.html regenereret fra eksempel/plan.json (i dag = ' + app.iDagStr() + ')');
+  console.log('\nindex.html regenereret fra example/plan.json (i dag = ' + app.iDagStr() + ')');
 }
 
 // ---------- resultat ----------

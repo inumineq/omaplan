@@ -40,7 +40,7 @@ static QJsonObject cliJson(Store &store, const QStringList &args, QString *err, 
 }
 
 
-// The subset of JSON Schema that docs/eksport-skema.json uses (as web/test.mjs).
+// The subset of JSON Schema that docs/export-schema.json uses (as web/test.mjs).
 static void validateSchema(const QJsonValue &node, const QJsonObject &schema, const QString &at, QStringList *errors) {
     if (schema.contains("const") && node != schema.value("const"))
         *errors << at + ": const";
@@ -179,7 +179,7 @@ private slots:
         qputenv("OMAPLAN_SNAPSHOT", saved);
     }
 
-    // Every change rewrites plan.json, valid against docs/eksport-skema.json.
+    // Every change rewrites plan.json, valid against docs/export-schema.json.
     void snapshotFollowsSchemaAfterEveryChange() {
         QTemporaryDir dir;
         Store store(dir.filePath(QStringLiteral("t.db")));
@@ -217,26 +217,26 @@ private slots:
 
         const QJsonObject plan = readJsonFile(path);
         QStringList errors;
-        validateSchema(plan, readJsonFile(repoFile(QStringLiteral("docs/eksport-skema.json"))), QStringLiteral("$"), &errors);
+        validateSchema(plan, readJsonFile(repoFile(QStringLiteral("docs/export-schema.json"))), QStringLiteral("$"), &errors);
         QVERIFY2(errors.isEmpty(), qPrintable(errors.join('\n')));
-        QCOMPARE(plan.value("opgaver").toArray().size(), 3);
+        QCOMPARE(plan.value("tasks").toArray().size(), 3);
         QHash<QString, QJsonObject> byId;
-        for (const QJsonValue &v : plan.value("opgaver").toArray())
+        for (const QJsonValue &v : plan.value("tasks").toArray())
             byId.insert(v.toObject().value("id").toString(), v.toObject());
         const QJsonObject t = byId.value(timed.id);
         QCOMPARE(t.value("start").toString(), QStringLiteral("2026-11-24T09:00"));
-        QCOMPARE(t.value("frist").toString(), QStringLiteral("2026-11-27T12:00"));
-        QCOMPARE(t.value("varighed_min").toInt(), 90);
-        QCOMPARE(t.value("gaet").toArray(), (QJsonArray{QStringLiteral("varighed_min"), QStringLiteral("frist")}));
+        QCOMPARE(t.value("deadline").toString(), QStringLiteral("2026-11-27T12:00"));
+        QCOMPARE(t.value("duration_min").toInt(), 90);
+        QCOMPARE(t.value("guessed").toArray(), (QJsonArray{QStringLiteral("duration_min"), QStringLiteral("deadline")}));
         QVERIFY(byId.value(undated.id).value("start").isNull());
-        QCOMPARE(byId.value(undated.id).value("noter").toString(), QStringLiteral("Når der er tid"));
+        QCOMPARE(byId.value(undated.id).value("notes").toString(), QStringLiteral("Når der er tid"));
         QCOMPARE(byId.value(allDay.id).value("start").toString(), QStringLiteral("2026-11-25"));
         QCOMPARE(byId.value(allDay.id).value("status").toString(), QStringLiteral("done"));
 
         // Undo is a change too.
         QVERIFY(actions.undo(QStringLiteral("cli")).ok);
         bool stillDone = false;
-        for (const QJsonValue &v : readJsonFile(path).value("opgaver").toArray())
+        for (const QJsonValue &v : readJsonFile(path).value("tasks").toArray())
             stillDone = stillDone || (v.toObject().value("id") == allDay.id && v.toObject().value("status") == "done");
         QVERIFY(!stillDone);
     }
@@ -300,7 +300,7 @@ private slots:
         const QString other = dir.filePath(QStringLiteral("anden.json"));
         QCOMPARE(cli(store, {QStringLiteral("snapshot"), other, QStringLiteral("--json")}, &out, &err), 0);
         QCOMPARE(QJsonDocument::fromJson(out.toUtf8()).object().value("path").toString(), other);
-        QCOMPARE(readJsonFile(other).value("opgaver").toArray().size(), 2);
+        QCOMPARE(readJsonFile(other).value("tasks").toArray().size(), 2);
     }
 
     void snapshotThemeAsCssVariables() {
@@ -324,7 +324,7 @@ private slots:
 
     // The C++ rendering is the JS reference rendering, byte for byte.
     void renderMatchesWebReference() {
-        const QJsonObject plan = readJsonFile(repoFile(QStringLiteral("web/eksempel/plan.json")));
+        const QJsonObject plan = readJsonFile(repoFile(QStringLiteral("web/example/plan.json")));
         QVERIFY(!plan.isEmpty());
         QFile reference(repoFile(QStringLiteral("web/index.html")));
         QVERIFY(reference.open(QIODevice::ReadOnly));
@@ -357,14 +357,14 @@ private slots:
         QVERIFY(r.body.contains("Ingen plan endnu"));
         QCOMPARE(httpGet(port, "/plan.json").status, 404);
 
-        QVERIFY(QFile::copy(repoFile(QStringLiteral("web/eksempel/plan.json")), snapshot));
+        QVERIFY(QFile::copy(repoFile(QStringLiteral("web/example/plan.json")), snapshot));
         r = httpGet(port, "/");
         QCOMPARE(r.status, 200);
         QCOMPARE(r.headers.value("content-type"), QByteArray("text/html; charset=utf-8"));
         QCOMPARE(r.headers.value("cache-control"), QByteArray("no-cache"));
         QCOMPARE(r.headers.value("content-length").toInt(), r.body.size());
         // Theme from plan.json when this machine has none.
-        QVERIFY(r.body.contains("<html lang=\"da\" style=\"--bg:#0e0e10;"));
+        QVERIFY(r.body.contains("<html lang=\"en\" style=\"--bg:#0e0e10;"));
         const QByteArray expectedElements[] = {
             "<main id=\"plan\" class=\"plan\" data-idag=\"2026-11-23\">",
             // Overblik: overdue first, today, empty days
@@ -432,7 +432,7 @@ private slots:
         // No way out of the routes.
         QCOMPARE(httpGet(port, "/../plan.json").status, 400);
         QCOMPARE(httpGet(port, "/%2e%2e/%2e%2e/etc/passwd").status, 400);
-        QCOMPARE(httpGet(port, "/eksempel/plan.json").status, 404);
+        QCOMPARE(httpGet(port, "/example/plan.json").status, 404);
         QCOMPARE(httpGet(port, "/nope").status, 404);
         QCOMPARE(http(port, "GARBAGE\r\n\r\n").status, 400);
         QCOMPARE(http(port, "GET / HTTP/1.1\r\nX: " + QByteArray(PlanServer::kMaxRequestBytes + 10, 'a') + "\r\n\r\n").status, 431);

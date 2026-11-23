@@ -1,8 +1,8 @@
 # Markup-kontrakt for læseudgaven
 
 Dette dokument beskriver præcis den HTML, `omaplan serve` skal skrive, og som `web/index.html` i dette repo er
-genereret eksempel på (genereret fra `web/eksempel/plan.json` af `web/app.js`, så JS og server-rendering altid
-matcher). Se `docs/eksport.md` for selve `plan.json`-formatet.
+genereret eksempel på (genereret fra `web/example/plan.json` af `web/app.js`, så JS og server-rendering altid
+matcher). Se `docs/export.md` for selve `plan.json`-formatet.
 
 Regler der gælder hele vejen igennem:
 
