@@ -1,9 +1,19 @@
 #include "actions.h"
 
 #include <QCoreApplication>
+#include <QDir>
+#include <QEventLoop>
 #include <QHash>
 #include <QJsonArray>
 #include <QRegularExpression>
+
+#include "config.h"
+#include "dateannotate.h"
+#include "engine.h"
+#include "prompt.h"
+#include "proposal.h"
+#include "translator.h"
+
 
 static QJsonObject changeToJson(const Store::Change &change) {
     QJsonObject json;
@@ -242,6 +252,209 @@ QJsonObject Actions::guiRedo() {
 
 QJsonObject Actions::guiProjects() {
     return wrapResult(projects());
+}
+
+// ---------------------------------------------------------------------------
+// AI proposals
+
+// Maps the schema's guessed-field names (gaet) to Task's guess keys.
+static QString guessKeyFromSchema(const QString &schemaField) {
+    static const QHash<QString, QString> map = {
+        {QStringLiteral("start"), QStringLiteral("start")},
+        {QStringLiteral("varighed_min"), QStringLiteral("duration_minutes")},
+        {QStringLiteral("frist"), QStringLiteral("deadline")},
+        {QStringLiteral("projekt"), QStringLiteral("project")},
+        {QStringLiteral("prioritet"), QStringLiteral("priority")},
+    };
+    return map.value(schemaField, schemaField);
+}
+
+static QStringList existingTaskLines(Store *store) {
+    QString error;
+    QStringList lines;
+    for (const Task &task : store->tasks(&error)) {
+        QString line = task.title;
+        if (task.start.isValid())
+            line += QStringLiteral(" | %1").arg(task.startHasTime
+                                                   ? task.start.toString(QStringLiteral("yyyy-MM-dd HH:mm"))
+                                                   : task.start.date().toString(Qt::ISODate));
+        if (!task.project.isEmpty())
+            line += QStringLiteral(" | %1").arg(task.project);
+        line += QStringLiteral(" | %1").arg(Task::statusToString(task.status));
+        lines << line;
+    }
+    return lines;
+}
+
+ActionResult Actions::runEngine(const QString &rawText, const QString &motorId,
+                                const QString &modelOverride, const QString &endpointOverride,
+                                QString *captureIdOut, bool wait) {
+    QString error;
+    const QString motor = motorId.isEmpty() ? AppConfig::load().engine : motorId;
+    auto engine = createEngine(motor, modelOverride, endpointOverride, &error);
+    if (!engine)
+        return {false, error, {}, {}};
+    QString whyNot;
+    if (!engine->available(&whyNot))
+        return {false, whyNot, {}, {}};
+
+    // Deterministic date annotation before the call; both variants are kept
+    // in `captures` so a proposal stays traceable to the raw text.
+    const QDate today = QDateTime::currentDateTime().date();
+    const QString annotated = annotateDates(rawText, today);
+
+    PromptContext context;
+    context.today = today;
+    context.language = Translator::readLanguage(QDir::homePath() + QStringLiteral("/.config/omarchy/language"));
+    context.existingTasks = existingTaskLines(m_store);
+
+    m_engine = std::move(engine);
+    const QString engineId = m_engine->id();
+    const QString model = m_engine->modelInfo().isEmpty() ? m_engine->displayName() : m_engine->modelInfo();
+
+    Proposal proposal;
+    QString rawResponse;
+    QString failure;
+    bool done = false;
+    QEventLoop loop;
+    connect(m_engine.get(), &AiEngine::finished, this, [&](const Proposal &p, const QString &raw) {
+        proposal = p;
+        rawResponse = raw;
+        done = true;
+        if (wait)
+            loop.quit();
+    });
+    connect(m_engine.get(), &AiEngine::failed, this, [&](const QString &message) {
+        failure = message;
+        done = true;
+        if (wait)
+            loop.quit();
+    });
+    m_engine->propose(annotated, context);
+    if (wait && !done)
+        loop.exec();
+    if (!done) // async (GUI) path: signals carry the result later
+        return {true, {}, {}, {}};
+
+    if (!failure.isEmpty()) {
+        m_engine.reset();
+        return {false, failure, {}, {}};
+    }
+
+    const QString captureId = m_store->addCapture(rawText, annotated, engineId, model, rawResponse, &error);
+    if (captureId.isEmpty()) {
+        m_engine.reset();
+        return {false, error, {}, {}};
+    }
+    if (captureIdOut)
+        *captureIdOut = captureId;
+
+    QJsonObject payload;
+    payload["proposal"] = proposal.toJson();
+    payload["capture_id"] = captureId;
+    payload["engine"] = engineId;
+    payload["model"] = model;
+    QStringList lines;
+    for (const ProposedTask &task : proposal.tasks)
+        lines << task.title;
+    m_engine.reset();
+    return {true, {}, lines.join(QLatin1Char('\n')), payload};
+}
+
+ActionResult Actions::propose(const QString &rawText, const QString &motorId,
+                              const QString &modelOverride, const QString &endpointOverride,
+                              QString *captureIdOut) {
+    return runEngine(rawText, motorId, modelOverride, endpointOverride, captureIdOut, true);
+}
+
+ActionResult Actions::approve(const QJsonObject &proposalJson, const QString &captureId, const QString &source) {
+    const QJsonArray tasks = proposalJson.value(QStringLiteral("opgaver")).toArray();
+    QJsonArray stored;
+    QStringList lines;
+    for (const QJsonValue &value : tasks) {
+        const QJsonObject o = value.toObject();
+        Task task;
+        task.title = o.value(QStringLiteral("titel")).toString();
+        task.notes = o.value(QStringLiteral("noter")).toString();
+        task.project = o.value(QStringLiteral("projekt")).toString();
+        task.priority = o.value(QStringLiteral("prioritet")).toInt(0);
+        if (task.priority == 0)
+            task.priority = 3;
+        if (o.contains(QStringLiteral("start"))) {
+            const QString s = o.value(QStringLiteral("start")).toString();
+            task.startHasTime = s.contains(QLatin1Char('T'));
+            task.start = QDateTime::fromString(s, Qt::ISODate);
+        }
+        task.durationMinutes = o.value(QStringLiteral("varighed_min")).toInt(0);
+        if (o.contains(QStringLiteral("frist"))) {
+            const QString s = o.value(QStringLiteral("frist")).toString();
+            task.deadlineHasTime = s.contains(QLatin1Char('T'));
+            task.deadline = QDateTime::fromString(s, Qt::ISODate);
+        }
+        const QJsonArray gaet = o.value(QStringLiteral("gaet")).toArray();
+        for (const QJsonValue &g : gaet)
+            task.guesses.append(guessKeyFromSchema(g.toString()));
+        task.captureId = captureId;
+
+        QString error;
+        const QString id = m_store->createTask(task, source, &error);
+        if (id.isEmpty())
+            return {false, error, {}, {}};
+        stored.append(id);
+        lines << tr("Created %1: %2").arg(id, task.title);
+    }
+    QJsonObject payload;
+    payload["stored"] = stored;
+    payload["count"] = stored.size();
+    emit planChanged();
+    return {true, {}, lines.join(QLatin1Char('\n')), payload};
+}
+
+void Actions::guiPropose(const QString &text, const QString &motorId) {
+    guiCancelProposal();
+    // Reuse runEngine in async mode: it stores the capture and fills the
+    // result via the finished/failed lambdas... but those are local, so for
+    // the GUI path we wire the signals here instead.
+    QString error;
+    const QString motor = motorId.isEmpty() ? AppConfig::load().engine : motorId;
+    auto engine = createEngine(motor, QString(), QString(), &error);
+    if (!engine) {
+        emit proposalFailed(error);
+        return;
+    }
+    QString whyNot;
+    if (!engine->available(&whyNot)) {
+        emit proposalFailed(whyNot);
+        return;
+    }
+    const QDate today = QDateTime::currentDateTime().date();
+    const QString annotated = annotateDates(text, today);
+    PromptContext context;
+    context.today = today;
+    context.language = Translator::readLanguage(QDir::homePath() + QStringLiteral("/.config/omarchy/language"));
+    context.existingTasks = existingTaskLines(m_store);
+
+    m_engine = std::move(engine);
+    const QString engineId = m_engine->id();
+    const QString model = m_engine->modelInfo().isEmpty() ? m_engine->displayName() : m_engine->modelInfo();
+    connect(m_engine.get(), &AiEngine::finished, this, [this, text, annotated, engineId, model](const Proposal &p, const QString &raw) {
+        QString error;
+        const QString captureId = m_store->addCapture(text, annotated, engineId, model, raw, &error);
+        emit proposalReady(p.toJson(), captureId);
+    });
+    connect(m_engine.get(), &AiEngine::failed, this, [this](const QString &message) {
+        emit proposalFailed(message);
+    });
+    m_engine->propose(annotated, context);
+}
+
+void Actions::guiCancelProposal() {
+    if (m_engine && m_engine->isRunning())
+        m_engine->cancel();
+}
+
+QJsonObject Actions::guiApprove(const QJsonObject &proposalJson, const QString &captureId) {
+    return wrapResult(approve(proposalJson, captureId, QStringLiteral("gui")));
 }
 
 ActionResult Actions::list(const ListFilter &filter) {
@@ -503,6 +716,14 @@ bool Actions::parseDateTime(const QString &text, const QDate &today, QDateTime *
         date = today.addDays(1);
     } else if (rest == QLatin1String("i overmorgen") || rest == QLatin1String("day after tomorrow")) {
         date = today.addDays(2);
+    } else if (rest == QStringLiteral("næste uge") || rest == QLatin1String("next week")) {
+        date = today.addDays(8 - today.dayOfWeek()); // Monday of next week
+    } else if (rest == QLatin1String("i weekenden") || rest == QLatin1String("weekend")
+               || rest == QLatin1String("this weekend")) {
+        date = today.addDays((6 - today.dayOfWeek() + 7) % 7); // Saturday
+    } else if (auto m = QRegularExpression(QStringLiteral("^(?:om|in) (\\d{1,3}) (?:dag(?:e)?|days?)$")).match(rest);
+               m.hasMatch()) {
+        date = today.addDays(m.captured(1).toInt());
     } else {
         bool strictlyNext = false;
         if (rest.startsWith(QStringLiteral("næste "))) {

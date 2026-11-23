@@ -31,7 +31,7 @@ static void printHelp(QTextStream &out) {
         "  undo\n"
         "  projects\n"
         "  summary [--uge|--maaned]\n"
-        "  add <text>            (not implemented yet)\n"
+        "  add <text> [--motor ...] [--ja] [--model M] [--endpoint URL]   AI proposal; --ja stores it\n"
         "  snapshot | serve | mcp | skill ...   (not implemented yet)\n"
         "\n"
         "Dates accept ISO (2026-12-01, 2026-12-01 14:30) and Danish/English expressions\n"
@@ -145,9 +145,8 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
     const QString command = rest.takeFirst();
 
     // Later phases; they answer "not implemented yet" with exit 1.
-    if (command == QLatin1String("add") || command == QLatin1String("snapshot")
-        || command == QLatin1String("serve") || command == QLatin1String("mcp")
-        || command == QLatin1String("skill")) {
+    if (command == QLatin1String("snapshot") || command == QLatin1String("serve")
+        || command == QLatin1String("mcp") || command == QLatin1String("skill")) {
         err << QObject::tr("Not implemented yet: %1").arg(command) << "\n";
         return 1;
     }
@@ -159,6 +158,66 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
     }
     Actions actions(store);
     const QString source = QStringLiteral("cli");
+
+    if (command == QLatin1String("add")) {
+        QStringList positional;
+        const auto flags = parseFlags(rest, &positional);
+        const QString text = positional.join(QLatin1Char(' ')).trimmed();
+        if (text.isEmpty()) {
+            err << QObject::tr("Usage: omaplan add \"<text>\" [--motor vibe|claude|lokal|command] [--ja] "
+                               "[--model M] [--endpoint URL] [--json]") << "\n";
+            return 1;
+        }
+        QString captureId;
+        ActionResult result = actions.propose(text, flags.value(QStringLiteral("motor")),
+                                               flags.value(QStringLiteral("model")),
+                                               flags.value(QStringLiteral("endpoint")), &captureId);
+        if (!result.ok) {
+            err << result.error << "\n";
+            return 1;
+        }
+        QJsonObject payload = result.payload;
+        if (flags.contains(QStringLiteral("ja"))) {
+            ActionResult approved = actions.approve(payload["proposal"].toObject(), captureId,
+                                                    QStringLiteral("cli"));
+            if (!approved.ok) {
+                err << approved.error << "\n";
+                return 1;
+            }
+            payload["stored"] = approved.payload["stored"];
+            if (json)
+                printJson(out, payload);
+            else if (!approved.text.isEmpty())
+                out << approved.text << "\n";
+            return 0;
+        }
+        if (json) {
+            printJson(out, payload);
+        } else {
+            // Human-readable proposal: one line per task plus unclear text.
+            const QJsonArray tasks = payload["proposal"].toObject()["opgaver"].toArray();
+            for (const QJsonValue &t : tasks) {
+                const QJsonObject o = t.toObject();
+                QString line = o["titel"].toString();
+                if (o.contains("start"))
+                    line += QStringLiteral("  (%1)").arg(o["start"].toString());
+                if (o.contains("frist"))
+                    line += QStringLiteral("  Frist: %1").arg(o["frist"].toString());
+                const QJsonArray gaet = o["gaet"].toArray();
+                if (!gaet.isEmpty()) {
+                    QStringList g;
+                    for (const QJsonValue &gv : gaet)
+                        g << gv.toString();
+                    line += QStringLiteral("  [gæt: %1]").arg(g.join(QStringLiteral(", ")));
+                }
+                out << line << "\n";
+            }
+            const QJsonArray unclear = payload["proposal"].toObject()["uafklaret"].toArray();
+            for (const QJsonValue &u : unclear)
+                out << QObject::tr("Unclear: %1").arg(u.toString()) << "\n";
+        }
+        return 0;
+    }
 
     if (command == QLatin1String("new")) {
         QStringList positional;

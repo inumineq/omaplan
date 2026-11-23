@@ -56,13 +56,14 @@ public:
     struct Capture {
         QString id;
         QString rawText;
+        QString annotatedText; // date-annotated variant sent to the engine
         QString engine;
         QString model;
         QString response;
         QDateTime created;
     };
-    QString addCapture(const QString &rawText, const QString &engine, const QString &model,
-                       const QString &response, QString *error = nullptr);
+    QString addCapture(const QString &rawText, const QString &annotatedText, const QString &engine,
+                       const QString &model, const QString &response, QString *error = nullptr);
     QList<Capture> captures(QString *error = nullptr) const;
 
     struct Change {

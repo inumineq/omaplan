@@ -1,5 +1,4 @@
-QT += core sql testlib
-QT -= gui
+QT += core gui sql network testlib
 
 CONFIG += c++17 testcase console
 TARGET = omaplan_tests
@@ -7,5 +6,11 @@ TEMPLATE = app
 
 INCLUDEPATH += ../src
 
-HEADERS += ../src/task.h ../src/store.h ../src/actions.h ../src/cli.h ../src/planmodel.h
-SOURCES += omaplan_tests.cpp ../src/task.cpp ../src/store.cpp ../src/actions.cpp ../src/cli.cpp ../src/planmodel.cpp
+HEADERS += ../src/task.h ../src/store.h ../src/actions.h ../src/cli.h ../src/planmodel.h \
+           ../src/config.h ../src/dateannotate.h ../src/engine.h ../src/prompt.h ../src/proposal.h ../src/translator.h
+SOURCES += omaplan_tests.cpp ../src/task.cpp ../src/store.cpp ../src/actions.cpp ../src/cli.cpp \
+           ../src/planmodel.cpp ../src/config.cpp ../src/dateannotate.cpp \
+           ../src/engine.cpp ../src/engine_vibe.cpp ../src/engine_claude.cpp ../src/engine_local.cpp \
+           ../src/engine_command.cpp ../src/prompt.cpp ../src/proposal.cpp ../src/translator.cpp
+
+RESOURCES += ../src/ai-skema.qrc

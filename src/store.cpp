@@ -9,7 +9,7 @@
 #include <QUuid>
 #include <QVariant>
 
-static const int kSchemaVersion = 3;
+static const int kSchemaVersion = 4;
 
 // The database lives under the user's data directory; OMAPLAN_DB overrides the
 // whole path so tests and one-off CLI runs can use a temporary file.
@@ -111,6 +111,15 @@ bool Store::migrate(QString *error) {
                 return false;
             }
             version = 3;
+        } else if (version == 3) {
+            // Version 4: captures.annotated_text keeps the date-annotated
+            // text next to the raw input, so a proposal stays traceable.
+            if (!query.exec(QStringLiteral(
+                    "ALTER TABLE captures ADD COLUMN annotated_text TEXT NOT NULL DEFAULT ''"))) {
+                if (error) *error = query.lastError().text();
+                return false;
+            }
+            version = 4;
         } else {
             if (error) *error = QStringLiteral("unknown schema version %1").arg(version);
             return false;
@@ -468,14 +477,16 @@ QList<Task> Store::tasks(QString *error) const {
     return result;
 }
 
-QString Store::addCapture(const QString &rawText, const QString &engine, const QString &model,
-                          const QString &response, QString *error) {
+QString Store::addCapture(const QString &rawText, const QString &annotatedText, const QString &engine,
+                          const QString &model, const QString &response, QString *error) {
     const QString id = Task::newId();
     QSqlQuery query(m_db);
     query.prepare(QStringLiteral(
-        "INSERT INTO captures (id, raw_text, engine, model, response, created) VALUES (?,?,?,?,?,?)"));
+        "INSERT INTO captures (id, raw_text, annotated_text, engine, model, response, created)"
+        " VALUES (?,?,?,?,?,?,?)"));
     query.addBindValue(id);
     query.addBindValue(rawText);
+    query.addBindValue(annotatedText);
     query.addBindValue(engine);
     query.addBindValue(model);
     query.addBindValue(response);
@@ -498,6 +509,7 @@ QList<Store::Capture> Store::captures(QString *error) const {
         Capture capture;
         capture.id = query.value("id").toString();
         capture.rawText = query.value("raw_text").toString();
+        capture.annotatedText = query.value("annotated_text").toString();
         capture.engine = query.value("engine").toString();
         capture.model = query.value("model").toString();
         capture.response = query.value("response").toString();

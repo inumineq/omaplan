@@ -10,6 +10,7 @@
 
 #include "actions.h"
 #include "cli.h"
+#include "dateannotate.h"
 #include "planmodel.h"
 #include "store.h"
 #include "task.h"
@@ -160,7 +161,7 @@ private slots:
             Store store(path);
             QString error;
             QVERIFY2(store.open(&error), qPrintable(error));
-            QCOMPARE(store.schemaVersion(), 3);
+            QCOMPARE(store.schemaVersion(), 4);
             // The three tables exist.
             QSqlQuery query(store.database());
             QVERIFY(query.exec("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"));
@@ -180,7 +181,7 @@ private slots:
             Store store(path);
             QString error;
             QVERIFY(store.open(&error));
-            QCOMPARE(store.schemaVersion(), 3);
+            QCOMPARE(store.schemaVersion(), 4);
             QCOMPARE(store.tasks(&error).size(), 1);
         }
     }
@@ -218,7 +219,7 @@ private slots:
         Store store(path);
         QString error;
         QVERIFY2(store.open(&error), qPrintable(error));
-        QCOMPARE(store.schemaVersion(), 3);
+        QCOMPARE(store.schemaVersion(), 4);
         QSqlQuery q(store.database());
         QVERIFY(q.exec(QStringLiteral("PRAGMA table_info(changes)")));
         QStringList columns;
@@ -226,6 +227,11 @@ private slots:
             columns << q.value(1).toString();
         QVERIFY(columns.contains(QStringLiteral("undo_of")));
         QVERIFY(columns.contains(QStringLiteral("redo_of")));
+        QVERIFY(q.exec(QStringLiteral("PRAGMA table_info(captures)")));
+        QStringList captureColumns;
+        while (q.next())
+            captureColumns << q.value(1).toString();
+        QVERIFY(captureColumns.contains(QStringLiteral("annotated_text")));
     }
 
     void changeLogRecordsBeforeAfterAndSource()
@@ -278,6 +284,7 @@ private slots:
         QString error;
         QVERIFY(store.open(&error));
         const QString id = store.addCapture(QStringLiteral("podcast-klip tirsdag"),
+                                            QStringLiteral("podcast-klip tirsdag [tirsdag 2026-11-24]"),
                                             QStringLiteral("vibe"),
                                             QStringLiteral("mistral-large"),
                                             QStringLiteral("{\"opgaver\": []}"), &error);
@@ -286,6 +293,7 @@ private slots:
         QCOMPARE(list.size(), 1);
         QCOMPARE(list[0].id, id);
         QCOMPARE(list[0].rawText, QStringLiteral("podcast-klip tirsdag"));
+        QCOMPARE(list[0].annotatedText, QStringLiteral("podcast-klip tirsdag [tirsdag 2026-11-24]"));
         QCOMPARE(list[0].engine, QStringLiteral("vibe"));
         QCOMPARE(list[0].model, QStringLiteral("mistral-large"));
         QCOMPARE(list[0].response, QStringLiteral("{\"opgaver\": []}"));
@@ -676,11 +684,114 @@ private slots:
         QCOMPARE(cli(store, {QStringLiteral("new"), QStringLiteral("--titel"), QStringLiteral("X"), QStringLiteral("--start"), QStringLiteral("bogus")}, &out, &err), 1);
 
         // Later-phase commands answer "not implemented yet" with exit 1.
-        for (const char *cmd : {"add", "snapshot", "serve", "mcp", "skill"}) {
+        for (const char *cmd : {"snapshot", "serve", "mcp", "skill"}) {
             err.clear();
             QCOMPARE(cli(store, {QString::fromLatin1(cmd), QStringLiteral("x")}, &out, &err), 1);
             QVERIFY2(err.contains(QStringLiteral("Not implemented yet")), qPrintable(err));
         }
+    }
+
+    void cliAddWithFakeCommandEngine()
+    {
+        // No real AI: the "command" engine runs `cat <fixture>` via a temp
+        // config file, so `add` is tested end to end offscreen.
+        QTemporaryDir dir;
+        Store store(dir.filePath("cli.db"));
+        QString error;
+        QVERIFY(store.open(&error));
+
+        const QString fixture = QDir(QCoreApplication::applicationDirPath())
+                                    .filePath(QStringLiteral("../../tests/ai-fixtures/envelopes/command-valid.json"));
+        QVERIFY(QFile::exists(fixture));
+        QTemporaryDir cfgDir;
+        const QString cfgPath = cfgDir.filePath("config.toml");
+        {
+            QFile f(cfgPath);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write("[motor]\nengine = \"command\"\ncommand = \"cat " + fixture.toUtf8() + "\"\n");
+        }
+        qputenv("OMAPLAN_CONFIG", cfgPath.toLocal8Bit());
+
+        QString out, err;
+        int code = 0;
+        // Without --ja the proposal is printed, nothing stored.
+        const QJsonObject proposal = cliJson(store, {QStringLiteral("add"), QStringLiteral("køb mælk i morgen"), QStringLiteral("--json")}, &err, &code);
+        QCOMPARE(code, 0);
+        QCOMPARE(proposal["proposal"].toObject()["opgaver"].toArray().size(), 1);
+        QCOMPARE(proposal["proposal"].toObject()["opgaver"].toArray().first().toObject()["titel"].toString(),
+                 QStringLiteral("Køb mælk"));
+        QVERIFY(!proposal["capture_id"].toString().isEmpty());
+        QCOMPARE(cliJson(store, {QStringLiteral("list"), QStringLiteral("--json")}, &err, &code)["tasks"].toArray().size(), 0);
+        // The capture keeps raw text, annotated text, engine and model.
+        const auto captures = store.captures(&error);
+        QCOMPARE(captures.size(), 1);
+        QCOMPARE(captures[0].rawText, QStringLiteral("køb mælk i morgen"));
+        QVERIFY(captures[0].annotatedText.contains(QStringLiteral("i morgen [tirsdag 2026-11-24]")));
+        QCOMPARE(captures[0].engine, QStringLiteral("command"));
+
+        // With --ja the tasks are stored and linked to the capture.
+        const QJsonObject stored = cliJson(store, {QStringLiteral("add"), QStringLiteral("køb mælk fredag"), QStringLiteral("--ja"), QStringLiteral("--json")}, &err, &code);
+        QCOMPARE(code, 0);
+        QCOMPARE(stored["stored"].toArray().size(), 1);
+        const auto tasks = cliJson(store, {QStringLiteral("list"), QStringLiteral("--json")}, &err, &code)["tasks"].toArray();
+        QCOMPARE(tasks.size(), 1);
+        QCOMPARE(tasks.first().toObject()["capture_id"].toString(), stored["capture_id"].toString());
+        // gaet from the schema maps to Task guess keys.
+        QCOMPARE(tasks.first().toObject()["guesses"].toArray().first().toString(), QStringLiteral("project"));
+
+        // Unknown motor: exit 1 with a clear error.
+        err.clear();
+        QCOMPARE(cli(store, {QStringLiteral("add"), QStringLiteral("x"), QStringLiteral("--motor"), QStringLiteral("ingen")}, &out, &err), 1);
+        QVERIFY(err.contains(QStringLiteral("Unknown engine")));
+
+        qputenv("OMAPLAN_CONFIG", "");
+    }
+
+    void dateAnnotation()
+    {
+        const QDate today(2026, 11, 23); // Monday
+        // Ugedage, nøgleord, tal+måned, tider, halv/kvart.
+        QCOMPARE(annotateDates(QStringLiteral("podcast-klip til linkedin tirsdag"), today),
+                 QStringLiteral("podcast-klip til linkedin tirsdag [tirsdag 2026-11-24]"));
+        // Longest phrase wins: "i morgen kl. 14:30" is annotated as one unit.
+        QCOMPARE(annotateDates(QStringLiteral("møde i morgen kl. 14:30"), today),
+                 QStringLiteral("møde i morgen kl. 14:30 [tirsdag 2026-11-24 kl. 14:30]"));
+        QCOMPARE(annotateDates(QStringLiteral("frist fredag 12"), today),
+                 QStringLiteral("frist fredag 12 [fredag 2026-11-27 kl. 12:00]"));
+        QCOMPARE(annotateDates(QStringLiteral("deadline den 12. december"), today),
+                 QStringLiteral("deadline den 12. december [lørdag 2026-12-12]"));
+        QCOMPARE(annotateDates(QStringLiteral("næste uge"), today),
+                 QStringLiteral("næste uge [mandag 2026-11-30]"));
+        QCOMPARE(annotateDates(QStringLiteral("om 3 dage"), today),
+                 QStringLiteral("om 3 dage [torsdag 2026-11-26]"));
+        QCOMPARE(annotateDates(QStringLiteral("halv tre"), today),
+                 QStringLiteral("halv tre [kl. 14:30]"));
+        QCOMPARE(annotateDates(QStringLiteral("kvart over fire"), today),
+                 QStringLiteral("kvart over fire [kl. 15:15]"));
+        // Bare tal (varighed) annoteres ikke.
+        QCOMPARE(annotateDates(QStringLiteral("research 3 timer onsdag"), today),
+                 QStringLiteral("research 3 timer onsdag [onsdag 2026-11-25]"));
+        // Tekst uden datoer står urørt.
+        QCOMPARE(annotateDates(QStringLiteral("skriv noget"), today),
+                 QStringLiteral("skriv noget"));
+    }
+
+    void parseDateTimeWeekendAndWeek()
+    {
+        const QDate today(2026, 11, 23); // Monday
+        QDateTime out;
+        bool hasTime = false;
+        QString error;
+        QVERIFY(Actions::parseDateTime(QStringLiteral("næste uge"), today, &out, &hasTime, &error));
+        QCOMPARE(out.date(), QDate(2026, 11, 30));
+        QVERIFY(Actions::parseDateTime(QStringLiteral("next week"), today, &out, &hasTime, &error));
+        QCOMPARE(out.date(), QDate(2026, 11, 30));
+        QVERIFY(Actions::parseDateTime(QStringLiteral("i weekenden"), today, &out, &hasTime, &error));
+        QCOMPARE(out.date(), QDate(2026, 11, 28)); // Saturday
+        QVERIFY(Actions::parseDateTime(QStringLiteral("om 5 dage"), today, &out, &hasTime, &error));
+        QCOMPARE(out.date(), QDate(2026, 11, 28));
+        QVERIFY(Actions::parseDateTime(QStringLiteral("in 10 days"), today, &out, &hasTime, &error));
+        QCOMPARE(out.date(), QDate(2026, 12, 3));
     }
 
     void jsonDatesHaveNoMilliseconds()

@@ -6,6 +6,7 @@
 #include <QObject>
 #include <QString>
 
+#include "engine.h"
 #include "store.h"
 #include "task.h"
 
@@ -65,10 +66,32 @@ public:
     Q_INVOKABLE QJsonObject guiRedo();
     Q_INVOKABLE QJsonObject guiProjects();
 
+    // Sends free text to an AI engine (motorId empty = config default). The
+    // raw text and the date-annotated variant are stored in `captures` with
+    // engine and model. Used by `omaplan add` (synchronous, with event loop).
+    ActionResult propose(const QString &rawText, const QString &motorId = QString(),
+                         const QString &modelOverride = QString(), const QString &endpointOverride = QString(),
+                         QString *captureIdOut = nullptr);
+    // Creates tasks from a proposal JSON (schema keys: opgaver/titel/gaet/...)
+    // and links them to the capture. Used by `omaplan add --ja` and the GUI.
+    ActionResult approve(const QJsonObject &proposalJson, const QString &captureId, const QString &source);
+
+    // Async variant for QML: results arrive as proposalReady/proposalFailed,
+    // so the GUI never blocks.
+    Q_INVOKABLE void guiPropose(const QString &text, const QString &motorId = QString());
+    Q_INVOKABLE void guiCancelProposal();
+    Q_INVOKABLE QJsonObject guiApprove(const QJsonObject &proposalJson, const QString &captureId);
+
 signals:
     // Emitted after every mutation, so models and views can reload.
     void planChanged();
+    void proposalReady(const QJsonObject &proposalJson, const QString &captureId);
+    void proposalFailed(const QString &message);
 
 private:
+    ActionResult runEngine(const QString &rawText, const QString &motorId, const QString &modelOverride,
+                           const QString &endpointOverride, QString *captureIdOut, bool wait);
+
     Store *m_store;
+    std::unique_ptr<AiEngine> m_engine;
 };
