@@ -1,0 +1,19 @@
+[
+  {
+    "id": "evt-11",
+    "type": "message",
+    "role": "user",
+    "content": [{"type": "text", "text": "køb mælk"}]
+  },
+  {
+    "id": "evt-12",
+    "type": "reasoning",
+    "text": "{\"opgaver\": [{\"titel\": \"Køb mælk fra reasoning\"}]}"
+  },
+  {
+    "id": "evt-13",
+    "type": "message",
+    "role": "assistant",
+    "content": [{"type": "text", "text": "Beklager, jeg kan ikke svare med JSON lige nu."}]
+  }
+]

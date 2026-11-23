@@ -1,0 +1,5 @@
+Her er forslaget:
+```json
+{"opgaver": [{"titel": "Køb mælk"}]}
+```
+Håber det kan bruges.
