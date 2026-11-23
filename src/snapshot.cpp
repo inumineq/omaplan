@@ -34,26 +34,26 @@ QJsonObject omarchyTheme(const QString &directory) {
     // An explicit directory keeps Theme from polling hyprctl.
     const Theme theme(dir, nullptr, QString());
     auto hex = [](const QString &color) { return QColor(color).name(); };
-    QJsonObject tema;
-    tema["accent"] = hex(theme.accent());
-    tema["accent_fg"] = hex(theme.accentForeground());
-    tema["bg"] = hex(theme.background());
-    tema["bg_raised"] = hex(theme.surface());
-    tema["fg"] = hex(theme.foreground());
-    tema["muted"] = hex(theme.muted());
-    tema["border"] = hex(theme.border());
-    tema["danger"] = hex(theme.danger());
-    tema["ok"] = hex(theme.success());
-    return tema;
+    QJsonObject colors;
+    colors["accent"] = hex(theme.accent());
+    colors["accent_fg"] = hex(theme.accentForeground());
+    colors["bg"] = hex(theme.background());
+    colors["bg_raised"] = hex(theme.surface());
+    colors["fg"] = hex(theme.foreground());
+    colors["muted"] = hex(theme.muted());
+    colors["border"] = hex(theme.border());
+    colors["danger"] = hex(theme.danger());
+    colors["ok"] = hex(theme.success());
+    return colors;
 }
 
-QString themeStyle(const QJsonObject &tema) {
+QString themeStyle(const QJsonObject &theme) {
     static const char *const keys[][2] = {{"bg", "--bg"},         {"bg_raised", "--bg-raised"}, {"fg", "--fg"},
                                           {"muted", "--muted"},   {"border", "--border"},       {"accent", "--accent"},
                                           {"accent_fg", "--accent-fg"}, {"danger", "--danger"}, {"ok", "--ok"}};
     QStringList parts;
     for (const auto &key : keys) {
-        const QString value = tema.value(QLatin1String(key[0])).toString();
+        const QString value = theme.value(QLatin1String(key[0])).toString();
         // Only #rrggbb gets through: the value lands inside a style attribute.
         if (value.size() == 7 && value.startsWith('#') && QColor::isValidColorName(value))
             parts << QLatin1String(key[1]) + ':' + value.toLower();
@@ -77,62 +77,61 @@ static QString localIso(const QDateTime &value, bool hasTime) {
     return hasTime ? value.toString(QStringLiteral("yyyy-MM-ddTHH:mm")) : value.date().toString(Qt::ISODate);
 }
 
-// Task's internal guess names -> the ASCII names of docs/eksport-skema.json.
+// Task's internal guess names -> the names of docs/export-schema.json.
 static QString guessKey(const QString &field) {
-    if (field == QLatin1String("duration_minutes")) return QStringLiteral("varighed_min");
-    if (field == QLatin1String("deadline")) return QStringLiteral("frist");
-    if (field == QLatin1String("project")) return QStringLiteral("projekt");
-    if (field == QLatin1String("priority")) return QStringLiteral("prioritet");
+    if (field == QLatin1String("duration_minutes"))
+        return QStringLiteral("duration_min");
     return field;
 }
 
-QJsonObject build(const QList<Task> &tasks, const QDateTime &exported, const QJsonObject &tema) {
+QJsonObject build(const QList<Task> &tasks, const QDateTime &exported, const QJsonObject &theme,
+                  const QString &language) {
     QJsonArray items;
     for (const Task &task : tasks) {
         QJsonObject o;
         o["id"] = task.id;
-        o["titel"] = task.title;
+        o["title"] = task.title;
         if (!task.notes.isEmpty())
-            o["noter"] = task.notes;
+            o["notes"] = task.notes;
         if (!task.project.isEmpty())
-            o["projekt"] = task.project;
-        o["prioritet"] = task.priority;
+            o["project"] = task.project;
+        o["priority"] = task.priority;
         o["status"] = Task::statusToString(task.status);
         o["start"] = task.start.isValid() ? QJsonValue(localIso(task.start, task.startHasTime)) : QJsonValue();
         if (task.durationMinutes > 0)
-            o["varighed_min"] = task.durationMinutes;
+            o["duration_min"] = task.durationMinutes;
         if (task.deadline.isValid())
-            o["frist"] = localIso(task.deadline, task.deadlineHasTime);
+            o["deadline"] = localIso(task.deadline, task.deadlineHasTime);
         QJsonArray guesses;
         for (const QString &g : task.guesses)
             guesses.append(guessKey(g));
-        o["gaet"] = guesses;
-        o["kilde"] = task.captureId.isEmpty() ? QJsonValue() : QJsonValue(task.captureId);
-        o["oprettet"] = withOffset(task.created.isValid() ? task.created : exported);
-        o["aendret"] = withOffset(task.modified.isValid() ? task.modified : exported);
+        o["guessed"] = guesses;
+        o["source"] = task.captureId.isEmpty() ? QJsonValue() : QJsonValue(task.captureId);
+        o["created"] = withOffset(task.created.isValid() ? task.created : exported);
+        o["modified"] = withOffset(task.modified.isValid() ? task.modified : exported);
         items.append(o);
     }
     QJsonObject plan;
     plan["format"] = QStringLiteral("omaplan-plan");
-    plan["version"] = 1;
-    plan["eksporteret"] = withOffset(exported);
+    plan["version"] = 2;
+    plan["exported"] = withOffset(exported);
     const QString zone = QString::fromUtf8(QTimeZone::systemTimeZoneId());
-    plan["tidszone"] = zone.isEmpty() ? QStringLiteral("UTC") : zone;
-    plan["sprog"] = QStringLiteral("da"); // the read-only edition is Danish (web/MARKUP.md)
-    if (!tema.isEmpty())
-        plan["tema"] = tema;
-    plan["opgaver"] = items;
+    plan["timezone"] = zone.isEmpty() ? QStringLiteral("UTC") : zone;
+    plan["language"] = language;
+    if (!theme.isEmpty())
+        plan["theme"] = theme;
+    plan["tasks"] = items;
     return plan;
 }
 
-bool write(Store *store, const QString &path, QString *error) {
+bool write(Store *store, const QString &path, QString *error, const QString &language) {
     QString readError;
     const QList<Task> tasks = store->tasks(&readError);
     if (!readError.isEmpty()) {
         if (error) *error = readError;
         return false;
     }
-    const QByteArray bytes = QJsonDocument(build(tasks, QDateTime::currentDateTime(), omarchyTheme())).toJson();
+    const QByteArray bytes = QJsonDocument(build(tasks, QDateTime::currentDateTime(), omarchyTheme(), language)).toJson();
     const QDir dir = QFileInfo(path).absoluteDir();
     if (!dir.exists() && !dir.mkpath(QStringLiteral("."))) {
         if (error) *error = QStringLiteral("cannot create directory %1").arg(dir.path());
@@ -156,6 +155,6 @@ Snapshotter::Snapshotter(Store *store, const QString &path, QObject *parent)
 
 void Snapshotter::write() {
     QString error;
-    if (!m_path.isEmpty() && !Snapshot::write(m_store, m_path, &error))
+    if (!m_path.isEmpty() && !Snapshot::write(m_store, m_path, &error, m_language))
         QTextStream(stderr) << "omaplan: snapshot: " << error << "\n";
 }

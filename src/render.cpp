@@ -1,7 +1,10 @@
 #include "render.h"
 
 #include <QCollator>
+#include <QFile>
+#include <QHash>
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QLocale>
 #include <QMap>
 #include <QRegularExpression>
@@ -9,30 +12,73 @@
 #include <algorithm>
 #include <cmath>
 
-// Kept in step with web/app.js function by function; the names in comments
-// are the JS originals. User-facing text is Danish by contract (MARKUP.md).
+// Kept in step with web/app.js function by function, under the same names.
+// Page texts come from the dictionary (web/i18n/<language>.json).
 
 namespace Render {
 
 namespace {
 
-const char *const kWeekdays[] = {"mandag", "tirsdag", "onsdag", "torsdag", "fredag", "lørdag", "søndag"};
-const char *const kWeekdaysShort[] = {"man", "tir", "ons", "tor", "fre", "lør", "søn"};
-const char *const kMonths[] = {"januar", "februar", "marts", "april", "maj", "juni", "juli",
-                               "august", "september", "oktober", "november", "december"};
-const double kCharsPerDay = 64; // TEGN_PR_DAG: characters across a whole-day bar at the column's minimum width
+const double kCharsPerDay = 64; // CHARS_PER_DAY: characters across a whole-day bar at the column's minimum width
+
+// One dictionary, web/i18n/<language>.json.
+struct Texts {
+    QJsonObject json;
+    QString operator[](const char *key) const { return json.value(QLatin1String(key)).toString(); }
+    QString item(const char *list, int i) const { return json.value(QLatin1String(list)).toArray().at(i).toString(); }
+    QString language() const { return (*this)["language"]; }
+};
+
+const Texts &texts(const QString &language) {
+    static QHash<QString, Texts> cache;
+    const QString lang = supportedLanguage(language).isEmpty() ? QStringLiteral("en") : supportedLanguage(language);
+    auto it = cache.find(lang);
+    if (it == cache.end()) {
+        QFile file(QStringLiteral(":/web/i18n/%1.json").arg(lang));
+        file.open(QIODevice::ReadOnly);
+        it = cache.insert(lang, Texts{QJsonDocument::fromJson(file.readAll()).object()});
+    }
+    return *it;
+}
+
+const QCollator &collator(const QString &language) {
+    static QHash<QString, QCollator> cache;
+    auto it = cache.find(language);
+    if (it == cache.end())
+        it = cache.insert(language, QCollator(QLocale(language)));
+    return *it;
+}
+
+using Vars = QHash<QString, QString>;
+
+// fill: "{d} {month}" with {d: 23, month: November} -> "23 November";
+// unknown placeholders stay as written.
+QString fill(const QString &tpl, const Vars &vars) {
+    static const QRegularExpression re(QStringLiteral("\\{(\\w+)\\}"));
+    QString out;
+    qsizetype last = 0;
+    auto it = re.globalMatch(tpl);
+    while (it.hasNext()) {
+        const auto m = it.next();
+        out += tpl.mid(last, m.capturedStart() - last);
+        const auto value = vars.constFind(m.captured(1));
+        out += value != vars.cend() ? *value : m.captured(0);
+        last = m.capturedEnd();
+    }
+    return out + tpl.mid(last);
+}
 
 struct Item {
-    QString id, titel, noter, projekt, status, start, frist;
-    int prioritet = 3;
-    int varighed = 0;
-    QStringList gaet;
+    QString id, title, notes, project, status, start, deadline;
+    int priority = 3;
+    int duration = 0;
+    QStringList guessed;
 };
 
 // parseStart: "YYYY-MM-DD" or "YYYY-MM-DDTHH:MM" -> date and time; anything
 // else counts as unscheduled.
 struct When {
-    QString dato, tid;
+    QString date, time;
 };
 When parseWhen(const QString &text) {
     static const QRegularExpression re(QStringLiteral("^(\\d{4}-\\d{2}-\\d{2})(?:T(\\d{2}):(\\d{2}))?$"));
@@ -46,43 +92,56 @@ QString u(const char *text) { return QString::fromUtf8(text); }
 
 QDate dateOf(const QString &iso) { return QDate::fromString(iso, Qt::ISODate); }
 QString addDays(const QString &iso, int n) { return dateOf(iso).addDays(n).toString(Qt::ISODate); }
-QString weekday(const QString &iso) { return u(kWeekdays[dateOf(iso).dayOfWeek() - 1]); }
-QString weekdayShort(const QString &iso) { return u(kWeekdaysShort[dateOf(iso).dayOfWeek() - 1]); }
-QString month(const QString &iso) { return u(kMonths[iso.mid(5, 2).toInt() - 1]); }
-QString dayNr(const QString &iso) { return QString::number(iso.mid(8, 2).toInt()); }
 QString capital(const QString &s) { return s.left(1).toUpper() + s.mid(1); }
 
-// formaterDatoLang: "Mandag 23. november 2026"
-QString dateLong(const QString &iso) {
-    return capital(weekday(iso)) + ' ' + dayNr(iso) + ". " + month(iso) + ' ' + iso.left(4);
+// dateVars: the placeholders a date offers the dictionary's formats.
+Vars dateVars(const Texts &t, const QString &date) {
+    const int wd = dateOf(date).dayOfWeek() - 1; // the week starts on Monday
+    return {{QStringLiteral("weekday"), t.item("weekdays", wd)},
+            {QStringLiteral("Weekday"), capital(t.item("weekdays", wd))},
+            {QStringLiteral("wd"), t.item("weekdaysShort", wd)},
+            {QStringLiteral("Wd"), capital(t.item("weekdaysShort", wd))},
+            {QStringLiteral("d"), QString::number(date.mid(8, 2).toInt())},
+            {QStringLiteral("mm"), date.mid(5, 2)},
+            {QStringLiteral("month"), t.item("months", date.mid(5, 2).toInt() - 1)},
+            {QStringLiteral("yyyy"), date.left(4)}};
 }
-// formaterDatoKort: "Man 23/11"
-QString dateShort(const QString &iso) { return capital(weekdayShort(iso)) + ' ' + dayNr(iso) + '/' + iso.mid(5, 2); }
-// formaterFrist: "fredag 27. november 2026 kl. 12:00"
-QString deadlineText(const QString &frist) {
-    const When w = parseWhen(frist);
-    return weekday(w.dato) + ' ' + dayNr(w.dato) + ". " + month(w.dato) + ' ' + w.dato.left(4)
-           + (w.tid.isEmpty() ? QString() : " kl. " + w.tid);
+
+// formatDateLong: "Monday 23 November 2026"
+QString formatDateLong(const Texts &t, const QString &date) { return fill(t["dateLong"], dateVars(t, date)); }
+// formatDateShort: "Mon 23/11"
+QString formatDateShort(const Texts &t, const QString &date) { return fill(t["dateShort"], dateVars(t, date)); }
+// formatDeadline: "Friday 27 November 2026 at 12:00"
+QString formatDeadline(const Texts &t, const QString &deadline) {
+    const When w = parseWhen(deadline);
+    const QString date = fill(t["dateInText"], dateVars(t, w.date));
+    return w.time.isEmpty() ? date : fill(t["atTime"], {{QStringLiteral("date"), date}, {QStringLiteral("time"), w.time}});
 }
-// formaterTidsstempel: "23. november 2026 kl. 13:57", wall time as written
-QString timestamp(const QString &iso) {
+// formatTimestamp: "23 November 2026 at 13:57", wall time as written
+QString formatTimestamp(const Texts &t, const QString &iso) {
     const When w = parseWhen(iso.left(16));
-    if (w.dato.isEmpty())
-        return esc(iso);
-    return dayNr(w.dato) + ". " + month(w.dato) + ' ' + w.dato.left(4) + " kl. " + w.tid;
+    if (w.date.isEmpty())
+        return iso;
+    Vars vars = dateVars(t, w.date);
+    vars.insert(QStringLiteral("time"), w.time);
+    return fill(t["timestamp"], vars);
 }
-// formaterVarighed: "45 min", "2 t.", "2 t. 30 min"
-QString durationText(int min) {
+// formatDuration: "45 min", "2 h", "2 h 30 min"
+QString formatDuration(const Texts &t, int min) {
     if (min < 60)
-        return QString::number(min) + " min";
-    const int t = min / 60, m = min % 60;
-    return m ? QStringLiteral("%1 t. %2 min").arg(t).arg(m) : QStringLiteral("%1 t.").arg(t);
+        return fill(t["minutes"], {{QStringLiteral("m"), QString::number(min)}});
+    const QString h = QString::number(min / 60);
+    const int m = min % 60;
+    return m ? fill(t["hoursMinutes"], {{QStringLiteral("h"), h}, {QStringLiteral("m"), QString::number(m)}})
+             : fill(t["hours"], {{QStringLiteral("h"), h}});
 }
-QString endTime(const QString &tid, int minutes) {
-    const int end = tid.left(2).toInt() * 60 + tid.mid(3, 2).toInt() + minutes;
+QString endTime(const QString &time, int minutes) {
+    const int end = time.left(2).toInt() * 60 + time.mid(3, 2).toInt() + minutes;
     return QStringLiteral("%1:%2").arg((end / 60) % 24, 2, 10, QLatin1Char('0')).arg(end % 60, 2, 10, QLatin1Char('0'));
 }
-QString count(int n) { return n == 1 ? QStringLiteral("1 opgave") : QString::number(n) + " opgaver"; }
+QString countTasks(const Texts &t, int n) {
+    return n == 1 ? t["taskOne"] : fill(t["taskMany"], {{QStringLiteral("n"), QString::number(n)}});
+}
 // num: at most two decimals, no trailing zeros (9, 1.5, 0.25)
 QString num(double x) {
     QString s = QString::number(x, 'f', 2);
@@ -90,204 +149,199 @@ QString num(double x) {
         s.chop(1);
     return s == QLatin1String("-0") ? QStringLiteral("0") : s;
 }
-double hours(const QString &tid) { return tid.left(2).toInt() + tid.mid(3, 2).toInt() / 60.0; }
+double hours(const QString &time) { return time.left(2).toInt() + time.mid(3, 2).toInt() / 60.0; }
 
-const QCollator &danish() {
-    static const QCollator collator(QLocale(QLocale::Danish, QLocale::Denmark));
-    return collator;
-}
-
-// tidligsteDato
 QString earliestDate(const Item &o) {
     QStringList dates;
-    if (!parseWhen(o.start).dato.isEmpty())
+    if (!parseWhen(o.start).date.isEmpty())
         dates << o.start.left(10);
-    if (!parseWhen(o.frist).dato.isEmpty())
-        dates << o.frist.left(10);
+    if (!parseWhen(o.deadline).date.isEmpty())
+        dates << o.deadline.left(10);
     std::sort(dates.begin(), dates.end());
     return dates.isEmpty() ? QString() : dates.first();
 }
-// erForfalden
-bool overdue(const Item &o, const QString &today) {
+bool isOverdue(const Item &o, const QString &today) {
     if (o.status != QLatin1String("todo"))
         return false;
     const QString d = earliestDate(o);
     return !d.isEmpty() && d < today;
 }
-QString startDate(const Item &o) { return parseWhen(o.start).dato; }
+QString startDate(const Item &o) { return parseWhen(o.start).date; }
 
-// sorterOpgaver: dated first (by date, timed before all-day, by time), then
-// undated; then priority, then title (Danish collation).
-QList<Item> sorted(QList<Item> items) {
-    std::stable_sort(items.begin(), items.end(), [](const Item &a, const Item &b) {
+// sortTasks: dated first (by date, timed before all-day, by time), then
+// undated; then priority, then title (collated in the page's language).
+QList<Item> sortTasks(QList<Item> items, const Texts &t) {
+    const QCollator &coll = collator(t.language());
+    std::stable_sort(items.begin(), items.end(), [&](const Item &a, const Item &b) {
         const When sa = parseWhen(a.start), sb = parseWhen(b.start);
-        if (sa.dato.isEmpty() != sb.dato.isEmpty())
-            return !sa.dato.isEmpty();
-        if (!sa.dato.isEmpty() && sa.dato != sb.dato)
-            return sa.dato < sb.dato;
-        if (!sa.dato.isEmpty() && sa.tid.isEmpty() != sb.tid.isEmpty())
-            return !sa.tid.isEmpty();
-        if (!sa.tid.isEmpty() && !sb.tid.isEmpty() && sa.tid != sb.tid)
-            return sa.tid < sb.tid;
-        if (a.prioritet != b.prioritet)
-            return a.prioritet < b.prioritet;
-        return danish().compare(a.titel, b.titel) < 0;
+        if (sa.date.isEmpty() != sb.date.isEmpty())
+            return !sa.date.isEmpty();
+        if (!sa.date.isEmpty() && sa.date != sb.date)
+            return sa.date < sb.date;
+        if (!sa.date.isEmpty() && sa.time.isEmpty() != sb.time.isEmpty())
+            return !sa.time.isEmpty();
+        if (!sa.time.isEmpty() && !sb.time.isEmpty() && sa.time != sb.time)
+            return sa.time < sb.time;
+        if (a.priority != b.priority)
+            return a.priority < b.priority;
+        return coll.compare(a.title, b.title) < 0;
     });
     return items;
 }
 
-QString guessName(const QString &g) { return g == QLatin1String("varighed_min") ? QStringLiteral("varighed") : g; }
-
-// renderOpgave
-QString renderTask(const Item &o) {
+QString renderTask(const Item &o, const Texts &t) {
     const When s = parseWhen(o.start);
-    QString tidTekst, tidKlasse = QStringLiteral("tid");
-    if (s.dato.isEmpty()) {
-        tidTekst = QStringLiteral("ingen dato");
-        tidKlasse += QStringLiteral(" tid-ingen");
-    } else if (!s.tid.isEmpty()) {
-        tidTekst = o.varighed ? s.tid + u("–") + endTime(s.tid, o.varighed) : s.tid;
+    QString timeText, timeClass = QStringLiteral("time");
+    if (s.date.isEmpty()) {
+        timeText = t["timeNone"];
+        timeClass += QStringLiteral(" time-none");
+    } else if (!s.time.isEmpty()) {
+        timeText = o.duration ? s.time + u("–") + endTime(s.time, o.duration) : s.time;
     } else {
-        tidTekst = QStringLiteral("heldag");
-        tidKlasse += QStringLiteral(" tid-heldag");
+        timeText = t["allDay"];
+        timeClass += QStringLiteral(" time-all-day");
     }
     QString meta;
-    if (!o.projekt.isEmpty())
-        meta += "<span class=\"projekt-tag\">" + esc(o.projekt) + "</span>";
-    if (!parseWhen(o.frist).dato.isEmpty())
-        meta += "<span class=\"frist\">frist " + esc(deadlineText(o.frist)) + "</span>";
-    if (o.varighed)
-        meta += "<span class=\"varighed\">" + esc(durationText(o.varighed)) + "</span>";
-    if (!o.gaet.isEmpty()) {
-        QStringList names;
-        for (const QString &g : o.gaet)
-            names << guessName(g);
-        meta += u("<span class=\"gaet\">gæt: ") + esc(names.join(", ")) + "</span>";
+    if (!o.project.isEmpty())
+        meta += "<span class=\"project-tag\">" + esc(o.project) + "</span>";
+    if (!parseWhen(o.deadline).date.isEmpty())
+        meta += "<span class=\"deadline\">"
+                + esc(fill(t["deadline"], {{QStringLiteral("date"), formatDeadline(t, o.deadline)}})) + "</span>";
+    if (o.duration)
+        meta += "<span class=\"duration\">" + esc(formatDuration(t, o.duration)) + "</span>";
+    if (!o.guessed.isEmpty()) {
+        const QJsonObject names = t.json.value(QLatin1String("guessNames")).toObject();
+        QStringList fields;
+        for (const QString &g : o.guessed)
+            fields << names.value(g).toString(g);
+        meta += "<span class=\"guessed\">" + esc(fill(t["guessed"], {{QStringLiteral("fields"), fields.join(", ")}}))
+                + "</span>";
     }
-    const QString p = QString::number(o.prioritet);
+    const QString p = QString::number(o.priority);
     meta += "<span class=\"badge badge-p" + p + "\">P" + p + "</span>";
     if (o.status == QLatin1String("done"))
-        meta += u("<span class=\"badge badge-done\">færdig</span>");
-    const QString projektAttr = o.projekt.isEmpty() ? QString() : " data-projekt=\"" + esc(o.projekt) + "\"";
-    const QString noter = o.noter.isEmpty()
-                              ? QString()
-                              : "\n    <details class=\"noter\"><summary>Noter</summary><p>" + esc(o.noter) + "</p></details>";
-    return "<li class=\"opgave status-" + esc(o.status) + "\" data-id=\"" + esc(o.id) + "\" data-prioritet=\"" + p + "\""
-           + projektAttr + ">\n"
-           + "    <p class=\"opgave-rad\"><span class=\"" + tidKlasse + "\">" + esc(tidTekst)
-           + "</span><span class=\"titel\">" + esc(o.titel) + "</span></p>\n"
-           + "    <p class=\"opgave-meta\">" + meta + "</p>" + noter + "\n"
+        meta += "<span class=\"badge badge-done\">" + esc(t["done"]) + "</span>";
+    const QString projectAttr = o.project.isEmpty() ? QString() : " data-project=\"" + esc(o.project) + "\"";
+    const QString notes = o.notes.isEmpty() ? QString()
+                                            : "\n    <details class=\"notes\"><summary>" + esc(t["notes"])
+                                                  + "</summary><p>" + esc(o.notes) + "</p></details>";
+    return "<li class=\"task status-" + esc(o.status) + "\" data-id=\"" + esc(o.id) + "\" data-priority=\"" + p + "\""
+           + projectAttr + ">\n"
+           + "    <p class=\"task-row\"><span class=\"" + timeClass + "\">" + esc(timeText)
+           + "</span><span class=\"task-title\">" + esc(o.title) + "</span></p>\n"
+           + "    <p class=\"task-meta\">" + meta + "</p>" + notes + "\n"
            + "  </li>";
 }
 
-// renderOpgaveListe
-QString renderTaskList(const QList<Item> &items) {
+QString renderTaskList(const QList<Item> &items, const Texts &t) {
     QStringList lines;
     for (const Item &o : items)
-        lines << "    " + renderTask(o).replace('\n', QStringLiteral("\n    "));
-    return "<ul class=\"opgaver\">\n" + lines.join('\n') + "\n  </ul>";
+        lines << "    " + renderTask(o, t).replace('\n', QStringLiteral("\n    "));
+    return "<ul class=\"tasks\">\n" + lines.join('\n') + "\n  </ul>";
 }
 
-// renderDagSektion
-QString renderDay(const QString &dato, const QList<Item> &items, const QString &extraClass, const QString &badgeClass,
-                  const QString &badgeText) {
-    const QString badge = badgeClass.isEmpty() ? QString()
-                                               : "<span class=\"badge " + badgeClass + "\">" + badgeText + "</span>";
-    const QString body = items.isEmpty() ? QStringLiteral("    <p class=\"tom\">Ingen opgaver.</p>") : renderTaskList(items);
-    return "  <section class=\"dag" + (extraClass.isEmpty() ? QString() : ' ' + extraClass) + "\" data-dato=\"" + dato
+QString renderDay(const QString &date, const QList<Item> &items, const QString &extraClass, const QString &badgeClass,
+                  const QString &badgeText, const Texts &t) {
+    const QString badge = badgeClass.isEmpty()
+                              ? QString()
+                              : "<span class=\"badge " + badgeClass + "\">" + esc(badgeText) + "</span>";
+    const QString body = items.isEmpty() ? "    <p class=\"empty\">" + esc(t["noTasks"]) + "</p>" : renderTaskList(items, t);
+    return "  <section class=\"day" + (extraClass.isEmpty() ? QString() : ' ' + extraClass) + "\" data-date=\"" + date
            + "\">\n"
-           + "    <h3><time datetime=\"" + dato + "\">" + esc(dateLong(dato)) + "</time>" + badge + "</h3>\n"
+           + "    <h3><time datetime=\"" + date + "\">" + esc(formatDateLong(t, date)) + "</time>" + badge + "</h3>\n"
            + body + "\n"
            + "  </section>";
 }
 
 QString viewClass(const QString &id, const QString &active) {
-    return id == active ? QStringLiteral("view aktiv") : QStringLiteral("view");
+    return id == active ? QStringLiteral("view active") : QStringLiteral("view");
 }
 
-// renderOverblik
-QString renderOverview(const QList<Item> &items, const QString &today, const QString &active) {
+QString renderOverview(const QList<Item> &items, const QString &today, const Texts &t, const QString &active) {
     QMap<QString, QList<Item>> groups;
     for (const Item &o : items)
-        if (overdue(o, today))
+        if (isOverdue(o, today))
             groups[earliestDate(o)].append(o);
     QStringList parts;
     for (auto it = groups.cbegin(); it != groups.cend(); ++it)
-        parts << renderDay(it.key(), sorted(it.value()), QStringLiteral("forfalden"), QStringLiteral("badge-forfalden"),
-                           QStringLiteral("forfalden"));
+        parts << renderDay(it.key(), sortTasks(it.value(), t), QStringLiteral("overdue"), QStringLiteral("badge-overdue"),
+                           t["overdue"], t);
     for (int k = 0; k < 8; ++k) {
-        const QString dato = addDays(today, k);
+        const QString date = addDays(today, k);
         QList<Item> onDay;
         for (const Item &o : items)
-            if (startDate(o) == dato) // undated tasks are not in the overview
+            if (startDate(o) == date) // undated tasks are not in the overview
                 onDay << o;
-        parts << renderDay(dato, sorted(onDay), k == 0 ? QStringLiteral("i-dag") : QString(),
-                           k == 0 ? QStringLiteral("badge-i-dag") : QString(), QStringLiteral("i dag"));
+        parts << renderDay(date, sortTasks(onDay, t), k == 0 ? QStringLiteral("today") : QString(),
+                           k == 0 ? QStringLiteral("badge-today") : QString(), t["today"], t);
     }
-    return "  <section id=\"overblik\" class=\"" + viewClass("overblik", active) + "\" aria-label=\"Overblik\">\n"
-           + "    <h2>Overblik</h2>\n"
-           + u("    <p class=\"beskrivelse\">I dag og de næste 7 dage – forfaldne opgaver øverst.</p>\n")
+    return "  <section id=\"overview\" class=\"" + viewClass("overview", active) + "\" aria-label=\"" + esc(t["overview"])
+           + "\">\n"
+           + "    <h2>" + esc(t["overview"]) + "</h2>\n"
+           + "    <p class=\"description\">" + esc(t["overviewDescription"]) + "</p>\n"
            + parts.join('\n') + "\n"
            + "  </section>";
 }
 
-QString renderGroup(const QString &dataGroup, const QString &heading, const QList<Item> &items) {
-    return "  <section class=\"gruppe\" data-gruppe=\"" + dataGroup + "\">\n"
-           + "    <h3>" + heading + "<span class=\"antal\">" + count(items.size()) + "</span></h3>\n"
-           + renderTaskList(items) + "\n"
+QString renderGroup(const QString &dataGroup, const QString &heading, const QList<Item> &items, const Texts &t) {
+    return "  <section class=\"group\" data-group=\"" + dataGroup + "\">\n"
+           + "    <h3>" + heading + "<span class=\"count\">" + esc(countTasks(t, items.size())) + "</span></h3>\n"
+           + renderTaskList(items, t) + "\n"
            + "  </section>";
 }
 
-// renderListeDato
-QString renderListByDate(const QList<Item> &items, const QString &active) {
+QString renderListByDate(const QList<Item> &items, const Texts &t, const QString &active) {
     QMap<QString, QList<Item>> groups;
     QList<Item> undated;
     for (const Item &o : items) {
         const QString d = startDate(o);
         if (d.isEmpty())
-            undated << o; // "Uden dato" comes last
+            undated << o; // the group "No date" comes last
         else
             groups[d].append(o);
     }
     QStringList parts;
     for (auto it = groups.cbegin(); it != groups.cend(); ++it)
-        parts << renderGroup("dato:" + it.key(),
-                             "<time datetime=\"" + it.key() + "\">" + esc(dateLong(it.key())) + "</time>",
-                             sorted(it.value()));
+        parts << renderGroup("date:" + it.key(),
+                             "<time datetime=\"" + it.key() + "\">" + esc(formatDateLong(t, it.key())) + "</time>",
+                             sortTasks(it.value(), t), t);
     if (!undated.isEmpty())
-        parts << renderGroup(QStringLiteral("uden-dato"), QStringLiteral("<span class=\"gruppe-titel\">Uden dato</span>"),
-                             sorted(undated));
-    return "  <section id=\"liste\" class=\"" + viewClass("liste", active) + "\" aria-label=\"Liste efter dato\">\n"
-           + "    <h2>Liste</h2>\n"
-           + u("    <p class=\"beskrivelse\">Alle opgaver grupperet efter dato. <a href=\"#liste-projekt\">Gruppér efter projekt</a></p>\n")
+        parts << renderGroup(QStringLiteral("no-date"), "<span class=\"group-title\">" + esc(t["noDate"]) + "</span>",
+                             sortTasks(undated, t), t);
+    return "  <section id=\"list\" class=\"" + viewClass("list", active) + "\" aria-label=\"" + esc(t["listByDate"])
+           + "\">\n"
+           + "    <h2>" + esc(t["list"]) + "</h2>\n"
+           + "    <p class=\"description\">" + esc(t["listDescription"]) + " <a href=\"#list-project\">"
+           + esc(t["groupByProject"]) + "</a></p>\n"
            + parts.join('\n') + "\n"
            + "  </section>";
 }
 
-// renderListeProjekt
-QString renderListByProject(const QList<Item> &items, const QString &active) {
-    const QString none = QStringLiteral("Ingen projekt");
+QString renderListByProject(const QList<Item> &items, const Texts &t, const QString &active) {
+    const QString none = t["noProject"];
     QStringList names;
     QHash<QString, QList<Item>> groups;
     for (const Item &o : items) {
-        const QString p = o.projekt.isEmpty() ? none : o.projekt;
+        const QString p = o.project.isEmpty() ? none : o.project;
         if (!groups.contains(p))
             names << p;
         groups[p].append(o);
     }
+    const QCollator &coll = collator(t.language());
     std::stable_sort(names.begin(), names.end(), [&](const QString &a, const QString &b) {
         if (a == none || b == none)
             return b == none && a != none;
-        return danish().compare(a, b) < 0;
+        return coll.compare(a, b) < 0;
     });
     QStringList parts;
     for (const QString &name : names)
-        parts << renderGroup("projekt:" + esc(name), "<span class=\"gruppe-titel\">" + esc(name) + "</span>",
-                             sorted(groups.value(name)));
-    return "  <section id=\"liste-projekt\" class=\"" + viewClass("liste-projekt", active)
-           + "\" aria-label=\"Liste efter projekt\">\n"
-           + "    <h2>Liste efter projekt</h2>\n"
-           + u("    <p class=\"beskrivelse\">Alle opgaver grupperet efter projekt. <a href=\"#liste\">Gruppér efter dato</a></p>\n")
+        parts << renderGroup(name == none ? QStringLiteral("no-project") : "project:" + esc(name),"<span class=\"group-title\">" + esc(name) + "</span>",
+                             sortTasks(groups.value(name), t), t);
+    return "  <section id=\"list-project\" class=\"" + viewClass("list-project", active) + "\" aria-label=\""
+           + esc(t["listByProject"]) + "\">\n"
+           + "    <h2>" + esc(t["listByProject"]) + "</h2>\n"
+           + "    <p class=\"description\">" + esc(t["listProjectDescription"]) + " <a href=\"#list\">"
+           + esc(t["groupByDate"]) + "</a></p>\n"
            + parts.join('\n') + "\n"
            + "  </section>";
 }
@@ -300,14 +354,13 @@ struct Bar {
     int track = 0;
 };
 
-// renderTidslinje
-QString renderTimeline(const QList<Item> &items, const QString &today, const QString &active) {
+QString renderTimeline(const QList<Item> &items, const QString &today, const Texts &t, const QString &active) {
     QStringList dates;
     for (const Item &o : items) {
         if (!startDate(o).isEmpty())
             dates << o.start.left(10);
-        if (!parseWhen(o.frist).dato.isEmpty())
-            dates << o.frist.left(10);
+        if (!parseWhen(o.deadline).date.isEmpty())
+            dates << o.deadline.left(10);
     }
     dates.removeDuplicates();
     std::sort(dates.begin(), dates.end());
@@ -324,11 +377,11 @@ QString renderTimeline(const QList<Item> &items, const QString &today, const QSt
             if (startDate(o) != day)
                 continue;
             Bar b{o, parseWhen(o.start)};
-            if (b.s.tid.isEmpty()) {
+            if (b.s.time.isEmpty()) {
                 b.allDay = true;
             } else {
-                b.start = hours(b.s.tid);
-                b.length = o.varighed ? o.varighed / 60.0 : 0.5;
+                b.start = hours(b.s.time);
+                b.length = o.duration ? o.duration / 60.0 : 0.5;
             }
             bars << b;
         }
@@ -336,7 +389,7 @@ QString renderTimeline(const QList<Item> &items, const QString &today, const QSt
     }
 
     // Window from the timed tasks: earliest start to latest end, whole hours, at least 08-18.
-    int vs = 8, vu = 18;
+    int from = 8, to = 18;
     bool any = false;
     double minStart = 0, maxEnd = 0;
     for (const auto &bars : std::as_const(raw))
@@ -347,30 +400,31 @@ QString renderTimeline(const QList<Item> &items, const QString &today, const QSt
                 any = true;
             }
     if (any) {
-        vs = std::min(8, int(std::floor(minStart)));
-        vu = std::max(18, int(std::ceil(maxEnd)));
+        from = std::min(8, int(std::floor(minStart)));
+        to = std::max(18, int(std::ceil(maxEnd)));
     }
     for (auto &bars : raw)
         for (Bar &b : bars)
             if (b.allDay) {
-                b.start = vs;
-                b.length = vu - vs;
+                b.start = from;
+                b.length = to - from;
             }
 
-    const int step = vu - vs > 12 ? 3 : vu - vs > 8 ? 2 : 1;
+    const int step = to - from > 12 ? 3 : to - from > 8 ? 2 : 1;
     QString hourLabels;
-    for (int t = int(std::ceil(double(vs) / step)) * step; t <= vu; t += step)
-        hourLabels += QStringLiteral("<span style=\"--t:%1\">%1</span>").arg(t);
+    for (int h = int(std::ceil(double(from) / step)) * step; h <= to; h += step)
+        hourLabels += QStringLiteral("<span style=\"--hour:%1\">%1</span>").arg(h);
 
+    const QCollator &coll = collator(t.language());
     QStringList dayParts;
     for (const QString &day : days) {
         QList<Bar> bars = raw.value(day);
-        std::stable_sort(bars.begin(), bars.end(), [](const Bar &a, const Bar &b) {
+        std::stable_sort(bars.begin(), bars.end(), [&](const Bar &a, const Bar &b) {
             if (a.start != b.start)
                 return a.start < b.start;
             if (a.length != b.length)
                 return a.length > b.length;
-            return danish().compare(a.o.titel, b.o.titel) < 0;
+            return coll.compare(a.o.title, b.o.title) < 0;
         });
         QList<double> trackEnd;
         for (Bar &b : bars) {
@@ -390,60 +444,64 @@ QString renderTimeline(const QList<Item> &items, const QString &today, const QSt
         const int tracks = std::max<int>(1, trackEnd.size());
         QStringList lines;
         for (const Bar &b : bars) {
-            const QString title = b.o.titel + u(" – ") + dateShort(day)
-                                  + (b.s.tid.isEmpty() ? QStringLiteral(" (heldag)")
-                                                       : ' ' + b.s.tid
-                                                             + (b.o.varighed ? u("–") + endTime(b.s.tid, b.o.varighed)
-                                                                             : QString()));
-            const QString pos = "--start:" + num(b.start) + ";--laengde:" + num(b.length) + ";--spor-index:"
+            const QString title = b.o.title + u(" – ") + formatDateShort(t, day)
+                                  + (b.s.time.isEmpty() ? " (" + t["allDay"] + ")"
+                                                        : ' ' + b.s.time
+                                                              + (b.o.duration ? u("–") + endTime(b.s.time, b.o.duration)
+                                                                              : QString()));
+            const QString pos = "--start:" + num(b.start) + ";--length:" + num(b.length) + ";--track:"
                                 + QString::number(b.track);
-            const QString bar = "        <div class=\"stang" + QString(b.allDay ? " stang-heldag" : "")
+            const QString bar = "        <div class=\"bar" + QString(b.allDay ? " bar-all-day" : "")
                                 + QString(b.o.status == QLatin1String("done") ? " status-done" : "") + "\" style=\""
                                 + pos + "\" data-id=\"" + esc(b.o.id) + "\" title=\"" + esc(title) + "\">";
             // The title goes beside the bar when it cannot fit inside it. A
-            // bar's pixel width shrinks with the window (vu - vs); at the
+            // bar's pixel width shrinks with the window (to - from); at the
             // column's minimum width (34rem) about 64 characters fit across a
             // whole-day bar. Estimate conservatively: a title behind the
             // estimate would be clipped by overflow:hidden.
-            const double len = b.o.titel.size();
-            const bool fitsIn = len <= b.length * kCharsPerDay / (vu - vs);
-            if (!fitsIn) {
-                lines << bar + "</div>";
-                lines << "        <span class=\"stang-label\" style=\"" + pos + "\" data-id=\"" + esc(b.o.id)
-                             + "\" title=\"" + esc(title) + "\">" + esc(b.o.titel) + "</span>";
+            const double len = b.o.title.size();
+            const bool fitsIn = len <= b.length * kCharsPerDay / (to - from);
+            if (fitsIn) {
+                lines << bar + "<span class=\"bar-title\">" + esc(b.o.title) + "</span></div>";
             } else {
-                lines << bar + "<span class=\"stang-titel\">" + esc(b.o.titel) + "</span></div>";
+                lines << bar + "</div>";
+                lines << "        <span class=\"bar-label\" style=\"" + pos + "\" data-id=\"" + esc(b.o.id)
+                             + "\" title=\"" + esc(title) + "\">" + esc(b.o.title) + "</span>";
             }
         }
         for (const Item &o : items) {
-            const When f = parseWhen(o.frist);
-            if (f.dato != day || f.dato.isEmpty())
+            const When f = parseWhen(o.deadline);
+            if (f.date != day || f.date.isEmpty())
                 continue;
-            const double start = f.tid.isEmpty() ? vu : hours(f.tid);
-            const bool inWindow = !f.tid.isEmpty() && start < vu;
-            lines << "        <div class=\"frist-maerke" + QString(inWindow ? "" : " frist-maerke-heldag")
-                         + "\" style=\"--start:" + num(std::min(start, double(vu))) + "\" data-id=\"" + esc(o.id)
-                         + "\" title=\"frist: " + esc(deadlineText(o.frist)) + u(" – ") + esc(o.titel) + "\"></div>";
+            const double start = f.time.isEmpty() ? to : hours(f.time);
+            const bool inWindow = !f.time.isEmpty() && start < to;
+            const QString title = fill(t["deadlineTitle"], {{QStringLiteral("date"), formatDeadline(t, o.deadline)},
+                                                            {QStringLiteral("title"), o.title}});
+            lines << "        <div class=\"deadline-mark" + QString(inWindow ? "" : " deadline-mark-edge")
+                         + "\" style=\"--start:" + num(std::min(start, double(to))) + "\" data-id=\"" + esc(o.id)
+                         + "\" title=\"" + esc(title) + "\"></div>";
         }
-        dayParts << "    <section class=\"gantt-dag" + QString(day == today ? " i-dag" : "") + "\" data-dato=\"" + day
+        dayParts << "    <section class=\"gantt-day" + QString(day == today ? " today" : "") + "\" data-date=\"" + day
                         + "\">\n"
-                        + "      <h3 class=\"gantt-dato\"><time datetime=\"" + day + "\">" + esc(dateShort(day))
+                        + "      <h3 class=\"gantt-date\"><time datetime=\"" + day + "\">" + esc(formatDateShort(t, day))
                         + "</time></h3>\n"
-                        + "      <div class=\"spor\" style=\"--spor:" + QString::number(tracks) + "\">\n"
+                        + "      <div class=\"tracks\" style=\"--tracks:" + QString::number(tracks) + "\">\n"
                         + lines.join('\n') + "\n"
                         + "      </div>\n"
                         + "    </section>";
     }
-    return "  <section id=\"tidslinje\" class=\"" + viewClass("tidslinje", active) + "\" aria-label=\"Tidslinje\">\n"
-           + "    <h2>Tidslinje</h2>\n"
-           + u("    <p class=\"beskrivelse\">Gantt over alle datoer med opgaver eller frister – vindue ")
-           + QString::number(vs) + u("–") + QString::number(vu) + ", overlap ligger i hver sit spor.</p>\n"
-           + "    <div class=\"gantt\" style=\"--vs:" + QString::number(vs) + ";--vu:" + QString::number(vu) + "\">\n"
-           + "      <div class=\"gantt-hoved\" aria-hidden=\"true\">\n"
-           + "        <div class=\"gantt-dato gantt-dato-tom\"></div>\n"
-           + "        <div class=\"gantt-timer\">" + hourLabels + "</div>\n"
+    const QString description = fill(t["timelineDescription"], {{QStringLiteral("from"), QString::number(from)},
+                                                                {QStringLiteral("to"), QString::number(to)}});
+    return "  <section id=\"timeline\" class=\"" + viewClass("timeline", active) + "\" aria-label=\"" + esc(t["timeline"])
+           + "\">\n"
+           + "    <h2>" + esc(t["timeline"]) + "</h2>\n"
+           + "    <p class=\"description\">" + esc(description) + "</p>\n"
+           + "    <div class=\"gantt\" style=\"--from:" + QString::number(from) + ";--to:" + QString::number(to) + "\">\n"
+           + "      <div class=\"gantt-head\" aria-hidden=\"true\">\n"
+           + "        <div class=\"gantt-date gantt-date-empty\"></div>\n"
+           + "        <div class=\"gantt-hours\">" + hourLabels + "</div>\n"
            + "      </div>\n"
-           + "      <div class=\"gantt-raekker\">\n"
+           + "      <div class=\"gantt-rows\">\n"
            + dayParts.join('\n') + "\n"
            + "      </div>\n"
            + "    </div>\n"
@@ -452,51 +510,52 @@ QString renderTimeline(const QList<Item> &items, const QString &today, const QSt
 
 QList<Item> itemsOf(const QJsonObject &plan) {
     QList<Item> items;
-    for (const QJsonValue &value : plan.value("opgaver").toArray()) {
+    for (const QJsonValue &value : plan.value("tasks").toArray()) {
         const QJsonObject json = value.toObject();
         Item o;
         o.id = json.value("id").toString();
-        o.titel = json.value("titel").toString();
-        o.noter = json.value("noter").toString();
-        o.projekt = json.value("projekt").toString();
-        o.prioritet = json.value("prioritet").toInt(3);
+        o.title = json.value("title").toString();
+        o.notes = json.value("notes").toString();
+        o.project = json.value("project").toString();
+        o.priority = json.value("priority").toInt(3);
         o.status = json.value("status").toString(QStringLiteral("todo"));
         o.start = json.value("start").toString();
-        o.frist = json.value("frist").toString();
-        o.varighed = std::max(0, json.value("varighed_min").toInt(0));
-        for (const QJsonValue &g : json.value("gaet").toArray())
-            o.gaet << g.toString();
+        o.deadline = json.value("deadline").toString();
+        o.duration = std::max(0, json.value("duration_min").toInt(0));
+        for (const QJsonValue &g : json.value("guessed").toArray())
+            o.guessed << g.toString();
         items << o;
     }
     return items;
 }
 
-QString frame(const QString &lang, const QString &htmlStyle, const QString &meta, const QString &mainAttrs,
+// renderPage without the main content: renderNav, renderFooter and the frame.
+QString frame(const Texts &t, const QString &htmlStyle, const QString &meta, const QString &mainAttrs,
               const QString &body) {
     const QString style = htmlStyle.isEmpty() ? QString() : " style=\"" + esc(htmlStyle) + "\"";
     return "<!doctype html>\n"
-           "<html lang=\"" + esc(lang) + "\"" + style + ">\n"
+           "<html lang=\"" + esc(t.language()) + "\"" + style + ">\n"
            "<head>\n"
            "<meta charset=\"utf-8\">\n"
            "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
-           + u("<title>Omaplan – læseudgave</title>\n")
-           + "<link rel=\"stylesheet\" href=\"style.css\">\n"
-             "</head>\n"
-             "<body>\n"
-             "<header class=\"top\">\n"
-             "  <h1>Omaplan</h1>\n"
-             "  <nav class=\"visninger\" aria-label=\"Visninger\">\n"
-             "    <a href=\"#overblik\">Overblik</a>\n"
-             "    <a href=\"#liste\">Liste</a>\n"
-             "    <a href=\"#tidslinje\">Tidslinje</a>\n"
-             "  </nav>\n"
-             "  <p class=\"meta\">" + meta + "</p>\n"
-           + "</header>\n"
-             "<main id=\"plan\" class=\"plan\"" + mainAttrs + ">\n"
+           "<title>" + esc(t["title"]) + "</title>\n"
+           "<link rel=\"stylesheet\" href=\"style.css\">\n"
+           "</head>\n"
+           "<body>\n"
+           "<header class=\"top\">\n"
+           "  <h1>Omaplan</h1>\n"
+           "  <nav class=\"views\" aria-label=\"" + esc(t["views"]) + "\">\n"
+           "    <a href=\"#overview\">" + esc(t["overview"]) + "</a>\n"
+           "    <a href=\"#list\">" + esc(t["list"]) + "</a>\n"
+           "    <a href=\"#timeline\">" + esc(t["timeline"]) + "</a>\n"
+           "  </nav>\n"
+           "  <p class=\"meta\">" + meta + "</p>\n"
+           "</header>\n"
+           "<main id=\"plan\" class=\"plan\"" + mainAttrs + ">\n"
            + body + "\n"
-           + "</main>\n"
-             "<footer class=\"sidefod\">\n"
-           + u("  <p>Læseudgave (kun læsning) · <a href=\"plan.json\">plan.json</a></p>\n")
+           "</main>\n"
+           "<footer class=\"footer\">\n"
+           "  <p>" + esc(t["footer"]) + u(" · <a href=\"plan.json\">plan.json</a></p>\n")
            + "</footer>\n"
              "<script src=\"app.js\"></script>\n"
              "</body>\n"
@@ -510,6 +569,14 @@ bool isView(const QString &id) {
         if (id == QLatin1String(view))
             return true;
     return false;
+}
+
+QString supportedLanguage(const QString &tag) {
+    const QString lower = tag.trimmed().toLower();
+    for (const char *language : kLanguages)
+        if (lower.startsWith(QLatin1String(language)))
+            return QLatin1String(language);
+    return {};
 }
 
 QString esc(const QString &text) {
@@ -528,31 +595,33 @@ QString esc(const QString &text) {
     return out;
 }
 
-QString page(const QJsonObject &plan, const QDate &today, const QString &htmlStyle, const QString &activeView) {
+QString page(const QJsonObject &plan, const QDate &today, const QString &language, const QString &htmlStyle,
+             const QString &activeView) {
+    const Texts &t = texts(language);
     const QList<Item> items = itemsOf(plan);
-    const QString iDag = today.toString(Qt::ISODate);
+    const QString todayIso = today.toString(Qt::ISODate);
     const QString active = isView(activeView) ? activeView : QString();
-    const QString exported = plan.value("eksporteret").toString();
+    const QString exported = plan.value("exported").toString();
     // renderMeta
-    const QString meta = "Eksporteret <time datetime=\"" + esc(exported) + "\">" + esc(timestamp(exported)) + "</time>"
-                         + u(" <span class=\"prik\">·</span> <span class=\"tidszone\">")
-                         + esc(plan.value("tidszone").toString()) + "</span>"
-                         + u(" <span class=\"prik\">·</span> <span class=\"sprog\">")
-                         + esc(plan.value("sprog").toString()) + "</span>";
+    const QString meta = esc(t["exported"]) + " <time datetime=\"" + esc(exported) + "\">"
+                         + esc(formatTimestamp(t, exported)) + "</time>"
+                         + u(" <span class=\"dot\">·</span> <span class=\"timezone\">")
+                         + esc(plan.value("timezone").toString()) + "</span>";
     // renderMain
-    const QString body = QStringList{renderOverview(items, iDag, active), renderListByDate(items, active),
-                                     renderListByProject(items, active), renderTimeline(items, iDag, active)}
+    const QString body = QStringList{renderOverview(items, todayIso, t, active), renderListByDate(items, t, active),
+                                     renderListByProject(items, t, active), renderTimeline(items, todayIso, t, active)}
                              .join('\n');
-    const QString lang = plan.value("sprog").toString();
-    return frame(lang.isEmpty() ? QStringLiteral("da") : lang, htmlStyle, meta, " data-idag=\"" + iDag + "\"", body);
+    return frame(t, htmlStyle, meta, " data-today=\"" + todayIso + "\"", body);
 }
 
-QString messagePage(const QString &heading, const QString &text, const QString &htmlStyle) {
-    const QString body = "  <section id=\"overblik\" class=\"view\" aria-label=\"Overblik\">\n"
-                         "    <h2>" + esc(heading) + "</h2>\n"
-                         "    <p class=\"beskrivelse\">" + esc(text) + "</p>\n"
+QString messagePage(Message message, const QString &language, const QString &htmlStyle) {
+    const Texts &t = texts(language);
+    const bool noPlan = message == Message::NoPlan;
+    const QString body = "  <section id=\"overview\" class=\"view\" aria-label=\"" + esc(t["overview"]) + "\">\n"
+                         "    <h2>" + esc(t[noPlan ? "noPlanHeading" : "unreadableHeading"]) + "</h2>\n"
+                         "    <p class=\"description\">" + esc(t[noPlan ? "noPlanText" : "unreadableText"]) + "</p>\n"
                          "  </section>";
-    return frame(QStringLiteral("da"), htmlStyle, u("Intet øjebliksbillede endnu"), QString(), body);
+    return frame(t, htmlStyle, esc(t["noSnapshot"]), QString(), body);
 }
 
 } // namespace Render

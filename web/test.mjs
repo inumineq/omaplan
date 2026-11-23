@@ -1,247 +1,292 @@
-// Test for læseudgaven: validerer web/eksempel/plan.json mod docs/eksport-skema.json
-// og tjekker at renderingen af hver visning giver de forventede elementer.
-// Ingen afhængigheder: kør med `node web/test.mjs` (valgfrit: `node web/test.mjs --opdater`
-// regenererer web/index.html fra eksemplet). Tjekker også at index.html ikke trækker
-// eksterne ressourcer, og at statisk markup matcher renderMain() nøjagtigt.
+// Tests for the read-only edition: validates web/example/plan.json against docs/export-schema.json and checks
+// that rendering each view gives the expected elements, in English and Danish.
+// No dependencies: run with `node web/test.mjs` (optionally `node web/test.mjs --update` regenerates
+// web/index.html and web/index.da.html from the example). Also checks that the pages pull in no external
+// resources, and that the static markup matches renderPage() exactly.
 
 'use strict';
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import app from './app.js'; // CommonJS (module.exports) – default-import giver exports-objektet
+import app from './app.js'; // CommonJS (module.exports): the default import gives the exports object
 
 const WEB = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(WEB, '..');
 
-let fejler = 0;
-let ok = 0;
+let failed = 0;
+let passed = 0;
 
-function tjek(betingelse, besked) {
-  if (betingelse) {
-    ok++;
-    console.log('  ok  ' + besked);
+function check(condition, message) {
+  if (condition) {
+    passed++;
+    console.log('  ok   ' + message);
   } else {
-    fejler++;
-    console.error('  FEJL ' + besked);
+    failed++;
+    console.error('  FAIL ' + message);
   }
 }
 
-function sektion(navn) {
-  console.log('\n== ' + navn + ' ==');
+function section(name) {
+  console.log('\n== ' + name + ' ==');
 }
 
-// ---------- minimal JSON Schema-validering (det undersæt skemaet bruger) ----------
+// ---------- minimal JSON Schema validation (the subset the schema uses) ----------
 
-function typeOK(værdi, type) {
-  const t = Array.isArray(type) ? type : [type];
-  return t.some((x) => {
-    if (x === 'string') return typeof værdi === 'string';
-    if (x === 'integer') return typeof værdi === 'number' && Number.isInteger(værdi);
-    if (x === 'number') return typeof værdi === 'number';
-    if (x === 'object') return værdi !== null && typeof værdi === 'object' && !Array.isArray(værdi);
-    if (x === 'array') return Array.isArray(værdi);
-    if (x === 'null') return værdi === null;
-    if (x === 'boolean') return typeof værdi === 'boolean';
+function typeOK(value, type) {
+  const types = Array.isArray(type) ? type : [type];
+  return types.some((x) => {
+    if (x === 'string') return typeof value === 'string';
+    if (x === 'integer') return typeof value === 'number' && Number.isInteger(value);
+    if (x === 'number') return typeof value === 'number';
+    if (x === 'object') return value !== null && typeof value === 'object' && !Array.isArray(value);
+    if (x === 'array') return Array.isArray(value);
+    if (x === 'null') return value === null;
+    if (x === 'boolean') return typeof value === 'boolean';
     return false;
   });
 }
 
-function valider(node, skema, sti, fejl) {
-  if (skema.const !== undefined && node !== skema.const) fejl.push(sti + ': forventede const ' + JSON.stringify(skema.const) + ', fik ' + JSON.stringify(node));
-  if (skema.enum && !skema.enum.includes(node)) fejl.push(sti + ': ' + JSON.stringify(node) + ' ikke i enum ' + JSON.stringify(skema.enum));
-  if (skema.type && !typeOK(node, skema.type)) fejl.push(sti + ': forkert type, forventede ' + JSON.stringify(skema.type) + ', fik ' + typeof node);
+function validate(node, schema, at, errors) {
+  if (schema.const !== undefined && node !== schema.const) errors.push(at + ': expected const ' + JSON.stringify(schema.const) + ', got ' + JSON.stringify(node));
+  if (schema.enum && !schema.enum.includes(node)) errors.push(at + ': ' + JSON.stringify(node) + ' not in enum ' + JSON.stringify(schema.enum));
+  if (schema.type && !typeOK(node, schema.type)) errors.push(at + ': wrong type, expected ' + JSON.stringify(schema.type) + ', got ' + typeof node);
   if (typeof node === 'string') {
-    if (skema.minLength !== undefined && node.length < skema.minLength) fejl.push(sti + ': kortere end minLength ' + skema.minLength);
-    if (skema.maxLength !== undefined && node.length > skema.maxLength) fejl.push(sti + ': længere end maxLength ' + skema.maxLength);
-    if (skema.pattern && !new RegExp(skema.pattern).test(node)) fejl.push(sti + ': matcher ikke pattern ' + skema.pattern + ' (' + JSON.stringify(node) + ')');
+    if (schema.minLength !== undefined && node.length < schema.minLength) errors.push(at + ': shorter than minLength ' + schema.minLength);
+    if (schema.maxLength !== undefined && node.length > schema.maxLength) errors.push(at + ': longer than maxLength ' + schema.maxLength);
+    if (schema.pattern && !new RegExp(schema.pattern).test(node)) errors.push(at + ': does not match pattern ' + schema.pattern + ' (' + JSON.stringify(node) + ')');
   }
   if (typeof node === 'number') {
-    if (skema.minimum !== undefined && node < skema.minimum) fejl.push(sti + ': under minimum ' + skema.minimum);
-    if (skema.maximum !== undefined && node > skema.maximum) fejl.push(sti + ': over maximum ' + skema.maximum);
+    if (schema.minimum !== undefined && node < schema.minimum) errors.push(at + ': below minimum ' + schema.minimum);
+    if (schema.maximum !== undefined && node > schema.maximum) errors.push(at + ': above maximum ' + schema.maximum);
   }
   if (node !== null && typeof node === 'object' && !Array.isArray(node)) {
-    for (const req of skema.required || []) {
-      if (!(req in node)) fejl.push(sti + ': mangler required nøgle "' + req + '"');
+    for (const req of schema.required || []) {
+      if (!(req in node)) errors.push(at + ': missing required key "' + req + '"');
     }
-    if (skema.additionalProperties === false) {
-      for (const nøgle of Object.keys(node)) {
-        if (!skema.properties || !(nøgle in skema.properties)) fejl.push(sti + ': ukendt nøgle "' + nøgle + '"');
+    if (schema.additionalProperties === false) {
+      for (const key of Object.keys(node)) {
+        if (!schema.properties || !(key in schema.properties)) errors.push(at + ': unknown key "' + key + '"');
       }
     }
-    for (const [nøgle, underskema] of Object.entries(skema.properties || {})) {
-      if (nøgle in node) valider(node[nøgle], underskema, sti + '.' + nøgle, fejl);
+    for (const [key, sub] of Object.entries(schema.properties || {})) {
+      if (key in node) validate(node[key], sub, at + '.' + key, errors);
     }
   }
-  if (Array.isArray(node) && skema.items) {
-    node.forEach((element, i) => valider(element, skema.items, sti + '[' + i + ']', fejl));
+  if (Array.isArray(node) && schema.items) {
+    node.forEach((element, i) => validate(element, schema.items, at + '[' + i + ']', errors));
   }
 }
 
-// ---------- læs filer ----------
+// ---------- read files ----------
 
-const plan = JSON.parse(fs.readFileSync(path.join(WEB, 'eksempel', 'plan.json'), 'utf8'));
-const skema = JSON.parse(fs.readFileSync(path.join(ROOT, 'docs', 'eksport-skema.json'), 'utf8'));
-const indexHtml = fs.readFileSync(path.join(WEB, 'index.html'), 'utf8');
-const appJs = fs.readFileSync(path.join(WEB, 'app.js'), 'utf8');
-const styleCss = fs.readFileSync(path.join(WEB, 'style.css'), 'utf8');
+const read = (...parts) => fs.readFileSync(path.join(...parts), 'utf8');
+const plan = JSON.parse(read(WEB, 'example', 'plan.json'));
+const schema = JSON.parse(read(ROOT, 'docs', 'export-schema.json'));
+const en = JSON.parse(read(WEB, 'i18n', 'en.json'));
+const da = JSON.parse(read(WEB, 'i18n', 'da.json'));
+const pages = { en: 'index.html', da: 'index.da.html' };
+const dictionaries = { en, da };
+const indexHtml = read(WEB, pages.en);
+const appJs = read(WEB, 'app.js');
+const styleCss = read(WEB, 'style.css');
 
-// i dag står i den genererede index.html (så testen er deterministisk, også når den kører en anden dag)
-const iDagMatch = /<main id="plan" class="plan" data-idag="(\d{4}-\d{2}-\d{2})">/.exec(indexHtml);
-const iDag = iDagMatch ? iDagMatch[1] : app.iDagStr();
+// today is written in the generated index.html (so the test is deterministic on any day)
+const todayMatch = /<main id="plan" class="plan" data-today="(\d{4}-\d{2}-\d{2})">/.exec(indexHtml);
+const today = todayMatch ? todayMatch[1] : app.todayStr();
 
-// ---------- 1. plan.json mod skemaet ----------
+// ---------- 1. plan.json against the schema ----------
 
-sektion('plan.json mod docs/eksport-skema.json');
-const skemaFejl = [];
-valider(plan, skema, 'plan', skemaFejl);
-tjek(skemaFejl.length === 0, 'skema-validering uden fejl' + (skemaFejl.length ? ':\n    ' + skemaFejl.join('\n    ') : ''));
-tjek(plan.opgaver.length >= 15 && plan.opgaver.length <= 30, 'eksemplet har 15-30 opgaver (' + plan.opgaver.length + ')');
+section('plan.json against docs/export-schema.json');
+const schemaErrors = [];
+validate(plan, schema, 'plan', schemaErrors);
+check(schemaErrors.length === 0, 'schema validation without errors' + (schemaErrors.length ? ':\n    ' + schemaErrors.join('\n    ') : ''));
+check(plan.version === 2, 'format version 2');
+check(plan.tasks.length >= 15 && plan.tasks.length <= 30, 'the example has 15-30 tasks (' + plan.tasks.length + ')');
 
-// ---------- 2. semantik i eksemplet ----------
+// ---------- 2. semantics of the example ----------
 
-sektion('eksemplet dækker kravene');
-const ider = new Set(plan.opgaver.map((o) => o.id));
-tjek(ider.size === plan.opgaver.length, 'alle id-er unikke');
-tjek(plan.opgaver.some((o) => app.erForfalden(o, iDag)), 'der er forfaldne opgaver (todo før i dag)');
-tjek(plan.opgaver.some((o) => !o.start.includes('T') && !o.varighed_min), 'der er heldagsopgaver');
-tjek(plan.opgaver.some((o) => o.start.includes('T') && o.varighed_min), 'der er opgaver med tid og varighed');
-tjek(plan.opgaver.some((o) => o.gaet && o.gaet.length > 0), 'der er gættede felter');
-tjek(plan.opgaver.some((o) => o.status === 'done'), 'der er færdige opgaver');
-tjek(new Set(plan.opgaver.map((o) => o.projekt).filter(Boolean)).size >= 3, 'der er flere projekter');
-const udaterede = plan.opgaver.filter((o) => !o.start);
-tjek(udaterede.length >= 2 && udaterede.length <= 3, 'der er 2-3 udaterede opgaver (Uden dato) (' + udaterede.length + ')');
-// overlap: to opgaver samme dag der overlapper i tid
+section('the example covers the requirements');
+const ids = new Set(plan.tasks.map((o) => o.id));
+check(ids.size === plan.tasks.length, 'all ids unique');
+check(plan.tasks.some((o) => app.isOverdue(o, today)), 'there are overdue tasks (todo before today)');
+check(plan.tasks.some((o) => o.start && !o.start.includes('T') && !o.duration_min), 'there are all-day tasks');
+check(plan.tasks.some((o) => o.start && o.start.includes('T') && o.duration_min), 'there are tasks with time and duration');
+check(plan.tasks.some((o) => o.guessed && o.guessed.length > 0), 'there are guessed fields');
+check(plan.tasks.some((o) => o.status === 'done'), 'there are done tasks');
+check(new Set(plan.tasks.map((o) => o.project).filter(Boolean)).size >= 3, 'there are several projects');
+const undated = plan.tasks.filter((o) => !o.start);
+check(undated.length >= 2 && undated.length <= 3, 'there are 2-3 undated tasks (No date) (' + undated.length + ')');
+// overlap: two tasks on the same day that overlap in time
 let overlap = false;
-for (const o of plan.opgaver) {
-  for (const p of plan.opgaver) {
+for (const o of plan.tasks) {
+  for (const p of plan.tasks) {
     if (o === p || !o.start || !p.start || !o.start.includes('T') || !p.start.includes('T') || o.start.slice(0, 10) !== p.start.slice(0, 10)) continue;
+    if (!o.duration_min || !p.duration_min) continue;
     const a = app.parseStart(o.start), b = app.parseStart(p.start);
-    if (!o.varighed_min || !p.varighed_min) continue;
-    const oStart = +a.tid.slice(0, 2) + +a.tid.slice(3, 5) / 60, oSlut = oStart + o.varighed_min / 60;
-    const pStart = +b.tid.slice(0, 2) + +b.tid.slice(3, 5) / 60, pSlut = pStart + p.varighed_min / 60;
-    if (oStart < pSlut && pStart < oSlut) overlap = true;
+    const oStart = +a.time.slice(0, 2) + +a.time.slice(3, 5) / 60, oEnd = oStart + o.duration_min / 60;
+    const pStart = +b.time.slice(0, 2) + +b.time.slice(3, 5) / 60, pEnd = pStart + p.duration_min / 60;
+    if (oStart < pEnd && pStart < oEnd) overlap = true;
   }
 }
-tjek(overlap, 'der er overlappende opgaver samme dag');
+check(overlap, 'there are overlapping tasks on the same day');
 
-// ---------- 3. rendering af visningerne ----------
+// ---------- 3. rendering the views (English) ----------
 
-sektion('rendering: overblik');
-const overblik = app.renderOverblik(plan, iDag);
-const overblikDage = [...overblik.matchAll(/<section class="dag[^"]*" data-dato="([^"]+)"/g)].map((m) => m[1]);
-const forfaldneDage = [...overblik.matchAll(/<section class="dag forfalden" data-dato="([^"]+)"/g)].map((m) => m[1]);
-tjek(forfaldneDage.length === 3, 'tre forfaldne dage øverst (' + forfaldneDage.join(', ') + ')');
-tjek(overblik.indexOf('forfalden') < overblik.indexOf('data-dato="' + iDag + '"'), 'forfaldne står før i dag');
-const forventedeDage = [];
-for (let k = 0; k < 8; k++) forventedeDage.push(app.tilfoejDage(iDag, k));
-tjek(forventedeDage.every((d) => overblikDage.includes(d)), 'i dag + 7 dage er alle med (' + forventedeDage[0] + '..' + forventedeDage[7] + ')');
-tjek(overblik.includes('badge-i-dag'), 'i dag er markeret');
-const overblikOpgaver = [...overblik.matchAll(/<li class="opgave /g)];
-const daterede = plan.opgaver.filter((o) => o.start);
-const forventedeIOverblik = daterede.filter((o) => {
+section('rendering: overview');
+const overview = app.renderOverview(plan, today, en, '');
+const overviewDays = [...overview.matchAll(/<section class="day[^"]*" data-date="([^"]+)"/g)].map((m) => m[1]);
+const overdueDays = [...overview.matchAll(/<section class="day overdue" data-date="([^"]+)"/g)].map((m) => m[1]);
+check(overdueDays.length === 3, 'three overdue days at the top (' + overdueDays.join(', ') + ')');
+check(overview.indexOf('day overdue') < overview.indexOf('data-date="' + today + '"'), 'overdue days come before today');
+const expectedDays = [];
+for (let k = 0; k < 8; k++) expectedDays.push(app.addDays(today, k));
+check(expectedDays.every((d) => overviewDays.includes(d)), 'today + 7 days are all there (' + expectedDays[0] + '..' + expectedDays[7] + ')');
+check(overview.includes('badge-today'), 'today is marked');
+const overviewTasks = [...overview.matchAll(/<li class="task /g)];
+const dated = plan.tasks.filter((o) => o.start);
+const expectedInOverview = dated.filter((o) => {
   const d = o.start.slice(0, 10);
-  return (d >= iDag && d <= app.tilfoejDage(iDag, 7)) || app.erForfalden(o, iDag);
+  return (d >= today && d <= app.addDays(today, 7)) || app.isOverdue(o, today);
 });
-tjek(overblikOpgaver.length === forventedeIOverblik.length, 'antal opgaver i overblik (' + overblikOpgaver.length + ')');
-tjek(udaterede.every((o) => !overblik.includes(o.id)), 'udaterede opgaver er ikke i overblik');
-tjek(overblik.includes('09:00–09:45'), 'tidsinterval vises (09:00–09:45)');
-tjek(overblik.includes('heldag'), 'heldag vises');
-tjek(overblik.includes('gæt: start, varighed'), 'gæt vises med danske navne');
+check(overviewTasks.length === expectedInOverview.length, 'number of tasks in the overview (' + overviewTasks.length + ')');
+check(undated.every((o) => !overview.includes(o.id)), 'undated tasks are not in the overview');
+check(overview.includes('09:00–09:45'), 'a time interval shows (09:00–09:45)');
+check(overview.includes('<span class="time time-all-day">all day</span>'), 'all day shows');
+check(overview.includes('guessed: start, duration'), 'guessed fields show with their English names');
 
-sektion('rendering: liste (dato og projekt)');
-const liste = app.renderListeDato(plan, iDag);
-const listeProjekt = app.renderListeProjekt(plan, iDag);
-const datoGrupper = [...liste.matchAll(/data-gruppe="dato:([^"]+)"/g)].map((m) => m[1]);
-const projektGrupper = [...listeProjekt.matchAll(/data-gruppe="projekt:([^"]+)"/g)].map((m) => m[1]);
-tjek(datoGrupper.length === new Set(daterede.map((o) => o.start.slice(0, 10))).size, 'liste efter dato: en gruppe pr. start-dato (' + datoGrupper.length + ')');
-tjek(projektGrupper.includes('Blog') && projektGrupper.includes('Podcast') && projektGrupper.includes('Kunde A') && projektGrupper.includes('Ingen projekt'), 'liste efter projekt: Blog, Podcast, Kunde A, Ingen projekt');
-tjek(projektGrupper[projektGrupper.length - 1] === 'Ingen projekt', 'Ingen projekt ligger til sidst');
-const listeLi = [...liste.matchAll(/<li class="opgave /g)].length;
-const listeProjektLi = [...listeProjekt.matchAll(/<li class="opgave /g)].length;
-tjek(listeLi === plan.opgaver.length && listeProjektLi === plan.opgaver.length, 'alle opgaver med i begge lister (' + listeLi + ')');
-tjek(liste.includes('1 opgave') || liste.includes(' opgaver'), 'antal vises pr. gruppe');
-tjek(liste.includes('data-gruppe="uden-dato"'), 'liste efter dato har gruppen Uden dato');
-tjek(liste.lastIndexOf('data-gruppe="dato:') < liste.indexOf('data-gruppe="uden-dato"'), 'Uden dato ligger sidst i liste efter dato');
-tjek(liste.includes('>Uden dato</span>') && liste.includes('ingen dato'), 'Uden dato vises med titel og "ingen dato"');
+section('rendering: list (by date and by project)');
+const list = app.renderListByDate(plan, en, '');
+const listProject = app.renderListByProject(plan, en, '');
+const dateGroups = [...list.matchAll(/data-group="date:([^"]+)"/g)].map((m) => m[1]);
+const projectGroups = [...listProject.matchAll(/data-group="(?:project:)?([^"]+)"/g)].map((m) => m[1]);
+check(dateGroups.length === new Set(dated.map((o) => o.start.slice(0, 10))).size, 'list by date: one group per start date (' + dateGroups.length + ')');
+check(['Blog', 'Podcast', 'Client A', 'no-project'].every((p) => projectGroups.includes(p)), 'list by project: Blog, Podcast, Client A, no-project');
+check(projectGroups[projectGroups.length - 1] === 'no-project', 'the group no-project comes last');
+check(listProject.includes('<section class="group" data-group="no-project">\n    <h3><span class="group-title">No project</span>'), 'the group no-project is titled No project');
+const listLi = [...list.matchAll(/<li class="task /g)].length;
+const listProjectLi = [...listProject.matchAll(/<li class="task /g)].length;
+check(listLi === plan.tasks.length && listProjectLi === plan.tasks.length, 'every task is in both lists (' + listLi + ')');
+check(/<span class="count">(1 task|\d+ tasks)<\/span>/.test(list), 'the count shows per group');
+check(list.includes('data-group="no-date"'), 'the list by date has the group No date');
+check(list.lastIndexOf('data-group="date:') < list.indexOf('data-group="no-date"'), 'No date comes last in the list by date');
+check(list.includes('>No date</span>') && list.includes('>no date</span>'), 'No date shows with its title and "no date"');
 
-sektion('rendering: tidslinje');
-const tidslinje = app.renderTidslinje(plan, iDag);
-const ganttDage = [...tidslinje.matchAll(/<section class="gantt-dag[^"]*" data-dato="([^"]+)"/g)].map((m) => m[1]);
-const alleDatoer = new Set();
-for (const o of plan.opgaver) {
-  if (o.start) alleDatoer.add(o.start.slice(0, 10));
-  if (o.frist) alleDatoer.add(o.frist.slice(0, 10));
+section('rendering: timeline');
+const timeline = app.renderTimeline(plan, today, en, '');
+const ganttDays = [...timeline.matchAll(/<section class="gantt-day[^"]*" data-date="([^"]+)"/g)].map((m) => m[1]);
+const allDates = new Set();
+for (const o of plan.tasks) {
+  if (o.start) allDates.add(o.start.slice(0, 10));
+  if (o.deadline) allDates.add(o.deadline.slice(0, 10));
 }
-const alle = [...alleDatoer].sort();
-const min = alle[0];
-const max = alle[alle.length - 1];
-tjek(ganttDage[0] === min && ganttDage[ganttDage.length - 1] === max, 'tidslinje spænder ' + min + '..' + max + ' (' + ganttDage.length + ' dage)');
-const stangCount = [...tidslinje.matchAll(/<div class="stang[ "]/g)].length;
-tjek(stangCount === daterede.length, 'én bjælke pr. dateret opgave (' + stangCount + ' af ' + plan.opgaver.length + ')');
-tjek(udaterede.every((o) => !new RegExp('<div class="stang[^"]*"[^>]*data-id="' + o.id + '"').test(tidslinje)), 'udaterede opgaver har ingen bjælke i tidslinjen');
-const dag23 = tidslinje.split('data-dato="2026-11-23"')[1].split('</section>')[0];
-tjek(dag23.includes('--spor:3'), 'overlap-dagen 2026-11-23 har 3 spor');
-tjek((dag23.match(/--spor-index:2/g) || []).length >= 1, 'den overlappende opgave ligger i spor 2');
-const fristMaerker = [...tidslinje.matchAll(/<div class="frist-maerke/g)].length;
-const forventedeFrister = plan.opgaver.filter((o) => o.frist).length;
-tjek(fristMaerker === forventedeFrister, 'frist-mærker for alle opgaver med frist (' + fristMaerker + ')');
-tjek(tidslinje.includes('stang-heldag'), 'heldagsbjælker har stang-heldag');
+const all = [...allDates].sort();
+const min = all[0];
+const max = all[all.length - 1];
+check(ganttDays[0] === min && ganttDays[ganttDays.length - 1] === max, 'the timeline spans ' + min + '..' + max + ' (' + ganttDays.length + ' days)');
+const barCount = [...timeline.matchAll(/<div class="bar[ "]/g)].length;
+check(barCount === dated.length, 'one bar per dated task (' + barCount + ' of ' + plan.tasks.length + ')');
+check(undated.every((o) => !new RegExp('<div class="bar[^"]*"[^>]*data-id="' + o.id + '"').test(timeline)), 'undated tasks have no bar in the timeline');
+const day23 = timeline.split('data-date="2026-11-23"')[1].split('</section>')[0];
+check(day23.includes('--tracks:3'), 'the overlap day 2026-11-23 has 3 tracks');
+check((day23.match(/--track:2/g) || []).length >= 1, 'the overlapping task is in track 2');
+const deadlineMarks = [...timeline.matchAll(/<div class="deadline-mark/g)].length;
+const expectedDeadlines = plan.tasks.filter((o) => o.deadline).length;
+check(deadlineMarks === expectedDeadlines, 'deadline marks for every task with a deadline (' + deadlineMarks + ')');
+check(timeline.includes('bar-all-day'), 'all-day bars have bar-all-day');
 
-// tidsvindue ud fra data: tidligste start til seneste slut afrundet til hele timer, mindst 08-18
-let vs = 8, vu = 18;
-const medTid = daterede.filter((o) => o.start.includes('T')).map((o) => {
-  const t = app.parseStart(o.start).tid;
+// time window from the data: earliest start to latest end rounded to whole hours, at least 08-18
+let from = 8, to = 18;
+const timed = dated.filter((o) => o.start.includes('T')).map((o) => {
+  const t = app.parseStart(o.start).time;
   const start = Number(t.slice(0, 2)) + Number(t.slice(3, 5)) / 60;
-  return { start, slut: start + (o.varighed_min ? o.varighed_min / 60 : 0.5) };
+  return { start, end: start + (o.duration_min ? o.duration_min / 60 : 0.5) };
 });
-if (medTid.length) {
-  vs = Math.min(8, Math.floor(Math.min(...medTid.map((b) => b.start))));
-  vu = Math.max(18, Math.ceil(Math.max(...medTid.map((b) => b.slut))));
+if (timed.length) {
+  from = Math.min(8, Math.floor(Math.min(...timed.map((b) => b.start))));
+  to = Math.max(18, Math.ceil(Math.max(...timed.map((b) => b.end))));
 }
-tjek(tidslinje.includes('<div class="gantt" style="--vs:' + vs + ';--vu:' + vu + '">'), 'tidsvindue sættes på .gantt (--vs:' + vs + ';--vu:' + vu + ')');
-const skridt = vu - vs > 12 ? 3 : vu - vs > 8 ? 2 : 1;
-let forventedeTimer = 0;
-for (let t = Math.ceil(vs / skridt) * skridt; t <= vu; t += skridt) forventedeTimer++;
-const timerAntal = (tidslinje.match(/<div class="gantt-timer">.*?<\/div>/s) || [''])[0].match(/<span style="--t:/g)?.length || 0;
-tjek(timerAntal === forventedeTimer, 'time-aksen har ' + timerAntal + ' labels (skridt ' + skridt + ' t)');
-tjek(tidslinje.includes('stang-heldag" style="--start:' + vs + ';--laengde:' + (vu - vs)), 'heldagsbjælke spænder hele vinduet');
-// titel ved siden af bjælken når den ikke kan være i den (Møde med Kunde A: 16 tegn i 0,75 t af vinduet 8–18)
-tjek(/<span class="stang-label"[^>]*title="[^"]*"[^>]*>Møde med Kunde A<\/span>/.test(tidslinje), 'kort bjælke får titel ved siden af (stang-label med title');
-tjek(/<div class="stang stang-heldag"[^>]*><span class="stang-titel">/.test(tidslinje), 'lang bjælke har titlen i sig');
-// ingen titel klippes i en for kort bjælke: stang-titel findes kun, når estimatet siger den kan være der
+check(timeline.includes('<div class="gantt" style="--from:' + from + ';--to:' + to + '">'), 'the time window is set on .gantt (--from:' + from + ';--to:' + to + ')');
+const step = to - from > 12 ? 3 : to - from > 8 ? 2 : 1;
+let expectedHours = 0;
+for (let h = Math.ceil(from / step) * step; h <= to; h += step) expectedHours++;
+const hourCount = (timeline.match(/<div class="gantt-hours">.*?<\/div>/s) || [''])[0].match(/<span style="--hour:/g)?.length || 0;
+check(hourCount === expectedHours, 'the hour axis has ' + hourCount + ' labels (step ' + step + ' h)');
+check(timeline.includes('bar-all-day" style="--start:' + from + ';--length:' + (to - from)), 'an all-day bar spans the whole window');
+// the title beside the bar when it cannot fit (Meeting with Client A: 21 characters in 0.75 h of the window 8-18)
+check(/<span class="bar-label"[^>]*title="[^"]*"[^>]*>Meeting with Client A<\/span>/.test(timeline), 'a short bar gets its title beside it (bar-label with title)');
+check(/<div class="bar bar-all-day"[^>]*><span class="bar-title">/.test(timeline), 'a long bar has its title inside');
+// no title is clipped in a bar that is too short: bar-title only appears when the estimate says it fits
 {
-  const TEGN_PR_DAG = 64;
-  const forKorte = [];
-  for (const m of tidslinje.matchAll(/<div class="stang[^"]*" style="--start:([^;]+);--laengde:([^;]+);--spor-index:\d+"[^>]*><span class="stang-titel">([^<]*)</g)) {
-    if (m[3].length > (Number(m[2]) * TEGN_PR_DAG) / (vu - vs)) forKorte.push(m[3]);
+  const CHARS_PER_DAY = 64;
+  const tooShort = [];
+  for (const m of timeline.matchAll(/<div class="bar[^"]*" style="--start:([^;]+);--length:([^;]+);--track:\d+"[^>]*><span class="bar-title">([^<]*)</g)) {
+    if (m[3].length > (Number(m[2]) * CHARS_PER_DAY) / (to - from)) tooShort.push(m[3]);
   }
-  tjek(forKorte.length === 0, 'ingen titel i en bjælke, hvor den ikke kan være der (' + forKorte.join(', ') + ')');
+  check(tooShort.length === 0, 'no title inside a bar where it cannot fit (' + tooShort.join(', ') + ')');
 }
 
-// ---------- 4. index.html: statisk markup = renderSide, ingen eksterne ressourcer ----------
+// ---------- 4. languages ----------
 
-sektion('index.html (statisk, server-renderet reference)');
-const forventet = app.renderSide(plan, iDag);
-tjek(indexHtml === forventet, 'index.html er nøjagtig lig renderSide(eksempel, data-idag) – kør `node web/test.mjs --opdater` hvis app.js er ændret');
-for (const id of ['id="overblik"', 'id="liste"', 'id="liste-projekt"', 'id="tidslinje"']) {
-  tjek(indexHtml.includes('<section ' + id), 'sektion ' + id + ' findes');
+section('languages');
+check(app.pickLanguage('da-DK') === 'da' && app.pickLanguage('da') === 'da', 'navigator.language da-DK / da picks Danish');
+check(app.pickLanguage('en-US') === 'en' && app.pickLanguage('fr') === 'en' && app.pickLanguage(undefined) === 'en', 'en-US, fr and no language pick English');
+const shape = (o) => Object.keys(o).sort().map((k) => k + ':' + (Array.isArray(o[k]) ? 'array' + o[k].length : typeof o[k])).join(',');
+check(shape(en) === shape(da) && shape(en.guessNames) === shape(da.guessNames), 'en.json and da.json have the same keys');
+check(en.language === 'en' && da.language === 'da', 'each dictionary names its language');
+const pageEn = app.renderPage(plan, today, en);
+const pageDa = app.renderPage(plan, today, da);
+const texts = {
+  en: ['<html lang="en">', 'Monday 23 November 2026', 'Mon 23/11', '1 h 30 min', 'deadline Friday 27 November 2026 at 12:00',
+    'Exported <time datetime="2026-11-23T13:57:00+01:00">23 November 2026 at 13:57</time>', '>all day<', '>no date<', 'guessed: start, duration',
+    '<span class="badge badge-done">done</span>', '<summary>Notes</summary>', 'Read-only edition · <a href="plan.json">plan.json</a>', '<span class="count">1 task</span>',
+    'aria-label="Views"', '<a href="#overview">Overview</a>', '<title>Omaplan – read-only edition</title>'],
+  da: ['<html lang="da">', 'Mandag 23. november 2026', 'Man 23/11', '1 t. 30 min', 'frist fredag 27. november 2026 kl. 12:00',
+    'Eksporteret <time datetime="2026-11-23T13:57:00+01:00">23. november 2026 kl. 13:57</time>', '>heldag<', '>ingen dato<', 'gæt: start, varighed',
+    '<span class="badge badge-done">færdig</span>', '<summary>Noter</summary>', 'Læseudgave (kun læsning) · <a href="plan.json">plan.json</a>', '<span class="count">1 opgave</span>',
+    'aria-label="Visninger"', '<a href="#overview">Overblik</a>', '<title>Omaplan – læseudgave</title>'],
+};
+for (const [lang, page] of [['en', pageEn], ['da', pageDa]]) {
+  const missing = texts[lang].filter((s) => !page.includes(s));
+  check(missing.length === 0, lang + ': page texts and date formats' + (missing.length ? ' (missing: ' + missing.join(' | ') + ')' : ''));
 }
-tjek((indexHtml.match(/href="#[a-z-]+"/g) || []).length >= 5, 'visninger vælges via ankre (href="#…")');
-tjek(!/src="https?:|href="https?:|@import|url\(/i.test(indexHtml + appJs + styleCss.replace(/\/\*.*?\*\//gs, '')),
-  'ingen eksterne URL\'er, @import eller url() i index.html/app.js/style.css');
-tjek(!/<script(?![^>]*src="app\.js")[^>]*src=/.test(indexHtml), 'kun app.js som eksternt script');
-tjek(indexHtml.includes('<link rel="stylesheet" href="style.css">'), 'kun style.css som eksternt stylesheet');
-tjek(/:root:not\(:has\(:target\)\):not\(:has\(\.view\.aktiv\)\)/.test(styleCss), 'kun én aktiv fane ad gangen (default-fanen slås fra når en anden er valgt)');
+check(!/\{\w+\}/.test(pageEn + pageDa), 'no unfilled {placeholder} in either page');
+check(pageDa.replace(/>[^<]*</g, '><').replace(/ (title|aria-label)="[^"]*"/g, '') === pageEn.replace(/>[^<]*</g, '><').replace(/ (title|aria-label)="[^"]*"/g, '').replace('lang="en"', 'lang="da"'),
+  'the Danish page has the same markup as the English one, only the texts differ');
+check(app.renderMain(plan, today, en, 'timeline').includes('<section id="timeline" class="view active"'), 'an active view gets the class active');
+check(!app.renderMain(plan, today, en, '<x>').includes('active"'), 'an unknown view id is ignored');
 
-// ---------- 5. --opdater ----------
+// ---------- 5. the static pages: markup = renderPage, no external resources ----------
 
-if (process.argv.includes('--opdater')) {
-  fs.writeFileSync(path.join(WEB, 'index.html'), app.renderSide(plan, app.iDagStr()));
-  console.log('\nindex.html regenereret fra eksempel/plan.json (i dag = ' + app.iDagStr() + ')');
+for (const [lang, file] of Object.entries(pages)) {
+  section(file + ' (static, server-rendered reference, ' + lang + ')');
+  const html = fs.existsSync(path.join(WEB, file)) ? read(WEB, file) : '';
+  check(html === app.renderPage(plan, today, dictionaries[lang]), file + ' equals renderPage(example, data-today, ' + lang + ') exactly – run `node web/test.mjs --update` if app.js or the dictionaries changed');
+  for (const id of app.VIEWS) check(html.includes('<section id="' + id + '"'), 'section id="' + id + '" exists');
+  check((html.match(/href="#[a-z-]+"/g) || []).length >= 5, 'views are chosen through anchors (href="#…")');
+  check(!/<script(?![^>]*src="app\.js")[^>]*src=/.test(html), 'only app.js as an external script');
+  check(html.includes('<link rel="stylesheet" href="style.css">'), 'only style.css as an external stylesheet');
+}
+check(!/src="https?:|href="https?:|@import|url\(/i.test(indexHtml + appJs + styleCss.replace(/\/\*.*?\*\//gs, '')),
+  'no external URLs, @import or url() in index.html/app.js/style.css');
+check(/:root:not\(:has\(:target\)\):not\(:has\(\.view\.active\)\)/.test(styleCss), 'only one active tab at a time (the default tab turns off when another is chosen)');
+{
+  // every class the pages use has a rule in style.css (or is a deliberate hook without one)
+  const hooks = new Set(['view', 'status-todo', 'badge-p2', 'badge-p3', 'group-title', 'deadline', 'duration', 'gantt-date-empty', 'top', 'timezone', 'gantt-rows']);
+  const used = new Set();
+  for (const m of (pageEn + app.renderMain(plan, today, en, 'list')).matchAll(/class="([^"]+)"/g)) for (const c of m[1].split(' ')) used.add(c);
+  const missing = [...used].filter((c) => !hooks.has(c) && !new RegExp('\\.' + c.replace(/-/g, '\\-') + '(?![\\w-])').test(styleCss));
+  check(missing.length === 0, 'every class in the markup is styled' + (missing.length ? ' (unstyled: ' + missing.join(', ') + ')' : ''));
 }
 
-// ---------- resultat ----------
+// ---------- 6. --update ----------
 
-console.log('\n' + ok + ' tjek OK, ' + fejler + ' fejlede');
-process.exit(fejler === 0 ? 0 : 1);
+if (process.argv.includes('--update')) {
+  for (const [lang, file] of Object.entries(pages)) fs.writeFileSync(path.join(WEB, file), app.renderPage(plan, app.todayStr(), dictionaries[lang]));
+  console.log('\nindex.html and index.da.html regenerated from example/plan.json (today = ' + app.todayStr() + ')');
+}
+
+// ---------- result ----------
+
+console.log('\n' + passed + ' checks passed, ' + failed + ' failed');
+process.exit(failed === 0 ? 0 : 1);
