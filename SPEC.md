@@ -14,7 +14,7 @@ Fra rodet tekst til en plan, du kan se og flytte rundt på.
 1. Appen åbner på **Overblik**: i dag og de kommende dage som en agenda.
 2. `n` (eller Space) åbner **indtastning**: et stort tekstfelt. Man skriver frit eller dikterer med Omarchys
    diktering (Superwhisper skriver i det felt, der har fokus; appen bygger ikke sin egen).
-   Eksempel: "podcast-klip til linkedin tirsdag, artikel om overenskomst skal være klar fredag 12, research 3 timer
+   Eksempel: "podcast-klip til linkedin tirsdag, artikel om budgettet skal være klar fredag 12, research 3 timer
    onsdag formiddag, nyhedsbrev hver torsdag i november".
 3. `Ctrl+Enter` sender teksten til den valgte AI-motor.
 4. **Forslag**: AI'ens opgaver vises som en redigerbar liste, før noget gemmes. Felter, AI'en har gættet
@@ -46,7 +46,7 @@ Visningerne er forskellige blik på de samme data. Ingen visning har egen tilsta
 | id | UUID | |
 | titel | tekst | kort, imperativ eller substantiv |
 | noter | tekst | valgfri |
-| projekt | tekst | valgfri, fx "Journalisten", "Jour" |
+| projekt | tekst | valgfri, fx "Blog", "Kunde A" |
 | prioritet | 1–3 | 1 = høj |
 | status | `todo` / `done` | |
 | start | dato eller dato+tid | lokal tid (Europe/Copenhagen) |
