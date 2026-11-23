@@ -1,0 +1,464 @@
+/* Omaplan læseudgave – Omarchy-mørk, mobilvenlig, uden eksterne ressourcer.
+   Farverne ligger som CSS-variabler, så omaplan serve kan sætte temaet live
+   (accent fra ~/.local/state/omarchy/current/theme/colors.toml, fallback #FFD60A).
+   Se web/MARKUP.md for kontrakten. */
+
+:root {
+  --bg: #0e0e10;
+  --bg-raised: #1a1a21;
+  --fg: #e8e8ee;
+  --muted: #8b8b98;
+  --border: #2a2a34;
+  --accent: #ffd60a;
+  --accent-fg: #000000;
+  --danger: #f7768e;
+  --ok: #9ece6a;
+  --radius: 8px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-padding-top: 7.5rem;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 1rem;
+  line-height: 1.45;
+}
+
+/* ---------- top ---------- */
+
+.top {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
+  padding: 0.6rem 1rem 0.5rem;
+}
+
+.top h1 {
+  margin: 0;
+  font-size: 1.15rem;
+  display: inline-block;
+  margin-right: 1rem;
+}
+
+.visninger {
+  display: inline-flex;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+}
+
+.visninger a {
+  color: var(--muted);
+  text-decoration: none;
+  padding: 0.3rem 0.7rem;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+}
+
+.visninger a:hover,
+.visninger a:focus-visible {
+  color: var(--fg);
+  border-color: var(--border);
+}
+
+/* aktiv fane: præcis én ad gangen – målet selv, .aktiv sat af JS, eller (intet valgt) overblik */
+body:has(#overblik:target) .visninger a[href="#overblik"],
+body:has(#overblik.aktiv) .visninger a[href="#overblik"],
+body:has(#liste:target) .visninger a[href="#liste"],
+body:has(#liste.aktiv) .visninger a[href="#liste"],
+body:has(#liste-projekt:target) .visninger a[href="#liste"],
+body:has(#liste-projekt.aktiv) .visninger a[href="#liste"],
+body:has(#tidslinje:target) .visninger a[href="#tidslinje"],
+body:has(#tidslinje.aktiv) .visninger a[href="#tidslinje"],
+:root:not(:has(:target)):not(:has(.view.aktiv)) .visninger a[href="#overblik"] {
+  color: var(--accent-fg);
+  background: var(--accent);
+}
+
+.meta {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.meta .prik {
+  margin: 0 0.3rem;
+}
+
+/* ---------- visninger (valg via ankre + :target, virker uden JS) ---------- */
+
+.plan {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 0.5rem 1rem 2rem;
+}
+
+.view {
+  display: none;
+}
+
+#overblik {
+  display: block; /* standardvisning når intet anker er valgt */
+}
+
+.view:target,
+.view.aktiv {
+  display: block;
+}
+
+/* når en anden visning er målet (eller aktiv via JS), skjul standardvisningen */
+.plan:has(.view:target) #overblik:not(:target),
+.plan:has(.view.aktiv) #overblik:not(.aktiv) {
+  display: none;
+}
+
+.view > h2 {
+  font-size: 1.3rem;
+  margin: 1rem 0 0.2rem;
+}
+
+.beskrivelse {
+  margin: 0 0 1rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.beskrivelse a {
+  color: var(--accent);
+}
+
+/* ---------- dag og grupper ---------- */
+
+.dag,
+.gruppe {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.6rem 0.8rem;
+  margin: 0 0 0.8rem;
+}
+
+.dag.forfalden {
+  border-color: var(--danger);
+}
+
+.dag h3,
+.gruppe h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.tom {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin: 0.2rem 0;
+}
+
+/* ---------- opgaver ---------- */
+
+.opgaver {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.opgave {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--muted);
+  border-radius: calc(var(--radius) / 1.5);
+  padding: 0.45rem 0.6rem;
+}
+
+.opgave[data-prioritet="1"] {
+  border-left-color: var(--accent);
+}
+
+.opgave[data-prioritet="2"] {
+  border-left-color: var(--muted);
+}
+
+.opgave.status-done .titel {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+
+.opgave-rad {
+  margin: 0;
+  display: flex;
+  gap: 0.6rem;
+  align-items: baseline;
+}
+
+.tid {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.tid-heldag {
+  color: var(--muted);
+}
+
+.tid-ingen {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.titel {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.opgave-meta {
+  margin: 0.25rem 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.6rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+  align-items: center;
+}
+
+.projekt-tag {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.05rem 0.55rem;
+  color: var(--fg);
+}
+
+.gaet {
+  font-style: italic;
+}
+
+.badge {
+  border-radius: 999px;
+  padding: 0.05rem 0.5rem;
+  font-size: 0.72rem;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.badge-p1 {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.badge-i-dag {
+  color: var(--accent-fg);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.badge-forfalden,
+.badge-done {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.badge-done {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+
+.antal {
+  font-weight: 400;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.noter {
+  margin-top: 0.3rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.noter summary {
+  cursor: pointer;
+}
+
+.noter p {
+  margin: 0.3rem 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- tidslinje (Gantt) ---------- */
+
+/* tidsvinduet sættes inline på .gantt (--vs/--vu, hele timer, mindst 8-18) */
+.gantt {
+  --vs: 8;
+  --vu: 18;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  overflow-x: auto;
+}
+
+.gantt-hoved,
+.gantt-dag {
+  display: flex;
+  min-width: 34rem; /* smal skærm: horizontalt scroll, dato-kolonnen følger med */
+}
+
+.gantt-hoved {
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.gantt-timer {
+  position: relative;
+  flex: 1;
+  height: 1.1rem;
+}
+
+.gantt-timer span {
+  position: absolute;
+  left: calc((var(--t) - var(--vs)) / (var(--vu) - var(--vs)) * 100%);
+  transform: translateX(-50%);
+}
+
+/* sidste label (ved vinduets slut) højrejusteres, så det ikke klippes */
+.gantt-timer span:last-child {
+  transform: translateX(-100%);
+}
+
+.gantt-dato {
+  width: 4.6rem;
+  flex: none;
+  margin: 0;
+  padding: 0.45rem 0.4rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+  border-right: 1px solid var(--border);
+}
+
+.gantt-dag {
+  border-bottom: 1px solid var(--border);
+}
+
+.gantt-dag:last-child {
+  border-bottom: none;
+}
+
+.gantt-dag.i-dag .gantt-dato {
+  color: var(--accent);
+}
+
+.spor {
+  position: relative;
+  flex: 1;
+  height: calc(var(--spor, 1) * 1.7rem);
+  min-width: 0;
+}
+
+.stang {
+  position: absolute;
+  top: calc(var(--spor-index, 0) * 1.7rem + 0.15rem);
+  left: calc((var(--start, 8) - var(--vs)) / (var(--vu) - var(--vs)) * 100%);
+  width: calc(var(--laengde, 1) / (var(--vu) - var(--vs)) * 100%);
+  min-width: 0.35rem;
+  height: 1.4rem;
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-radius: 4px;
+  overflow: hidden;
+  font-size: 0.75rem;
+  line-height: 1.4rem;
+  white-space: nowrap;
+}
+
+.stang-heldag {
+  background: transparent;
+  color: var(--fg);
+  border: 1px dashed var(--muted);
+}
+
+.stang.status-done {
+  opacity: 0.45;
+}
+
+.stang-titel {
+  padding: 0 0.3rem;
+}
+
+/* titel ved siden af bjælken når den ikke kan være i den */
+.stang-label {
+  position: absolute;
+  top: calc(var(--spor-index, 0) * 1.7rem + 0.15rem);
+  left: calc((var(--start, 8) + var(--laengde, 1) - var(--vs)) / (var(--vu) - var(--vs)) * 100% + 0.35rem);
+  height: 1.4rem;
+  line-height: 1.4rem;
+  font-size: 0.75rem;
+  color: var(--fg);
+  white-space: nowrap;
+}
+
+.frist-maerke {
+  position: absolute;
+  top: calc(var(--spor, 1) * 1.7rem - 0.45rem);
+  left: calc((var(--start, 18) - var(--vs)) / (var(--vu) - var(--vs)) * 100%);
+  width: 0.55rem;
+  height: 0.55rem;
+  transform: translateX(-50%) rotate(45deg);
+  background: var(--danger);
+  border-radius: 1px;
+}
+
+/* frist uden for vinduet (eller kun dato) ligger i højre kant */
+.frist-maerke-heldag {
+  left: auto;
+  right: 0.15rem;
+  transform: rotate(45deg);
+}
+
+/* ---------- sidefod ---------- */
+
+.sidefod {
+  border-top: 1px solid var(--border);
+  padding: 0.8rem 1rem 1.5rem;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.sidefod a {
+  color: var(--accent);
+}
+
+/* ---------- bredere skærme ---------- */
+
+@media (min-width: 48rem) {
+  .plan {
+    max-width: 56rem;
+  }
+
+  .top {
+    padding: 0.7rem 1.5rem 0.6rem;
+  }
+
+  .plan {
+    padding: 0.5rem 1.5rem 2rem;
+  }
+}
