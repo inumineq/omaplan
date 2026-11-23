@@ -498,6 +498,7 @@ private slots:
         QVERIFY(Actions::parseDateTime(QStringLiteral("fredag"), today, &out, &hasTime, &error));
         QCOMPARE(out.date().dayOfWeek(), 5);
         QCOMPARE(out.date(), today.addDays(4));
+        QVERIFY(!hasTime);
 
         QVERIFY(Actions::parseDateTime(QStringLiteral("mandag"), today, &out, &hasTime, &error));
         QCOMPARE(out.date(), today); // today is Monday
@@ -508,12 +509,68 @@ private slots:
         QVERIFY(Actions::parseDateTime(QStringLiteral("næste fredag"), today, &out, &hasTime, &error));
         QCOMPARE(out.date(), today.addDays(4));
 
-        // "fredag 12": the 12th; November's is past, so December's.
+        // Weekday + number 0-23 is a time of day, not a day of the month.
         QVERIFY(Actions::parseDateTime(QStringLiteral("fredag 12"), today, &out, &hasTime, &error));
-        QCOMPARE(out.date(), QDate(2026, 12, 12));
+        QCOMPARE(out.date(), today.addDays(4)); // 2026-11-27, a Friday
+        QCOMPARE(out.time(), QTime(12, 0));
+        QVERIFY(hasTime);
 
+        QVERIFY(Actions::parseDateTime(QStringLiteral("fredag 12.30"), today, &out, &hasTime, &error));
+        QCOMPARE(out.date(), today.addDays(4));
+        QCOMPARE(out.time(), QTime(12, 30));
+        QVERIFY(hasTime);
+
+        QVERIFY(Actions::parseDateTime(QStringLiteral("mandag 9.30"), today, &out, &hasTime, &error));
+        QCOMPARE(out.date(), today);
+        QCOMPARE(out.time(), QTime(9, 30));
+        QVERIFY(hasTime);
+
+        // Keyword + bare tal = date + time.
+        QVERIFY(Actions::parseDateTime(QStringLiteral("i morgen 10"), today, &out, &hasTime, &error));
+        QCOMPARE(out.date(), today.addDays(1));
+        QCOMPARE(out.time(), QTime(10, 0));
+        QVERIFY(hasTime);
+
+        QVERIFY(Actions::parseDateTime(QStringLiteral("i dag 14"), today, &out, &hasTime, &error));
+        QCOMPARE(out.date(), today);
+        QCOMPARE(out.time(), QTime(14, 0));
+        QVERIFY(hasTime);
+
+        QVERIFY(Actions::parseDateTime(QStringLiteral("tomorrow 9"), today, &out, &hasTime, &error));
+        QCOMPARE(out.date(), today.addDays(1));
+        QCOMPARE(out.time(), QTime(9, 0));
+        QVERIFY(hasTime);
+
+        // Day of the month only with explicit forms: "den 12.", "12.", "12/12", "12. december".
+        for (const char *form : {"den 12.", "12.", "12/12", "12. december", "12 december"}) {
+            QVERIFY2(Actions::parseDateTime(QString::fromUtf8(form), today, &out, &hasTime, &error),
+                     qPrintable(QString::fromUtf8(form) + ": " + error));
+            QCOMPARE(out.date(), QDate(2026, 12, 12)); // November's 12th is past
+            QVERIFY(!hasTime);
+        }
+
+        // Weekday + "den 12." must agree: 2026-12-12 is a Saturday.
+        QVERIFY(!Actions::parseDateTime(QStringLiteral("fredag den 12."), today, &out, &hasTime, &error));
+        QVERIFY(!error.isEmpty());
+        QVERIFY(Actions::parseDateTime(QStringLiteral("lørdag den 12."), today, &out, &hasTime, &error));
+        QCOMPARE(out.date(), QDate(2026, 12, 12));
+        QVERIFY(!hasTime);
+
+        // Weekday + number above 23 is neither a time nor a date form: error.
+        QVERIFY(!Actions::parseDateTime(QStringLiteral("fredag 25"), today, &out, &hasTime, &error));
+
+        // Bare tal alone stays a day of the month.
         QVERIFY(Actions::parseDateTime(QStringLiteral("25"), today, &out, &hasTime, &error));
         QCOMPARE(out.date(), QDate(2026, 11, 25));
+        QVERIFY(!hasTime);
+
+        // A day the current month does not have must not be clamped into it.
+        const QDate february(2026, 2, 10);
+        QVERIFY(Actions::parseDateTime(QStringLiteral("30"), february, &out, &hasTime, &error));
+        QCOMPARE(out.date(), QDate(2026, 3, 30));
+        QVERIFY(Actions::parseDateTime(QStringLiteral("31"), february, &out, &hasTime, &error));
+        QCOMPARE(out.date(), QDate(2026, 3, 31));
+        QVERIFY(!Actions::parseDateTime(QStringLiteral("32"), february, &out, &hasTime, &error));
 
         QVERIFY(Actions::parseDateTime(QStringLiteral("fredag kl. 14:30"), today, &out, &hasTime, &error));
         QCOMPARE(out.date(), today.addDays(4));
