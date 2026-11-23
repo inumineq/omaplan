@@ -3,79 +3,186 @@ import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
 
-// Free-text input, opened with `n` or Space. Ctrl+Enter sends the text to the
-// AI engine (actions.guiPropose); Esc closes without sending.
+import Omaplan
+
+// Fri tekst, åbnet med n eller Space. Ctrl+Enter sender til AI-motoren; med
+// Sammenlign (Alt+S) går teksten til to motorer på én gang. Mens motoren
+// arbejder, står vinduet åbent med en tæller, og Esc afbryder. Teksten
+// bevares, til et forslag er godkendt, så en fejl eller et afbrud aldrig
+// koster det, man har skrevet.
 Rectangle {
     id: overlay
-    color: Qt.rgba(0, 0, 0, 0.72)
+    color: Qt.rgba(0, 0, 0, 0.6)
     visible: false
 
     property bool busy: false
+    property bool compare: false
+    property string draft: ""
+    property int seconds: 0
+    property var engines: ({ "default": "", "compare": ["", ""] })
 
-    signal submitted(string text)
-    signal closeRequested()
+    signal compareRequested(string text)
+    signal proposalReady(string text, var proposal, string captureId)
+    signal proposalFailed(string text, string message)
 
-    function open() {
+    function open(text) {
+        engines = actions.guiEngineNames()
+        if (text !== undefined)
+            draft = text
+        input.text = draft
         busy = false
-        input.text = ""
-        overlay.visible = true
+        visible = true
         input.forceActiveFocus()
+        input.cursorPosition = input.length
     }
-
     function close() {
-        overlay.visible = false
+        if (busy)
+            actions.guiCancelProposal()
+        draft = input.text
+        busy = false
+        visible = false
+    }
+    function clearDraft() { draft = "" }
+
+    function submit() {
+        const text = input.text.trim()
+        if (text === "" || busy)
+            return
+        draft = input.text
+        if (compare) {
+            visible = false
+            compareRequested(text)
+            return
+        }
+        busy = true
+        seconds = 0
+        actions.guiPropose(text, "")
     }
 
+    Connections {
+        target: actions
+        enabled: overlay.busy
+        function onProposalReady(proposal, captureId) {
+            overlay.busy = false
+            overlay.visible = false
+            overlay.proposalReady(overlay.draft, proposal, captureId)
+        }
+        function onProposalFailed(message) {
+            overlay.busy = false
+            overlay.visible = false
+            overlay.proposalFailed(overlay.draft, message)
+        }
+    }
+    Timer {
+        interval: 1000
+        repeat: true
+        running: overlay.busy
+        onTriggered: overlay.seconds += 1
+    }
+
+    // Clicking outside closes (keeps the draft); not while the engine works.
     MouseArea {
         anchors.fill: parent
-        onClicked: overlay.closeRequested()
+        onClicked: if (!overlay.busy) overlay.close()
     }
 
     Rectangle {
         anchors.centerIn: parent
-        width: Math.min(640, parent.width - 48)
-        height: column.implicitHeight + 48
+        width: Math.min(680, parent.width - 48)
+        height: column.implicitHeight + 40
         radius: Math.min(8, theme.radius)
-        color: "#161618"
+        color: theme.surface
         border.color: theme.accent
         border.width: 1
+        MouseArea { anchors.fill: parent } // keeps clicks inside from closing
 
         ColumnLayout {
             id: column
             anchors.fill: parent
-            anchors.margins: 24
-            spacing: 10
+            anchors.margins: 20
+            spacing: 12
 
-            Label {
-                text: qsTr("New task (AI)")
-                font.bold: true
-                font.pixelSize: 18
-                color: theme.accent
-            }
-            ScrollView {
+            RowLayout {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 140
-                clip: true
-                TextArea {
-                    id: input
-                    placeholderText: qsTr("e.g. write blog post on Friday 14:30, 30 min, project Blog")
-                    wrapMode: TextArea.Wrap
-                    color: Material.foreground
+                Text {
+                    text: qsTr("New tasks")
+                    font.bold: true
+                    font.pixelSize: 18
+                    color: theme.foreground
+                }
+                Item { Layout.fillWidth: true }
+                Segmented {
+                    keyHint: "Alt+S"
+                    options: [["single", qsTr("One engine")], ["compare", qsTr("Compare")]]
+                    value: overlay.compare ? "compare" : "single"
+                    onPicked: v => { overlay.compare = v === "compare"; input.forceActiveFocus() }
+                    opacity: overlay.busy ? 0.5 : 1
                     enabled: !overlay.busy
-                    background: Rectangle { color: "#0e0e10"; radius: 4 }
-                    Keys.onEscapePressed: overlay.closeRequested()
-                    Keys.onReturnPressed: event => {
-                        if (event.modifiers & Qt.ControlModifier && text.trim().length > 0 && !overlay.busy) {
-                            overlay.submitted(text)
-                            event.accepted = true
+                }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 150
+                radius: Math.min(4, theme.radius)
+                color: theme.background
+                border.color: input.activeFocus ? theme.accent : theme.border
+                ScrollView {
+                    anchors.fill: parent
+                    anchors.margins: 2
+                    clip: true
+                    TextArea {
+                        id: input
+                        placeholderText: qsTr("Write or dictate freely, e.g. “blog post on Friday 14:30, 1 hour, project Blog; call Customer A Tuesday morning”")
+                        placeholderTextColor: theme.muted
+                        wrapMode: TextArea.Wrap
+                        color: theme.foreground
+                        font.pixelSize: 15
+                        readOnly: overlay.busy
+                        background: null
+                        Keys.onPressed: event => {
+                            const enter = event.key === Qt.Key_Return || event.key === Qt.Key_Enter
+                            if (enter && (event.modifiers & Qt.ControlModifier)) {
+                                overlay.submit()
+                                event.accepted = true
+                            } else if (event.key === Qt.Key_Escape) {
+                                overlay.close()
+                                event.accepted = true
+                            } else if (event.key === Qt.Key_S && (event.modifiers & Qt.AltModifier) && !overlay.busy) {
+                                overlay.compare = !overlay.compare
+                                event.accepted = true
+                            }
                         }
                     }
                 }
             }
-            Label {
-                text: overlay.busy ? qsTr("Thinking…") : qsTr("Ctrl+Enter send · Esc close")
-                color: Material.hintTextColor
-                font.pixelSize: 12
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 10
+                BusyIndicator {
+                    visible: overlay.busy
+                    running: overlay.busy
+                    implicitWidth: 28
+                    implicitHeight: 28
+                }
+                Text {
+                    Layout.fillWidth: true
+                    wrapMode: Text.Wrap
+                    font.pixelSize: 12
+                    color: overlay.busy ? theme.foreground : theme.muted
+                    text: overlay.busy
+                          ? qsTr("%1 is working… %2 s · Esc cancels").arg(overlay.engines["default"]).arg(overlay.seconds)
+                          : overlay.compare
+                            ? qsTr("Compare: %1 and %2 side by side").arg(overlay.engines.compare[0]).arg(overlay.engines.compare[1])
+                            : qsTr("Engine: %1").arg(overlay.engines["default"])
+                }
+                Text {
+                    visible: !overlay.busy
+                    text: qsTr("Ctrl+Enter send · Esc close")
+                    color: theme.muted
+                    font.pixelSize: 12
+                }
             }
         }
     }

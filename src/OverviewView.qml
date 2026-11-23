@@ -1,78 +1,123 @@
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Controls.Material
 import QtQuick.Layouts
 
 import Omaplan
 
-// Overblik: agenda for i dag og de næste 7 dage, forfaldne øverst.
+// Overblik: forfaldne øverst, så i dag og de næste 7 dage, så åbne opgaver
+// uden dato.
 Item {
+    id: view
+    readonly property bool canPage: false
+    function taskIds() { return overview.ids() }
+    function page(step) {}
+    function goToday() {}
+
+    readonly property var today: { planModel.today; return Fmt.startOfDay(new Date()) }
+
     OverviewModel {
         id: overview
         sourceModel: planModel
     }
 
-    ListView {
-        id: list
+    ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 12
-        clip: true
-        model: overview
-        section.property: "startDate"
-        section.delegate: Label {
-            required property var section
-            topPadding: 10
-            bottomPadding: 4
-            text: {
-                translator.language; // re-render on language switch
-                if (!section || section.toString() === "Invalid Date")
-                    return qsTr("No date")
-                var today = new Date()
-                var s = new Date(section)
-                if (s.toDateString() === today.toDateString())
-                    return qsTr("Today")
-                return Qt.formatDate(s, "dddd d. MMMM")
-            }
-            color: theme.accent
-            font.bold: true
-        }
-        delegate: RowLayout {
-            width: list.width
-            spacing: 8
-            CheckBox {
-                checked: model.status === "done"
-                onClicked: actions.guiSetDone(model.taskId, checked)
-            }
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: 0
-                Label {
-                    Layout.fillWidth: true
-                    text: model.title
-                    elide: Text.ElideRight
-                    color: model.status === "done" ? Material.hintTextColor : Material.foreground
-                    font.strikeout: model.status === "done"
-                }
-                Label {
-                    text: (model.startHasTime ? Qt.formatTime(model.start, "HH:mm") + " · " : "")
-                          + (model.project !== "" ? model.project : "")
-                    visible: text !== ""
-                    color: Material.hintTextColor
-                    font.pixelSize: 12
-                }
-            }
-            Label {
-                text: model.priority === 1 ? "!" : ""
-                color: "#ff5252"
+        anchors.margins: 20
+        anchors.topMargin: 16
+        spacing: 10
+
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.maximumWidth: 860
+            Layout.alignment: Qt.AlignHCenter
+            Text {
+                text: { Fmt.lang; return Fmt.capitalize(Fmt.dayLong(view.today)) }
+                color: theme.foreground
+                font.pixelSize: 22
                 font.bold: true
-                visible: model.priority === 1
+            }
+            Item { Layout.fillWidth: true }
+            Text {
+                text: { Fmt.lang; return qsTr("Week %1").arg(Fmt.isoWeek(view.today)) }
+                color: theme.muted
+                font.pixelSize: 13
             }
         }
-        Label {
-            anchors.centerIn: parent
-            visible: list.count === 0
-            text: qsTr("No tasks in the next 7 days")
-            color: Material.hintTextColor
+
+        ListView {
+            id: list
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            Layout.maximumWidth: 860
+            Layout.alignment: Qt.AlignHCenter
+            clip: true
+            spacing: 2
+            model: overview
+            boundsBehavior: Flickable.StopAtBounds
+            ScrollBar.vertical: ScrollBar {}
+            currentIndex: overview.ids().indexOf(win.selectedId)
+            highlightFollowsCurrentItem: false
+            onCurrentIndexChanged: if (currentIndex >= 0) positionViewAtIndex(currentIndex, ListView.Contain)
+
+            section.property: "agendaSection"
+            section.delegate: Item {
+                id: header
+                required property string section
+                width: ListView.view.width
+                height: label.implicitHeight + 22
+                readonly property bool overdue: section === "overdue"
+                readonly property var day: Fmt.fromIso(section)
+                Text {
+                    id: label
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: 6
+                    anchors.left: parent.left
+                    anchors.leftMargin: 4
+                    textFormat: Text.StyledText
+                    font.pixelSize: 13
+                    font.bold: true
+                    color: header.overdue ? theme.danger : theme.accent
+                    text: {
+                        Fmt.lang
+                        if (header.overdue)
+                            return qsTr("Overdue")
+                        if (header.section === "none")
+                            return qsTr("No date")
+                        const rel = Fmt.relativeDay(header.day, view.today)
+                        const n = Fmt.daysBetween(view.today, header.day)
+                        return n <= 1 ? rel + "  <font color='" + theme.muted + "'>" + Fmt.dayLong(header.day) + "</font>"
+                                      : rel
+                    }
+                }
+                Rectangle {
+                    anchors.bottom: parent.bottom
+                    width: parent.width
+                    height: 1
+                    color: header.overdue ? Qt.alpha(theme.danger, 0.4) : theme.border
+                }
+            }
+
+            delegate: TaskRow {
+                width: ListView.view.width
+                taskId: model.taskId
+                title: model.title
+                status: model.status
+                project: model.project
+                priority: model.priority
+                start: model.start
+                startHasTime: model.startHasTime
+                durationMinutes: model.durationMinutes
+                deadline: model.deadline
+                deadlineHasTime: model.deadlineHasTime
+                // Overdue rows say which day they belonged to.
+                showDate: model.agendaSection === "overdue"
+            }
         }
+    }
+
+    EmptyState {
+        anchors.centerIn: parent
+        visible: list.count === 0
+        title: qsTr("Nothing planned for the next 7 days")
     }
 }

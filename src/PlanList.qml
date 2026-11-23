@@ -5,98 +5,184 @@ import QtQuick.Layouts
 
 import Omaplan
 
-// Liste: alle opgaver med afkrydsning; gruppér med `g`, filtrér på projekt
-// med `f`.
+// Liste: alle opgaver med afkrydsning. Gruppering (g), projektfilter (f) og
+// statusfilter (s) står synligt i værktøjslinjen og kan også klikkes.
 Item {
     id: root
+    readonly property bool canPage: false
+    function taskIds() { return list.ids() }
+    function page(step) {}
+    function goToday() {}
 
-    property int grouping: 0 // 0 = ingen, 1 = dato, 2 = projekt
+    property string grouping: "date"   // "date" | "project" | "none"
+    property string status: "todo"     // "todo" | "done" | ""
+    property string project: ""        // "" = all
     property var projects: []
-    property int projectIndex: 0 // 0 = alle
 
-    readonly property string statusText: {
-        var g = [qsTr("no grouping"), qsTr("grouped by date"), qsTr("grouped by project")][root.grouping]
-        var f = root.projectIndex === 0 ? qsTr("all projects") : root.projects[root.projectIndex - 1]
-        return qsTr("Group: %1 · Filter: %2").arg(g).arg(f)
+    readonly property var today: { planModel.today; return Fmt.startOfDay(new Date()) }
+
+    function cycleGrouping() {
+        const order = ["date", "project", "none"]
+        grouping = order[(order.indexOf(grouping) + 1) % order.length]
     }
-
-    function cycleGrouping() { grouping = (grouping + 1) % 3 }
+    function cycleStatusFilter() {
+        const order = ["todo", "done", ""]
+        status = order[(order.indexOf(status) + 1) % order.length]
+    }
     function cycleProjectFilter() {
-        var n = projects.length + 1
-        projectIndex = (projectIndex + 1) % n
+        const all = [""].concat(projects)
+        project = all[(all.indexOf(project) + 1) % all.length]
     }
     function refreshProjects() {
-        var r = actions.guiProjects()
-        projects = r.ok ? r.payload.projects.map(function (p) { return p.name }) : []
-        if (projectIndex >= projects.length + 1)
-            projectIndex = 0
+        const r = actions.guiProjects()
+        projects = r.ok ? r.payload.projects.map(p => p.name) : []
+        if (project !== "" && projects.indexOf(project) < 0)
+            project = ""
     }
     Component.onCompleted: refreshProjects()
     Connections {
-        target: actions
-        function onPlanChanged() { root.refreshProjects() }
+        target: planModel
+        function onRevisionChanged() { root.refreshProjects() }
     }
 
     PlanListModel {
         id: list
         sourceModel: planModel
-        projectFilter: root.projectIndex === 0 ? "" : (root.projects[root.projectIndex - 1] || "")
+        projectFilter: root.project
+        statusFilter: root.status
+        grouping: root.grouping === "project" ? "project" : ""
     }
 
-    ListView {
+    ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 12
-        clip: true
-        model: list
-        section.property: root.grouping === 1 ? "startDate" : root.grouping === 2 ? "project" : ""
-        section.delegate: Label {
-            required property var section
-            topPadding: 10
-            bottomPadding: 4
-            text: {
-                translator.language;
-                if (root.grouping === 1) {
-                    if (!section || section.toString() === "Invalid Date")
-                        return qsTr("No date")
-                    return Qt.formatDate(new Date(section), "dddd d. MMMM")
+        anchors.margins: 20
+        anchors.topMargin: 14
+        spacing: 10
+
+        // Toolbar: every choice is visible and clickable, with its key.
+        Flow {
+            Layout.fillWidth: true
+            Layout.maximumWidth: 960
+            Layout.alignment: Qt.AlignHCenter
+            spacing: 18
+
+            Segmented {
+                label: qsTr("Group")
+                keyHint: "g"
+                options: [["date", qsTr("Date")], ["project", qsTr("Project")], ["none", qsTr("None")]]
+                value: root.grouping
+                onPicked: v => root.grouping = v
+            }
+            Segmented {
+                label: qsTr("Show")
+                keyHint: "s"
+                options: [["todo", qsTr("Open")], ["done", qsTr("Done")], ["", qsTr("All")]]
+                value: root.status
+                onPicked: v => root.status = v
+            }
+            Row {
+                spacing: 8
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: qsTr("Project")
+                    color: theme.muted
+                    font.pixelSize: 12
                 }
-                return section !== "" ? section : qsTr("No project")
+                ComboBox {
+                    id: projectBox
+                    anchors.verticalCenter: parent.verticalCenter
+                    focusPolicy: Qt.NoFocus
+                    implicitWidth: 180
+                    implicitHeight: 32
+                    font.pixelSize: 13
+                    model: [qsTr("All projects")].concat(root.projects)
+                    currentIndex: root.project === "" ? 0 : root.projects.indexOf(root.project) + 1
+                    onActivated: index => root.project = index === 0 ? "" : root.projects[index - 1]
+                }
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "f"
+                    color: theme.muted
+                    font.pixelSize: 11
+                    font.family: "monospace"
+                }
             }
-            color: theme.accent
-            font.bold: true
-        }
-        delegate: RowLayout {
-            width: ListView.view.width
-            spacing: 8
-            CheckBox {
-                checked: model.status === "done"
-                onClicked: actions.guiSetDone(model.taskId, checked)
-            }
-            Label {
-                Layout.fillWidth: true
-                text: model.title
-                elide: Text.ElideRight
-                color: model.status === "done" ? Material.hintTextColor : Material.foreground
-                font.strikeout: model.status === "done"
-            }
-            Label {
-                text: model.project
-                visible: root.grouping !== 2 && model.project !== ""
-                color: Material.hintTextColor
-                font.pixelSize: 12
-            }
-            Label {
-                text: model.startHasTime ? Qt.formatDateTime(model.start, "d. MMM HH:mm") : Qt.formatDate(model.start, "d. MMM")
-                visible: model.start.toString() !== "Invalid Date"
-                color: Material.hintTextColor
+            Text {
+                height: 32
+                verticalAlignment: Text.AlignVCenter
+                text: qsTr("%n tasks", "", list.count)
+                color: theme.muted
                 font.pixelSize: 12
             }
         }
-        Label {
-            anchors.centerIn: parent
-            visible: list.count === 0
-            text: qsTr("No tasks")
-            color: Material.hintTextColor
+
+        ListView {
+            id: listView
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            Layout.maximumWidth: 960
+            Layout.alignment: Qt.AlignHCenter
+            clip: true
+            spacing: 2
+            model: list
+            boundsBehavior: Flickable.StopAtBounds
+            ScrollBar.vertical: ScrollBar {}
+            highlightFollowsCurrentItem: false
+            currentIndex: { list.revision; return list.ids().indexOf(win.selectedId) }
+            onCurrentIndexChanged: if (currentIndex >= 0) positionViewAtIndex(currentIndex, ListView.Contain)
+
+            section.property: root.grouping === "date" ? "dayKey" : root.grouping === "project" ? "project" : ""
+            section.criteria: ViewSection.FullString
+            section.delegate: Item {
+                id: header
+                required property var section
+                width: ListView.view.width
+                height: label.implicitHeight + 20
+                Text {
+                    id: label
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: 6
+                    anchors.left: parent.left
+                    anchors.leftMargin: 4
+                    font.pixelSize: 13
+                    font.bold: true
+                    color: theme.accent
+                    text: {
+                        Fmt.lang
+                        if (root.grouping === "project")
+                            return header.section !== "" ? header.section : qsTr("No project")
+                        const d = Fmt.fromIso(header.section)
+                        return Fmt.valid(d) ? Fmt.relativeDay(d, root.today) : qsTr("No date")
+                    }
+                }
+                Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: theme.border }
+            }
+
+            delegate: TaskRow {
+                width: ListView.view.width
+                taskId: model.taskId
+                title: model.title
+                status: model.status
+                project: model.project
+                priority: model.priority
+                start: model.start
+                startHasTime: model.startHasTime
+                durationMinutes: model.durationMinutes
+                deadline: model.deadline
+                deadlineHasTime: model.deadlineHasTime
+                showDate: root.grouping !== "date"
+                showProject: root.grouping !== "project"
+            }
         }
+    }
+
+    EmptyState {
+        anchors.centerIn: parent
+        visible: list.count === 0
+        title: root.status === "done" ? qsTr("No finished tasks yet")
+             : root.project !== "" ? qsTr("No tasks in %1").arg(root.project)
+             : qsTr("No open tasks")
+        hint: root.status !== "" || root.project !== "" ? qsTr("Press s or f to change the filter.")
+                                                         : qsTr("Press n to write tasks in plain text, or a to add one by hand.")
     }
 }

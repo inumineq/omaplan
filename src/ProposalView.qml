@@ -3,209 +3,264 @@ import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
 
-// The AI engine's proposal: an editable list of tasks with guessed fields
-// clearly marked. Ctrl+Enter approves (actions.guiApprove), Esc discards.
-// Engine errors are shown in-window, including the raw response.
+import Omaplan
+
+// AI-motorens forslag som en redigerbar liste, før noget gemmes. Felter, som
+// motoren har gættet, er markeret. Man retter direkte i felterne (datoer som i
+// CLI'en: "fredag 10"), sletter med Ctrl+Delete og tilføjer med Ctrl+N.
+// Ctrl+Enter godkender, Esc kasserer. I Sammenlign står to motorers forslag
+// side om side; Ctrl+1 / Ctrl+2 godkender det ene (Alt+←/→ vælger).
+// Motorfejl vises her med motorens råsvar.
 Rectangle {
     id: overlay
-    color: Qt.rgba(0, 0, 0, 0.72)
+    color: Qt.rgba(0, 0, 0, 0.6)
     visible: false
 
-    // Set by open(): {opgaver: [...], uafklaret: [...]}, plus captureId/error.
-    property var proposal: ({})
-    property string captureId: ""
-    property string error: ""
+    // One entry per engine: {engine, state: "waiting"|"ready"|"error",
+    // tasks: [...], unclear: [...], captureId, error}.
+    property var columns: []
+    property int revision: 0            // the set of columns changed
+    property var colRevision: [0, 0]    // one column's content changed
+    property int selected: 0
+    property string text: ""            // the raw input, for retry / create yourself
+    property int currentCol: 0
+    property int currentTask: -1
+    property int focusCol: -1
+    property int focusTask: -1
+    property string problem: ""         // why approve was refused
+    readonly property bool comparing: columns.length === 2
 
-    signal approved()
-    signal closeRequested()
+    signal approved(int count)
+    signal retryRequested(string text)
+    signal createYourselfRequested(string text)
 
-    function open(proposalJson, capture) {
-        error = ""
-        captureId = capture
-        const p = proposalJson
-        const tasks = []
-        const arr = p.opgaver || []
-        for (let i = 0; i < arr.length; ++i)
-            tasks.push(arr[i])
-        proposal = { "opgaver": tasks, "uafklaret": p.uafklaret || [] }
-        list.model = tasks
-        overlay.visible = true
+    // "2026-11-27T14:30:00" -> "2026-11-27 14:30", the form the fields read.
+    function editable(iso) {
+        const m = /^(\d{4}-\d\d-\d\d)(?:T(\d\d:\d\d))?/.exec(iso || "")
+        return m ? m[1] + (m[2] ? " " + m[2] : "") : (iso || "")
+    }
+    function columnFrom(engine, proposal, captureId) {
+        const tasks = (proposal.opgaver || []).map(t => ({
+            "titel": t.titel || "",
+            "start": overlay.editable(t.start),
+            "varighed_min": t.varighed_min ? String(t.varighed_min) : "",
+            "frist": overlay.editable(t.frist),
+            "projekt": t.projekt || "",
+            "prioritet": t.prioritet ? String(t.prioritet) : "",
+            "noter": t.noter || "",
+            "gaet": t.gaet || []
+        }))
+        return { engine: engine, state: "ready", tasks: tasks, unclear: proposal.uafklaret || [],
+                 captureId: captureId, error: "" }
+    }
+    function bump(col) {
+        const r = colRevision.slice()
+        r[col] += 1
+        colRevision = r
+    }
+    function show() {
+        problem = ""
+        currentTask = -1
+        revision += 1
+        visible = true
+        overlay.forceActiveFocus()
     }
 
-    function showError(message) {
-        error = message
-        overlay.visible = true
+    function openSingle(text, proposal, captureId) {
+        overlay.text = text
+        columns = [columnFrom(actions.guiEngineNames()["default"], proposal, captureId)]
+        selected = 0
+        show()
+    }
+    function showSingleError(text, message) {
+        overlay.text = text
+        columns = [{ engine: actions.guiEngineNames()["default"], state: "error", tasks: [], unclear: [],
+                     captureId: "", error: message }]
+        selected = 0
+        show()
+    }
+    function startCompare(text) {
+        overlay.text = text
+        const names = actions.guiEngineNames().compare
+        columns = [0, 1].map(i => ({ engine: names[i], state: "waiting", tasks: [], unclear: [], captureId: "", error: "" }))
+        selected = 0
+        show()
+        actions.guiCompare(text)
+    }
+    Connections {
+        target: actions
+        enabled: overlay.visible && overlay.comparing
+        function onCompareReady(side, proposal, captureId, engine) {
+            const cols = overlay.columns
+            cols[side] = overlay.columnFrom(engine, proposal, captureId)
+            if (cols[overlay.selected].state !== "ready")
+                overlay.selected = side
+            overlay.bump(side)
+        }
+        function onCompareFailed(side, message, engine) {
+            const cols = overlay.columns
+            cols[side] = { engine: engine, state: "error", tasks: [], unclear: [], captureId: "", error: message }
+            overlay.bump(side)
+        }
     }
 
     function close() {
-        overlay.visible = false
         actions.guiCancelProposal()
-        overlay.closeRequested()
+        visible = false
     }
 
-    function fieldGuessed(task, field) {
-        const g = task.gaet || []
-        return g.indexOf(field) >= 0
+    function setField(col, task, key, value) {
+        columns[col].tasks[task][key] = value
+    }
+    function addTask(col) {
+        if (!columns[col] || columns[col].state !== "ready")
+            return
+        columns[col].tasks.push({ "titel": "", "start": "", "varighed_min": "", "frist": "", "projekt": "",
+                                  "prioritet": "", "noter": "", "gaet": [] })
+        focusCol = col
+        focusTask = columns[col].tasks.length - 1
+        bump(col)
+    }
+    function removeTask(col, task) {
+        if (!columns[col] || task < 0 || task >= columns[col].tasks.length)
+            return
+        columns[col].tasks.splice(task, 1)
+        focusCol = col
+        focusTask = Math.min(task, columns[col].tasks.length - 1)
+        currentTask = -1
+        bump(col)
     }
 
-    function approve() {
-        const out = { "opgaver": [], "uafklaret": proposal.uafklaret || [] }
-        for (let i = 0; i < list.model.length; ++i) {
-            const t = list.model[i]
-            const o = { "titel": t.titel }
+    function approve(col) {
+        const c = columns[col]
+        if (!c || c.state !== "ready")
+            return
+        const out = { "opgaver": [] }
+        for (const t of c.tasks) {
+            if (t.titel.trim() === "")
+                continue
+            const o = { "titel": t.titel.trim() }
             if (t.noter) o.noter = t.noter
-            if (t.projekt) o.projekt = t.projekt
-            if (t.prioritet) o.prioritet = parseInt(t.prioritet)
-            if (t.start) o.start = t.start
-            if (t.varighed_min) o.varighed_min = parseInt(t.varighed_min)
-            if (t.frist) o.frist = t.frist
-            if ((t.gaet || []).length > 0) o.gaet = t.gaet
+            if (t.projekt.trim()) o.projekt = t.projekt.trim()
+            if (t.start.trim()) o.start = t.start.trim()
+            if (t.frist.trim()) o.frist = t.frist.trim()
+            if (t.varighed_min.trim()) {
+                if (!/^\d+$/.test(t.varighed_min.trim())) {
+                    problem = qsTr("“%1”: duration must be whole minutes").arg(t.titel)
+                    return
+                }
+                o.varighed_min = parseInt(t.varighed_min)
+            }
+            if (t.prioritet.trim()) {
+                if (!/^[123]$/.test(t.prioritet.trim())) {
+                    problem = qsTr("“%1”: priority must be 1, 2 or 3").arg(t.titel)
+                    return
+                }
+                o.prioritet = parseInt(t.prioritet)
+            }
+            if (t.gaet.length) o.gaet = t.gaet
             out.opgaver.push(o)
         }
-        const result = actions.guiApprove(out, captureId)
-        if (!result.ok) {
-            error = result.error
+        if (out.opgaver.length === 0) {
+            problem = qsTr("Nothing to approve: every task was removed")
             return
         }
-        overlay.visible = false
-        overlay.approved()
+        const result = actions.guiApprove(out, c.captureId)
+        if (!result.ok) {
+            problem = result.error
+            return
+        }
+        actions.guiCancelProposal() // the other engine may still be working
+        visible = false
+        approved(result.payload.count)
     }
 
-    Shortcut {
-        sequence: "Ctrl+Return"
-        context: Qt.WindowShortcut
-        onActivated: if (overlay.visible && error === "") overlay.approve()
-    }
-    Shortcut {
-        sequence: "Esc"
-        context: Qt.WindowShortcut
-        onActivated: if (overlay.visible) overlay.close()
-    }
+    Shortcut { sequences: ["Ctrl+Return", "Ctrl+Enter"]; enabled: overlay.visible; onActivated: overlay.approve(overlay.selected) }
+    Shortcut { sequence: "Ctrl+1"; enabled: overlay.visible && overlay.comparing; onActivated: overlay.approve(0) }
+    Shortcut { sequence: "Ctrl+2"; enabled: overlay.visible && overlay.comparing; onActivated: overlay.approve(1) }
+    Shortcut { sequence: "Alt+Left"; enabled: overlay.visible && overlay.comparing; onActivated: overlay.selected = 0 }
+    Shortcut { sequence: "Alt+Right"; enabled: overlay.visible && overlay.comparing; onActivated: overlay.selected = 1 }
+    Shortcut { sequence: "Ctrl+N"; enabled: overlay.visible; onActivated: overlay.addTask(overlay.selected) }
+    Shortcut { sequence: "Ctrl+Delete"; enabled: overlay.visible && overlay.currentTask >= 0
+        onActivated: overlay.removeTask(overlay.currentCol, overlay.currentTask) }
+    Shortcut { sequence: "Esc"; enabled: overlay.visible; onActivated: overlay.close() }
+    Shortcut { sequence: "Ctrl+R"; enabled: overlay.visible
+        onActivated: { overlay.close(); overlay.retryRequested(overlay.text) } }
+    Shortcut { sequence: "Ctrl+E"; enabled: overlay.visible
+        onActivated: { overlay.close(); overlay.createYourselfRequested(overlay.text) } }
 
-    MouseArea {
-        anchors.fill: parent
-        onClicked: if (error !== "") overlay.close()
-    }
+    MouseArea { anchors.fill: parent } // modal: clicks do not reach the views
 
     Rectangle {
         anchors.centerIn: parent
-        width: Math.min(720, parent.width - 48)
-        height: Math.min(560, parent.height - 48)
+        width: Math.min(overlay.comparing ? 1240 : 780, parent.width - 32)
+        height: parent.height - 48
         radius: Math.min(8, theme.radius)
-        color: "#161618"
+        color: theme.surface
         border.color: theme.accent
-        border.width: 1
 
         ColumnLayout {
             anchors.fill: parent
-            anchors.margins: 24
+            anchors.margins: 18
             spacing: 10
 
-            Label {
-                text: error !== "" ? qsTr("Engine error") : qsTr("Proposal")
-                font.bold: true
-                font.pixelSize: 18
-                color: error !== "" ? "#ff6b6b" : theme.accent
-            }
-
-            // Engine error with the raw response, shown in-window.
-            ScrollView {
-                visible: error !== ""
+            RowLayout {
                 Layout.fillWidth: true
-                Layout.fillHeight: true
-                clip: true
-                TextArea {
-                    text: error
-                    readOnly: true
-                    wrapMode: TextArea.Wrap
-                    color: Material.foreground
-                    font.family: "monospace"
-                    background: Rectangle { color: "#0e0e10"; radius: 4 }
+                Text {
+                    text: overlay.comparing ? qsTr("Compare proposals") : qsTr("Proposal")
+                    font.bold: true
+                    font.pixelSize: 18
+                    color: theme.foreground
+                }
+                Text {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 12
+                    text: "“" + overlay.text + "”"
+                    elide: Text.ElideRight
+                    color: theme.muted
+                    font.pixelSize: 13
+                    font.italic: true
                 }
             }
 
-            // Editable proposal list; guessed fields are accent-colored.
-            ListView {
-                id: list
-                visible: error === ""
+            RowLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                clip: true
-                spacing: 8
-                model: []
-                delegate: Rectangle {
-                    id: taskRect
-                    property var task: modelData
-                    width: list.width
-                    height: row.implicitHeight + 16
-                    color: "#0e0e10"
-                    radius: 4
-                    border.color: (task.gaet || []).length > 0 ? theme.accent : "#2a2a2e"
-                    border.width: 1
-
-                    ColumnLayout {
-                        id: row
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: parent.top
-                        anchors.margins: 8
-                        spacing: 4
-
-                        TextField {
-                            Layout.fillWidth: true
-                            text: taskRect.task.titel
-                            placeholderText: qsTr("title")
-                            color: Material.foreground
-                            onEditingFinished: taskRect.task.titel = text
-                        }
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 6
-                            Repeater {
-                                model: [
-                                    ["projekt", qsTr("project")],
-                                    ["start", qsTr("start")],
-                                    ["frist", qsTr("deadline")],
-                                    ["varighed_min", qsTr("duration (min)")],
-                                    ["prioritet", qsTr("priority (1-3)")],
-                                ]
-                                delegate: TextField {
-                                    property string key: modelData[0]
-                                    Layout.preferredWidth: 110
-                                    text: taskRect.task[key] !== undefined ? String(taskRect.task[key]) : ""
-                                    placeholderText: modelData[1]
-                                    font.pixelSize: 12
-                                    color: overlay.fieldGuessed(taskRect.task, key) ? theme.accent : Material.foreground
-                                    onEditingFinished: taskRect.task[key] = text
-                                }
-                            }
-                            Label {
-                                visible: (taskRect.task.gaet || []).length > 0
-                                text: qsTr("guessed: %1").arg((taskRect.task.gaet || []).join(", "))
-                                color: theme.accent
-                                font.pixelSize: 11
-                            }
-                        }
+                spacing: 12
+                Repeater {
+                    model: { overlay.revision; return overlay.columns.length }
+                    delegate: ProposalColumn {
+                        required property int index
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        Layout.preferredWidth: 1
+                        col: index
+                        view: overlay
                     }
                 }
             }
 
-            Label {
-                visible: error === "" && (proposal.uafklaret || []).length > 0
-                text: qsTr("Unclear: %1").arg((proposal.uafklaret || []).join(" · "))
-                color: Material.hintTextColor
-                wrapMode: Text.WordWrap
+            Text {
                 Layout.fillWidth: true
+                visible: overlay.problem !== ""
+                text: overlay.problem
+                color: theme.danger
+                wrapMode: Text.Wrap
+                font.pixelSize: 13
             }
-            Label {
-                visible: error === "" && list.model.length === 0
-                text: qsTr("No tasks proposed")
-                color: Material.hintTextColor
-            }
-            Label {
-                text: error !== "" ? qsTr("Esc close") : qsTr("Ctrl+Enter approve · Esc discard")
-                color: Material.hintTextColor
+            Text {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                color: theme.muted
                 font.pixelSize: 12
+                text: {
+                    const anyReady = overlay.columns.some(c => c.state === "ready")
+                    if (!anyReady && overlay.columns.every(c => c.state === "error"))
+                        return qsTr("Ctrl+R try again · Ctrl+E create the task yourself · Esc close")
+                    return overlay.comparing
+                        ? qsTr("Ctrl+1 / Ctrl+2 approve left / right · Alt+←/→ choose, Ctrl+Enter approves it · Ctrl+N add · Ctrl+Delete remove · Esc discard")
+                        : qsTr("Ctrl+Enter approve · Tab next field · Ctrl+N add · Ctrl+Delete remove · Esc discard")
+                }
             }
         }
     }
