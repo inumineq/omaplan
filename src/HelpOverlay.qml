@@ -46,6 +46,7 @@ Rectangle {
             ["Ctrl+1 / Ctrl+2", qsTr("Approve the left / right proposal")],
             ["Alt+← / →", qsTr("Choose the left / right proposal")],
             ["Ctrl+N / Ctrl+Delete", qsTr("Add / remove a task in the proposal")],
+            ["Tab", qsTr("Next field in the proposal")],
             ["Ctrl+R / Ctrl+E", qsTr("After an engine error: try again / create it yourself")],
             ["Esc", qsTr("Close / discard / cancel the engine")]]],
         [qsTr("Task editor"), [

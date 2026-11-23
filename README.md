@@ -31,6 +31,7 @@ Alt kan gøres med tastaturet. `?` viser alle taster i vinduet.
 | `Alt+S` | Sammenlign to motorer (i indtastningen) |
 | `Ctrl+1` / `Ctrl+2` | Godkend venstre / højre forslag ved sammenlign |
 | `Ctrl+N` / `Ctrl+Delete` | Tilføj / fjern en opgave i forslaget |
+| `Tab` | Næste felt i forslaget |
 | `Ctrl+R` / `Ctrl+E` | Efter en motorfejl: prøv igen / opret opgaven selv |
 | `Alt+←` / `Alt+→` | Sammenlign: vælg venstre / højre forslag |
 | `Alt+1` / `Alt+2` / `Alt+3` | Editoren: prioritet høj / mellem / normal |
