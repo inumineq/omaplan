@@ -164,3 +164,7 @@ kan sammenlignes bagefter.
 
 `bin/smoke-ai [motor]` kalder en rigtig motor manuelt med en kort dansk tekst og skriver svar og tid. Den køres
 ikke af `bin/test`.
+
+## License
+
+Omaplan is released under the [MIT License](LICENSE).
