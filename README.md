@@ -1,9 +1,54 @@
 # Omaplan
 
 Planlægning til Omarchy: skriv eller diktér dine opgaver i almindelig tekst, lad en AI lægge dem på datoer, og se
-planen som overblik, kalender, liste eller tidslinje.
+planen som overblik, kalender, liste eller tidslinje. GUI og kommandolinje deler samme database, så ændringer fra
+CLI eller en agent dukker op i vinduet med det samme (og kan fortrydes derfra).
 
-Under udvikling. Se `SPEC.md` og `docs/arkitektur.md`.
+Byg med `bin/build`, kør tests med `bin/test`, installér som Arch-pakke med `bin/install`. Se `SPEC.md` og
+`docs/arkitektur.md`.
+
+## Taster (i vinduet)
+
+| Tast | Handling |
+| --- | --- |
+| `1` / `2` / `3` / `4` | Skift visning: overblik, kalender, liste, tidslinje |
+| `n` eller Space | Ny opgave i almindelig tekst (AI-forslag) |
+| `Ctrl+Enter` | Send indtastning / godkend forslag |
+| `Esc` | Luk indtastning / kassér forslag |
+| `w` / `m` | Kalender: uge / måned |
+| `g` / `f` | Liste: skift gruppering / projektfilter |
+| `Ctrl+Z` / `Ctrl+Shift+Z` | Fortryd / gendan (virker på tværs af GUI og CLI) |
+| `?` | Genvejsoversigt |
+| `q` | Luk |
+
+## Kommandolinje
+
+Alle kommandoer tager `--json`, giver exit 0/1 og skriver fejl på stderr. Datoer accepterer ISO
+(`2026-12-01`, `2026-12-01 14:30`) og danske/engelske udtryk (`"i morgen"`, `"fredag 12"`, `"tomorrow"`,
+`"next monday"`, valgfrit `"kl. 14:30"`).
+
+```sh
+omaplan add "skriv blogindlæg fredag kl. 14:30, 30 min, projekt Blog"   # AI-forslag (vis først)
+omaplan add "køb mælk i morgen" --ja --json                             # gem direkte
+omaplan new --titel "Køb mælk" --start "i morgen" --projekt Indkøb
+omaplan list --fra "i dag" --til "næste fredag" --json
+omaplan show <id>  ·  omaplan edit <id> --frist "fredag"
+omaplan move <id> "tirsdag kl. 14:00"  ·  omaplan done <id>  ·  omaplan rm <id>
+omaplan projects  ·  omaplan summary --uge --json
+omaplan undo --json
+omaplan skill install        # bundtet agent-skill i ~/.claude/skills, ~/.codex/skills, ~/.vibe/skills, ...
+```
+
+## Live
+
+GUI'en poller `PRAGMA data_version` hvert 500 ms og genindlæser ved ændringer fra andre processer, med en kort
+besked om kilden ("Ændret fra CLI"). Samtidige skrivninger er sikre (WAL + busy-timeout).
+
+## Agent-skill
+
+`omaplan skill install` lægger den bundtede skill (`src/skill/SKILL.md`) i de agent-mapper, der findes
+(`~/.claude/skills`, `~/.codex/skills`, `~/.vibe/skills`, `~/.config/opencode/skills`), så agenter ved, hvornår de
+skal bruge Omaplan. `omaplan skill uninstall` fjerner den igen.
 
 ## AI-motorer
 
