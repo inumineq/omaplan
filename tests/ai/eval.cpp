@@ -3,7 +3,12 @@
 // DOES call a real engine; run it by hand, never from the unit tests.
 //
 // Usage:
-//   ai-eval <vibe|claude|ollama|command> [--command "..."] [--model <name>] [--timeout <ms>]
+//   ai-eval <vibe|claude|lokal|command> [--command "..."] [--model <name>] [--endpoint <url>] [--timeout <ms>]
+//
+// "lokal" reads endpoint/model/api from ~/.config/omaplan/config.toml
+// (OMAPLAN_CONFIG overrides), unless --model/--endpoint are given. Every input
+// is date-annotated in C++ first (annotateDates), exactly like `omaplan add`,
+// so the engine sees the resolved dates in the text.
 //
 // "Correct" is deliberately simple: the engine's answer is valid JSON per
 // the schema AND it contains at least one task whose title equals an expected
@@ -11,6 +16,7 @@
 // matches that expected task's start date (tasks without a start must have
 // none on both sides). Cases whose expected answer has no tasks at all (only
 // "uafklaret") count as correct when the engine also produced no tasks.
+#include "dateannotate.h"
 #include "engine.h"
 #include "prompt.h"
 #include "proposal.h"
@@ -89,39 +95,38 @@ int main(int argc, char **argv)
     QCoreApplication app(argc, argv);
     const QStringList args = app.arguments();
     if (args.size() < 2) {
-        QTextStream(stderr) << "Usage: ai-eval <vibe|claude|ollama|command> [--command \"...\"] "
-                               "[--model <name>] [--timeout <ms>]\n";
+        QTextStream(stderr) << "Usage: ai-eval <vibe|claude|lokal|command> [--command \"...\"] "
+                               "[--model <name>] [--endpoint <url>] [--timeout <ms>]\n";
         return 2;
     }
     const QString engineId = args.at(1);
     QString commandLine;
     QString model;
+    QString endpoint;
     int timeoutMs = AiEngine::defaultTimeoutMs;
     for (int i = 2; i < args.size(); ++i) {
         if (args.at(i) == QLatin1String("--command") && i + 1 < args.size())
             commandLine = args.at(++i);
         else if (args.at(i) == QLatin1String("--model") && i + 1 < args.size())
             model = args.at(++i);
+        else if (args.at(i) == QLatin1String("--endpoint") && i + 1 < args.size())
+            endpoint = args.at(++i);
         else if (args.at(i) == QLatin1String("--timeout") && i + 1 < args.size())
             timeoutMs = args.at(++i).toInt();
     }
 
+    // Same factory as `omaplan add`: lokal reads config.toml, CLI flags win.
+    // The command engine takes an explicit --command for ad-hoc testing.
     std::unique_ptr<AiEngine> engine;
-    if (engineId == QLatin1String("vibe"))
-        engine = createVibeEngine();
-    else if (engineId == QLatin1String("claude"))
-        engine = createClaudeEngine();
-    else if (engineId == QLatin1String("ollama"))
-        engine = createOllamaEngine(model);
-    else if (engineId == QLatin1String("command")) {
-        if (commandLine.isEmpty()) {
-            QTextStream(stderr) << "The command engine needs --command \"...\"\n";
+    if (engineId == QLatin1String("command") && !commandLine.isEmpty())
+        engine = createCommandEngine(commandLine);
+    else {
+        QString error;
+        engine = createEngine(engineId, model, endpoint, &error);
+        if (!engine) {
+            QTextStream(stderr) << error << "\n";
             return 2;
         }
-        engine = createCommandEngine(commandLine);
-    } else {
-        QTextStream(stderr) << "Unknown engine: " << engineId << "\n";
-        return 2;
     }
     engine->setTimeoutMs(timeoutMs);
 
@@ -152,9 +157,13 @@ int main(int argc, char **argv)
         const QString expectedRaw = readFile(casesDir.filePath(base + QStringLiteral(".expected.json")));
         const ParseResult expected = parseProposal(expectedRaw);
 
+        // Same path as `omaplan add`: annotate dates in C++ first, then call
+        // the engine (which builds the stable system prompt + user prompt).
+        const QString annotated = annotateDates(input, ctx.today);
+
         Proposal actual;
         QString error;
-        const bool ok = runEngine(*engine, input, ctx, &actual, &error, timeoutMs + 10000);
+        const bool ok = runEngine(*engine, annotated, ctx, &actual, &error, timeoutMs + 10000);
         if (ok)
             ++valid;
         const bool isCorr = ok && expected.ok && isCorrect(actual, expected.proposal);
@@ -162,6 +171,8 @@ int main(int argc, char **argv)
             ++correct;
         out << base << (ok ? " valid  " : " INVALID") << (isCorr ? " correct" : "        ") << "  in: \""
             << input.left(50) << "\"";
+        if (annotated != input)
+            out << "\n    annotated: \"" << annotated.left(80) << "\"";
         if (!ok)
             out << "\n    error: " << error.left(300).replace(QLatin1Char('\n'), QLatin1Char(' '));
         out << "\n";
