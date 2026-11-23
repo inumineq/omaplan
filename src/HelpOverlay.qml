@@ -44,9 +44,16 @@ Rectangle {
             ["Ctrl+Enter", qsTr("Send / approve / save")],
             ["Alt+S", qsTr("Compare two engines")],
             ["Ctrl+1 / Ctrl+2", qsTr("Approve the left / right proposal")],
+            ["Alt+← / →", qsTr("Choose the left / right proposal")],
             ["Ctrl+N / Ctrl+Delete", qsTr("Add / remove a task in the proposal")],
             ["Ctrl+R / Ctrl+E", qsTr("After an engine error: try again / create it yourself")],
-            ["Esc", qsTr("Close / discard / cancel the engine")]]]
+            ["Esc", qsTr("Close / discard / cancel the engine")]]],
+        [qsTr("Task editor"), [
+            ["Ctrl+Enter / Enter", qsTr("Save")],
+            ["Alt+1 / Alt+2 / Alt+3", qsTr("Priority: high, medium, normal")],
+            ["Alt+X", qsTr("Done / not done")],
+            ["Ctrl+Delete", qsTr("Delete the task")],
+            ["Esc", qsTr("Cancel")]]]
     ]
 
     Rectangle {

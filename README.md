@@ -31,6 +31,11 @@ Alt kan gøres med tastaturet. `?` viser alle taster i vinduet.
 | `Alt+S` | Sammenlign to motorer (i indtastningen) |
 | `Ctrl+1` / `Ctrl+2` | Godkend venstre / højre forslag ved sammenlign |
 | `Ctrl+N` / `Ctrl+Delete` | Tilføj / fjern en opgave i forslaget |
+| `Ctrl+R` / `Ctrl+E` | Efter en motorfejl: prøv igen / opret opgaven selv |
+| `Alt+←` / `Alt+→` | Sammenlign: vælg venstre / højre forslag |
+| `Alt+1` / `Alt+2` / `Alt+3` | Editoren: prioritet høj / mellem / normal |
+| `Alt+X` | Editoren: færdig / ikke færdig |
+| `Ctrl+Delete` i editoren | Slet opgaven |
 | `Esc` | Luk / kassér / afbryd motoren (kladden bevares) |
 | `Ctrl+Z` / `Ctrl+Shift+Z` | Fortryd / gendan (virker på tværs af GUI, CLI og MCP) |
 | `q` | Luk |
