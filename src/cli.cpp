@@ -280,26 +280,26 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
             printJson(out, payload);
         } else {
             // Human-readable proposal: one line per task plus unclear text.
-            const QJsonArray tasks = payload["proposal"].toObject()["opgaver"].toArray();
+            const QJsonArray tasks = payload["proposal"].toObject()["tasks"].toArray();
             for (const QJsonValue &t : tasks) {
                 const QJsonObject o = t.toObject();
-                QString line = o["titel"].toString();
+                QString line = o["title"].toString();
                 if (o.contains("start"))
                     line += QStringLiteral("  (%1)").arg(o["start"].toString());
-                if (o.contains("frist"))
-                    line += QStringLiteral("  Frist: %1").arg(o["frist"].toString());
-                const QJsonArray gaet = o["gaet"].toArray();
-                if (!gaet.isEmpty()) {
+                if (o.contains("deadline"))
+                    line += QStringLiteral("  ") + QObject::tr("Deadline: %1").arg(o["deadline"].toString());
+                const QJsonArray guessed = o["guessed"].toArray();
+                if (!guessed.isEmpty()) {
                     QStringList g;
-                    for (const QJsonValue &gv : gaet)
+                    for (const QJsonValue &gv : guessed)
                         g << gv.toString();
-                    line += QStringLiteral("  [gæt: %1]").arg(g.join(QStringLiteral(", ")));
+                    line += QStringLiteral("  ") + QObject::tr("[guessed: %1]").arg(g.join(QStringLiteral(", ")));
                 }
                 out << line << "\n";
             }
-            const QJsonArray unclear = payload["proposal"].toObject()["uafklaret"].toArray();
-            for (const QJsonValue &u : unclear)
-                out << QObject::tr("Unclear: %1").arg(u.toString()) << "\n";
+            const QJsonArray unresolved = payload["proposal"].toObject()["unresolved"].toArray();
+            for (const QJsonValue &u : unresolved)
+                out << QObject::tr("Unresolved: %1").arg(u.toString()) << "\n";
         }
         return 0;
     }
@@ -307,8 +307,8 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
     if (command == QLatin1String("new")) {
         QStringList positional;
         const auto flags = parseFlags(rest, &positional);
-        if (!flags.contains(QStringLiteral("titel")) || flags[QStringLiteral("titel")].trimmed().isEmpty()) {
-            err << QObject::tr("Missing --titel") << "\n";
+        if (flags.value(QStringLiteral("title"), flags.value(QStringLiteral("titel"))).trimmed().isEmpty()) {
+            err << QObject::tr("Missing --title") << "\n";
             return 1;
         }
         Task task;

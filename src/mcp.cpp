@@ -29,23 +29,23 @@ static QJsonObject tool(const QString &name, const QString &description, const Q
 }
 
 // Field descriptions shared by new and edit. Dates accept the same text as
-// the CLI, so agents can pass "fredag 14" as well as ISO.
+// the CLI, so agents can pass "friday 14" as well as ISO.
 static QJsonObject taskFields() {
     const QString date = QStringLiteral(
-        "ISO (2026-12-01, 2026-12-01 14:30) or Danish/English text (\"i morgen\", \"fredag 12\", "
-        "\"next monday\", \"kl. 14:30\"). Empty clears it.");
+        "ISO (2026-12-01, 2026-12-01 14:30) or English/Danish text (\"tomorrow\", \"friday 12\", "
+        "\"next monday\", \"at 14:30\", \"i morgen\"). Empty clears it.");
     return {
-        {QStringLiteral("titel"), prop(QStringLiteral("string"), QStringLiteral("Short title, imperative or noun."))},
-        {QStringLiteral("noter"), prop(QStringLiteral("string"), QStringLiteral("Notes."))},
-        {QStringLiteral("projekt"), prop(QStringLiteral("string"), QStringLiteral("Project, e.g. \"Blog\". Empty clears it."))},
-        {QStringLiteral("prioritet"), QJsonObject{{QStringLiteral("type"), QStringLiteral("integer")},
+        {QStringLiteral("title"), prop(QStringLiteral("string"), QStringLiteral("Short title, imperative or noun."))},
+        {QStringLiteral("notes"), prop(QStringLiteral("string"), QStringLiteral("Notes."))},
+        {QStringLiteral("project"), prop(QStringLiteral("string"), QStringLiteral("Project, e.g. \"Blog\". Empty clears it."))},
+        {QStringLiteral("priority"), QJsonObject{{QStringLiteral("type"), QStringLiteral("integer")},
                                                   {QStringLiteral("minimum"), 1}, {QStringLiteral("maximum"), 3},
                                                   {QStringLiteral("description"), QStringLiteral("1 = high, 3 = normal.")}}},
         {QStringLiteral("start"), prop(QStringLiteral("string"), QStringLiteral("When to work on it. ") + date)},
-        {QStringLiteral("varighed"), QJsonObject{{QStringLiteral("type"), QStringLiteral("integer")},
+        {QStringLiteral("duration"), QJsonObject{{QStringLiteral("type"), QStringLiteral("integer")},
                                                  {QStringLiteral("minimum"), 0},
                                                  {QStringLiteral("description"), QStringLiteral("Duration in minutes.")}}},
-        {QStringLiteral("frist"), prop(QStringLiteral("string"), QStringLiteral("Deadline, separate from start. ") + date)},
+        {QStringLiteral("deadline"), prop(QStringLiteral("string"), QStringLiteral("Deadline, separate from start. ") + date)},
     };
 }
 
@@ -55,31 +55,30 @@ QJsonObject McpServer::toolList() {
     editFields.insert(QStringLiteral("id"), id.value(QStringLiteral("id")));
     editFields.insert(QStringLiteral("status"), QJsonObject{{QStringLiteral("type"), QStringLiteral("string")},
                                                            {QStringLiteral("enum"), QJsonArray{QStringLiteral("todo"), QStringLiteral("done")}}});
-    const QJsonObject engine{{QStringLiteral("motor"),
-                              prop(QStringLiteral("string"), QStringLiteral("AI engine: vibe, claude, lokal or command. "
-                                                                            "Default: the user's config."))}};
-    QJsonObject proposeFields{{QStringLiteral("tekst"), prop(QStringLiteral("string"),
-                                                             QStringLiteral("The user's free text, e.g. \"skriv blogindlæg "
-                                                                            "fredag kl. 14, 1 time, projekt Blog\"."))}};
-    proposeFields.insert(QStringLiteral("motor"), engine.value(QStringLiteral("motor")));
+    QJsonObject proposeFields{
+        {QStringLiteral("text"), prop(QStringLiteral("string"),
+                                      QStringLiteral("The user's free text in any language, e.g. \"write blog post "
+                                                     "friday at 14, 1 hour, project Blog\"."))},
+        {QStringLiteral("engine"), prop(QStringLiteral("string"), QStringLiteral("AI engine: vibe, claude, local or command. "
+                                                                                 "Default: the user's config."))}};
 
     QJsonArray tools;
     tools << tool(QStringLiteral("list"), QStringLiteral("List tasks, optionally filtered by date range, project and status."),
-                  {{QStringLiteral("fra"), prop(QStringLiteral("string"), QStringLiteral("From date (inclusive), e.g. \"i dag\"."))},
-                   {QStringLiteral("til"), prop(QStringLiteral("string"), QStringLiteral("To date (inclusive), e.g. \"næste fredag\"."))},
-                   {QStringLiteral("projekt"), prop(QStringLiteral("string"), QStringLiteral("Only this project."))},
+                  {{QStringLiteral("from"), prop(QStringLiteral("string"), QStringLiteral("From date (inclusive), e.g. \"today\"."))},
+                   {QStringLiteral("to"), prop(QStringLiteral("string"), QStringLiteral("To date (inclusive), e.g. \"next friday\"."))},
+                   {QStringLiteral("project"), prop(QStringLiteral("string"), QStringLiteral("Only this project."))},
                    {QStringLiteral("status"), QJsonObject{{QStringLiteral("type"), QStringLiteral("string")},
                                                           {QStringLiteral("enum"), QJsonArray{QStringLiteral("todo"), QStringLiteral("done")}}}}},
                   {}, true)
           << tool(QStringLiteral("show"), QStringLiteral("Show one task."), id, {QStringLiteral("id")}, true)
           << tool(QStringLiteral("new"), QStringLiteral("Create a task directly, without AI."), taskFields(),
-                  {QStringLiteral("titel")})
+                  {QStringLiteral("title")})
           << tool(QStringLiteral("edit"), QStringLiteral("Change fields of a task; only the given fields change."),
                   editFields, {QStringLiteral("id")})
           << tool(QStringLiteral("move"), QStringLiteral("Move a task to a new start day or time."),
                   {{QStringLiteral("id"), id.value(QStringLiteral("id"))},
-                   {QStringLiteral("tid"), prop(QStringLiteral("string"), QStringLiteral("New start, e.g. \"tirsdag kl. 14:00\" or 2026-12-01."))}},
-                  {QStringLiteral("id"), QStringLiteral("tid")})
+                   {QStringLiteral("when"), prop(QStringLiteral("string"), QStringLiteral("New start, e.g. \"tuesday at 14:00\" or 2026-12-01."))}},
+                  {QStringLiteral("id"), QStringLiteral("when")})
           << tool(QStringLiteral("done"), QStringLiteral("Mark a task done."), id, {QStringLiteral("id")})
           << tool(QStringLiteral("undone"), QStringLiteral("Mark a task not done."), id, {QStringLiteral("id")})
           << tool(QStringLiteral("rm"), QStringLiteral("Delete a task (undo brings it back)."), id, {QStringLiteral("id")})
@@ -88,20 +87,20 @@ QJsonObject McpServer::toolList() {
           << tool(QStringLiteral("projects"), QStringLiteral("List projects with task counts."), {}, {}, true)
           << tool(QStringLiteral("summary"), QStringLiteral("Short summary of this week or month, with overdue count: "
                                                             "good context before planning."),
-                  {{QStringLiteral("periode"), QJsonObject{{QStringLiteral("type"), QStringLiteral("string")},
-                                                           {QStringLiteral("enum"), QJsonArray{QStringLiteral("uge"), QStringLiteral("maaned")}}}}},
+                  {{QStringLiteral("period"), QJsonObject{{QStringLiteral("type"), QStringLiteral("string")},
+                                                          {QStringLiteral("enum"), QJsonArray{QStringLiteral("week"), QStringLiteral("month")}}}}},
                   {}, true)
           << tool(QStringLiteral("propose"), QStringLiteral("Ask the AI engine to turn free text into tasks. Stores nothing: "
                                                             "show the proposal to the user, then call approve."),
-                  proposeFields, {QStringLiteral("tekst")})
+                  proposeFields, {QStringLiteral("text")})
           << tool(QStringLiteral("approve"), QStringLiteral("Store a proposal from propose (optionally edited)."),
-                  {{QStringLiteral("forslag"), QJsonObject{{QStringLiteral("type"), QStringLiteral("object"),},
-                                                           {QStringLiteral("description"), QStringLiteral("The \"proposal\" object from propose: {\"opgaver\": [...]}.")}}},
+                  {{QStringLiteral("proposal"), QJsonObject{{QStringLiteral("type"), QStringLiteral("object"),},
+                                                            {QStringLiteral("description"), QStringLiteral("The \"proposal\" object from propose: {\"tasks\": [...]}.")}}},
                    {QStringLiteral("capture_id"), prop(QStringLiteral("string"), QStringLiteral("capture_id from propose."))}},
-                  {QStringLiteral("forslag")})
+                  {QStringLiteral("proposal")})
           << tool(QStringLiteral("add"), QStringLiteral("Free text to tasks via AI and store them at once. Only when the user "
                                                         "asked to save directly; otherwise use propose."),
-                  proposeFields, {QStringLiteral("tekst")});
+                  proposeFields, {QStringLiteral("text")});
     return {{QStringLiteral("tools"), tools}};
 }
 
@@ -142,12 +141,12 @@ QJsonObject McpServer::callTool(const QString &name, const QJsonObject &args) {
         ListFilter filter;
         QDateTime when;
         bool hasTime = false;
-        for (const QString key : {QStringLiteral("fra"), QStringLiteral("til")}) {
+        for (const QString key : {QStringLiteral("from"), QStringLiteral("to")}) {
             if (!args.contains(key))
                 continue;
             if (!Actions::parseDateTime(args.value(key).toString(), QDate::currentDate(), &when, &hasTime, &error))
                 return textResult(failure(key + QStringLiteral(": ") + error));
-            if (key == QLatin1String("fra")) {
+            if (key == QLatin1String("from")) {
                 filter.hasFrom = true;
                 filter.from = when.date();
             } else {
@@ -155,7 +154,7 @@ QJsonObject McpServer::callTool(const QString &name, const QJsonObject &args) {
                 filter.to = when.date();
             }
         }
-        filter.project = args.value(QStringLiteral("projekt")).toString();
+        filter.project = args.value(QStringLiteral("project")).toString();
         filter.status = args.value(QStringLiteral("status")).toString();
         return textResult(m_actions->list(filter));
     }
@@ -182,7 +181,7 @@ QJsonObject McpServer::callTool(const QString &name, const QJsonObject &args) {
             return textResult(needId());
         QDateTime when;
         bool hasTime = false;
-        if (!Actions::parseDateTime(args.value(QStringLiteral("tid")).toString(), QDate::currentDate(), &when,
+        if (!Actions::parseDateTime(args.value(QStringLiteral("when")).toString(), QDate::currentDate(), &when,
                                     &hasTime, &error))
             return textResult(failure(error));
         return textResult(m_actions->move(id, when, hasTime, source));
@@ -198,13 +197,13 @@ QJsonObject McpServer::callTool(const QString &name, const QJsonObject &args) {
     if (name == QLatin1String("projects"))
         return textResult(m_actions->projects());
     if (name == QLatin1String("summary"))
-        return textResult(m_actions->summary(args.value(QStringLiteral("periode")).toString() != QLatin1String("maaned")));
+        return textResult(m_actions->summary(args.value(QStringLiteral("period")).toString() != QLatin1String("month")));
     if (name == QLatin1String("propose") || name == QLatin1String("add")) {
-        const QString text = args.value(QStringLiteral("tekst")).toString().trimmed();
+        const QString text = args.value(QStringLiteral("text")).toString().trimmed();
         if (text.isEmpty())
-            return textResult(failure(QStringLiteral("Missing tekst")));
+            return textResult(failure(QStringLiteral("Missing text")));
         QString captureId;
-        ActionResult proposed = m_actions->propose(text, args.value(QStringLiteral("motor")).toString(), {}, {}, &captureId);
+        ActionResult proposed = m_actions->propose(text, args.value(QStringLiteral("engine")).toString(), {}, {}, &captureId);
         if (!proposed.ok || name == QLatin1String("propose"))
             return textResult(proposed);
         const ActionResult approved = m_actions->approve(proposed.payload.value(QStringLiteral("proposal")).toObject(),
@@ -215,9 +214,9 @@ QJsonObject McpServer::callTool(const QString &name, const QJsonObject &args) {
         return textResult(proposed);
     }
     if (name == QLatin1String("approve")) {
-        const QJsonObject proposal = args.value(QStringLiteral("forslag")).toObject();
+        const QJsonObject proposal = args.value(QStringLiteral("proposal")).toObject();
         if (proposal.isEmpty())
-            return textResult(failure(QStringLiteral("Missing forslag")));
+            return textResult(failure(QStringLiteral("Missing proposal")));
         return textResult(m_actions->approve(proposal, args.value(QStringLiteral("capture_id")).toString(), source));
     }
     return {};

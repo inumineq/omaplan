@@ -47,4 +47,4 @@ SOURCES += \
     src/snapshot.cpp \
     src/server.cpp
 
-RESOURCES += src/resources.qrc src/ai-skema.qrc src/skill.qrc src/web.qrc
+RESOURCES += src/resources.qrc src/ai-schema.qrc src/skill.qrc src/web.qrc

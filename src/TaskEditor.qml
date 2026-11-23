@@ -48,11 +48,11 @@ Rectangle {
     function openNew(fields) {
         taskId = ""
         original = {}
-        titleField.text = fields.titel || ""
+        titleField.text = fields.title || ""
         startField.text = fields.start || ""
-        durationField.text = fields.varighed || ""
-        deadlineField.text = fields.frist || ""
-        projectField.text = fields.projekt || ""
+        durationField.text = fields.duration || ""
+        deadlineField.text = fields.deadline || ""
+        projectField.text = fields.project || ""
         notes.text = ""
         priority = 3
         done = false
@@ -68,9 +68,9 @@ Rectangle {
 
     function fields() {
         return {
-            "titel": titleField.text, "start": startField.text, "varighed": durationField.text.trim() === "" ? "0" : durationField.text,
-            "frist": deadlineField.text, "projekt": projectField.text, "noter": notes.text,
-            "prioritet": String(priority), "status": done ? "done" : "todo"
+            "title": titleField.text, "start": startField.text, "duration": durationField.text.trim() === "" ? "0" : durationField.text,
+            "deadline": deadlineField.text, "project": projectField.text, "notes": notes.text,
+            "priority": String(priority), "status": done ? "done" : "todo"
         }
     }
     function save() {

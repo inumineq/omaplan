@@ -1,0 +1,5 @@
+<RCC>
+  <qresource prefix="/">
+    <file alias="ai-schema.json">../docs/ai-schema.json</file>
+  </qresource>
+</RCC>

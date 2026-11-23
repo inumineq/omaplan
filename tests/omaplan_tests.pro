@@ -16,6 +16,6 @@ SOURCES += omaplan_tests.cpp ../src/task.cpp ../src/store.cpp ../src/actions.cpp
            ../src/engine_command.cpp ../src/prompt.cpp ../src/proposal.cpp ../src/translator.cpp ../src/mcp.cpp ../src/theme.cpp \
            ../src/render.cpp ../src/snapshot.cpp ../src/server.cpp
 
-RESOURCES += ../src/ai-skema.qrc ../src/skill.qrc ../src/web.qrc
+RESOURCES += ../src/ai-schema.qrc ../src/skill.qrc ../src/web.qrc
 # The source tree, for checks over the QML and the translations.
 DEFINES += OMAPLAN_SRC=\\\"$$PWD/../src\\\"

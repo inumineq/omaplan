@@ -28,4 +28,4 @@ HEADERS += \
     ../../src/proposal.h \
     ../../src/config.h
 
-RESOURCES += ../../src/ai-skema.qrc
+RESOURCES += ../../src/ai-schema.qrc

@@ -8,7 +8,7 @@
   {
     "id": "evt-12",
     "type": "reasoning",
-    "text": "{\"opgaver\": [{\"titel\": \"Køb mælk fra reasoning\"}]}"
+    "text": "{\"tasks\": [{\"title\": \"Køb mælk fra reasoning\"}]}"
   },
   {
     "id": "evt-13",

@@ -37,10 +37,10 @@ static QString readFixture(const QString &relativePath)
 static QByteArray proposalJson(const QString &title)
 {
     const QJsonObject task{
-        {QStringLiteral("titel"), title},
+        {QStringLiteral("title"), title},
         {QStringLiteral("start"), QStringLiteral("2026-11-24")},
     };
-    const QJsonObject root{{QStringLiteral("opgaver"), QJsonArray{task}}};
+    const QJsonObject root{{QStringLiteral("tasks"), QJsonArray{task}}};
     return QJsonDocument(root).toJson(QJsonDocument::Compact);
 }
 
@@ -185,9 +185,9 @@ private slots:
         QVERIFY(prompt.contains(QStringLiteral("Europe/Copenhagen")));
         QVERIFY(prompt.contains(QStringLiteral("\"da\"")) || prompt.contains(QStringLiteral(" da")));
         QVERIFY(prompt.contains(QStringLiteral("own instruction"))); // app's own system prompt, not user text
-        QVERIFY(prompt.contains(QStringLiteral("opgaver")));   // the schema is embedded
-        QVERIFY(prompt.contains(QStringLiteral("gaet")));       // guessing rules
-        QVERIFY(prompt.contains(QStringLiteral("uafklaret")));
+        QVERIFY(prompt.contains(QStringLiteral("tasks")));   // the schema is embedded
+        QVERIFY(prompt.contains(QStringLiteral("guessed")));       // guessing rules
+        QVERIFY(prompt.contains(QStringLiteral("unresolved")));
         QVERIFY(prompt.contains(QStringLiteral("på tirsdag"))); // Danish date expressions mentioned
         // eval-vibe-2: engines must not wander into prose or tool calls.
         QVERIFY(prompt.contains(QStringLiteral("no tool calls"), Qt::CaseInsensitive));
@@ -223,9 +223,9 @@ private slots:
     void validResponseParses()
     {
         const ParseResult r = parseProposal(QStringLiteral(
-            R"({"opgaver": [{"titel": "Køb mælk", "noter": "gerne øko", "projekt": "Indkøb",)"
-            R"("prioritet": 2, "start": "2026-11-24", "varighed_min": 30, "frist": "2026-11-27T12:00",)"
-            R"("gaet": ["projekt", "varighed_min"]}], "uafklaret": ["??"]})"));
+            R"({"tasks": [{"title": "Køb mælk", "notes": "gerne øko", "project": "Indkøb",)"
+            R"("priority": 2, "start": "2026-11-24", "duration_min": 30, "deadline": "2026-11-27T12:00",)"
+            R"("guessed": ["project", "duration_min"]}], "unresolved": ["??"]})"));
         QVERIFY(r.ok);
         QCOMPARE(r.proposal.tasks.size(), 1);
         const ProposedTask &t = r.proposal.tasks.first();
@@ -239,14 +239,14 @@ private slots:
         QVERIFY(!t.startHasTime); // date only
         QVERIFY(t.deadline.isValid());
         QVERIFY(t.deadlineHasTime); // date+time
-        QCOMPARE(t.guessed, QStringList({QStringLiteral("projekt"), QStringLiteral("varighed_min")}));
-        QCOMPARE(r.proposal.unclear, QStringList({QStringLiteral("??")}));
+        QCOMPARE(t.guessed, QStringList({QStringLiteral("project"), QStringLiteral("duration_min")}));
+        QCOMPARE(r.proposal.unresolved, QStringList({QStringLiteral("??")}));
     }
 
     void dateOnlyAndDateTime()
     {
         const ParseResult r = parseProposal(QStringLiteral(
-            R"({"opgaver": [{"titel": "A", "start": "2026-11-24T10:00"}, {"titel": "B", "start": "2026-11-25"}]})"));
+            R"({"tasks": [{"title": "A", "start": "2026-11-24T10:00"}, {"title": "B", "start": "2026-11-25"}]})"));
         QVERIFY(r.ok);
         QVERIFY(r.proposal.tasks[0].startHasTime);
         QCOMPARE(r.proposal.tasks[0].start.time(), QTime(10, 0));
@@ -255,20 +255,20 @@ private slots:
 
     void schemaViolationsAreRejectedWithRawResponse()
     {
-        const QString missingTitle = QStringLiteral(R"({"opgaver": [{"start": "2026-11-24"}]})");
+        const QString missingTitle = QStringLiteral(R"({"tasks": [{"start": "2026-11-24"}]})");
         QVERIFY(!parseProposal(missingTitle).ok);
         QVERIFY(parseProposal(missingTitle).error.contains(missingTitle));
 
-        const QString emptyTitle = QStringLiteral(R"({"opgaver": [{"titel": ""}]})");
+        const QString emptyTitle = QStringLiteral(R"({"tasks": [{"title": ""}]})");
         QVERIFY(!parseProposal(emptyTitle).ok);
 
-        const QString extraField = QStringLiteral(R"({"opgaver": [{"titel": "X", "ukendt": 1}]})");
+        const QString extraField = QStringLiteral(R"({"tasks": [{"title": "X", "ukendt": 1}]})");
         QVERIFY(!parseProposal(extraField).ok);
 
-        const QString badPriority = QStringLiteral(R"({"opgaver": [{"titel": "X", "prioritet": 4}]})");
+        const QString badPriority = QStringLiteral(R"({"tasks": [{"title": "X", "priority": 4}]})");
         QVERIFY(!parseProposal(badPriority).ok);
 
-        const QString badGaet = QStringLiteral(R"({"opgaver": [{"titel": "X", "gaet": ["titel"]}]})");
+        const QString badGaet = QStringLiteral(R"({"tasks": [{"title": "X", "guessed": ["title"]}]})");
         QVERIFY(!parseProposal(badGaet).ok);
 
         const QString missingOpgaver = QStringLiteral(R"({"foo": 1})");
@@ -277,7 +277,7 @@ private slots:
 
     void invalidDatesAreRejected()
     {
-        const QString raw = QStringLiteral(R"({"opgaver": [{"titel": "X", "start": "ikke en dato"}]})");
+        const QString raw = QStringLiteral(R"({"tasks": [{"title": "X", "start": "ikke en dato"}]})");
         const ParseResult r = parseProposal(raw);
         QVERIFY(!r.ok);
         QVERIFY(r.error.contains(QStringLiteral("start")));
@@ -334,14 +334,14 @@ private slots:
         QJsonArray events;
         events.append(vibeTextMessage(QStringLiteral("user"), {QStringLiteral("køb mælk")}));
         events.append(vibeTextMessage(QStringLiteral("assistant"),
-                                      {QStringLiteral("{\"opgaver\": [{\"titel\": \"Forkert\"}]}")}));
+                                      {QStringLiteral("{\"tasks\": [{\"title\": \"Forkert\"}]}")}));
         QJsonObject reasoning;
         reasoning.insert(QStringLiteral("type"), QStringLiteral("reasoning"));
-        reasoning.insert(QStringLiteral("text"), QStringLiteral("{\"opgaver\": [{\"titel\": \"Fra reasoning\"}]}"));
+        reasoning.insert(QStringLiteral("text"), QStringLiteral("{\"tasks\": [{\"title\": \"Fra reasoning\"}]}"));
         events.append(reasoning);
         events.append(vibeTextMessage(QStringLiteral("assistant"),
-                                      {QStringLiteral("{\"opgaver\": ["),
-                                       QStringLiteral("{\"titel\": \"Køb mælk\", \"start\": \"2026-11-24\"}]}")}));
+                                      {QStringLiteral("{\"tasks\": ["),
+                                       QStringLiteral("{\"title\": \"Køb mælk\", \"start\": \"2026-11-24\"}]}")}));
         const QString raw = QString::fromUtf8(QJsonDocument(events).toJson(QJsonDocument::Compact));
         const ParseResult r = parseProposal(raw);
         QVERIFY2(r.ok, qPrintable(r.error));
@@ -356,7 +356,7 @@ private slots:
         events.append(vibeTextMessage(QStringLiteral("user"), {QStringLiteral("køb mælk")}));
         QJsonObject reasoning;
         reasoning.insert(QStringLiteral("type"), QStringLiteral("reasoning"));
-        reasoning.insert(QStringLiteral("text"), QStringLiteral("{\"opgaver\": [{\"titel\": \"Kun reasoning\"}]}"));
+        reasoning.insert(QStringLiteral("text"), QStringLiteral("{\"tasks\": [{\"title\": \"Kun reasoning\"}]}"));
         events.append(reasoning);
         const QString raw = QString::fromUtf8(QJsonDocument(events).toJson(QJsonDocument::Compact));
         const ParseResult r = parseProposal(raw);
@@ -390,18 +390,18 @@ private slots:
         QCOMPARE(t.priority, 2);
         QCOMPARE(t.durationMin, 30);
         QCOMPARE(t.project, QStringLiteral("Indkøb"));
-        QVERIFY(t.guessed.contains(QStringLiteral("projekt")));
-        QVERIFY(t.guessed.contains(QStringLiteral("varighed_min")));
+        QVERIFY(t.guessed.contains(QStringLiteral("project")));
+        QVERIFY(t.guessed.contains(QStringLiteral("duration_min")));
     }
 
     void maxItemsAreEnforced()
     {
-        // docs/ai-skema.json: opgaver max 10, gaet max 5, uafklaret max 10.
+        // docs/ai-schema.json: opgaver max 10, gaet max 5, uafklaret max 10.
         QJsonArray tasks;
         for (int i = 0; i < 11; ++i)
-            tasks.append(QJsonObject{{QStringLiteral("titel"), QStringLiteral("Opgave %1").arg(i)}});
+            tasks.append(QJsonObject{{QStringLiteral("title"), QStringLiteral("Opgave %1").arg(i)}});
         const QString tooManyTasks = QString::fromUtf8(
-            QJsonDocument(QJsonObject{{QStringLiteral("opgaver"), tasks}}).toJson(QJsonDocument::Compact));
+            QJsonDocument(QJsonObject{{QStringLiteral("tasks"), tasks}}).toJson(QJsonDocument::Compact));
         const ParseResult r = parseProposal(tooManyTasks);
         QVERIFY(!r.ok);
         QVERIFY2(r.error.contains(QStringLiteral("maxItems")), qPrintable(r.error));
@@ -409,25 +409,25 @@ private slots:
         // Boundary: exactly 10 tasks is fine.
         tasks.removeLast();
         const QString tenTasks = QString::fromUtf8(
-            QJsonDocument(QJsonObject{{QStringLiteral("opgaver"), tasks}}).toJson(QJsonDocument::Compact));
+            QJsonDocument(QJsonObject{{QStringLiteral("tasks"), tasks}}).toJson(QJsonDocument::Compact));
         QVERIFY2(parseProposal(tenTasks).ok, qPrintable(parseProposal(tenTasks).error));
 
         QJsonArray gaet;
-        for (const char *key : {"start", "varighed_min", "frist", "projekt", "prioritet", "start"})
+        for (const char *key : {"start", "duration_min", "deadline", "project", "priority", "start"})
             gaet.append(QString::fromLatin1(key));
         const QString tooMuchGaet = QString::fromUtf8(QJsonDocument(QJsonObject{
-            {QStringLiteral("opgaver"), QJsonArray{QJsonObject{{QStringLiteral("titel"), QStringLiteral("X")},
-                                                                {QStringLiteral("gaet"), gaet}}}}}).toJson(QJsonDocument::Compact));
+            {QStringLiteral("tasks"), QJsonArray{QJsonObject{{QStringLiteral("title"), QStringLiteral("X")},
+                                                                {QStringLiteral("guessed"), gaet}}}}}).toJson(QJsonDocument::Compact));
         const ParseResult rg = parseProposal(tooMuchGaet);
         QVERIFY(!rg.ok);
         QVERIFY2(rg.error.contains(QStringLiteral("maxItems")), qPrintable(rg.error));
 
-        QJsonArray unclear;
+        QJsonArray unresolved;
         for (int i = 0; i < 11; ++i)
-            unclear.append(QStringLiteral("punkt %1").arg(i));
+            unresolved.append(QStringLiteral("punkt %1").arg(i));
         const QString tooManyUnclear = QString::fromUtf8(QJsonDocument(QJsonObject{
-            {QStringLiteral("opgaver"), QJsonArray{}},
-            {QStringLiteral("uafklaret"), unclear}}).toJson(QJsonDocument::Compact));
+            {QStringLiteral("tasks"), QJsonArray{}},
+            {QStringLiteral("unresolved"), unresolved}}).toJson(QJsonDocument::Compact));
         QVERIFY(!parseProposal(tooManyUnclear).ok);
     }
 
@@ -435,52 +435,52 @@ private slots:
     {
         // Some engines echo the schema's own metadata ($schema, title,
         // description, type) at the top level; it must be ignored when a
-        // valid "opgaver" array is present (eval-vibe-2, case 09).
+        // valid "tasks" array is present (eval-vibe-2, case 09).
         const QString raw = QStringLiteral(
             R"({"$schema": "https://json-schema.org/draft/2020-12/schema",)"
             R"("title": "Forslag", "description": "Svar", "type": "object",)"
-            R"("opgaver": [{"titel": "Køb mælk", "start": "2026-11-24"}], "uafklaret": []})");
+            R"("tasks": [{"title": "Køb mælk", "start": "2026-11-24"}], "unresolved": []})");
         const ParseResult r = parseProposal(raw);
         QVERIFY2(r.ok, qPrintable(r.error));
         QCOMPARE(r.proposal.tasks.size(), 1);
         QCOMPARE(r.proposal.tasks.first().title, QStringLiteral("Køb mælk"));
         // ...but other unknown top-level keys are still rejected.
         const QString extra = QStringLiteral(
-            R"({"opgaver": [{"titel": "X"}], "ukendt_ting": 1})");
+            R"({"tasks": [{"title": "X"}], "ukendt_ting": 1})");
         QVERIFY(!parseProposal(extra).ok);
     }
 
     void topLevelGuessMovesIntoSingleTask()
     {
-        // eval-vibe-3, case 07: vibe put "gaet" beside "opgaver". With one
+        // eval-vibe-3, case 07: vibe put "guessed" beside "tasks". With one
         // task it belongs to that task; with several it is dropped, and the
         // proposal is accepted either way.
         const ParseResult one = parseProposal(QStringLiteral(
-            R"({"opgaver": [{"titel": "Skriv blogindlæg", "start": "2026-11-27"}], "gaet": ["start"]})"));
+            R"({"tasks": [{"title": "Skriv blogindlæg", "start": "2026-11-27"}], "guessed": ["start"]})"));
         QVERIFY2(one.ok, qPrintable(one.error));
         QCOMPARE(one.proposal.tasks.first().guessed, QStringList{QStringLiteral("start")});
 
         const ParseResult two = parseProposal(QStringLiteral(
-            R"({"opgaver": [{"titel": "A"}, {"titel": "B", "gaet": ["projekt"]}], "gaet": ["start"]})"));
+            R"({"tasks": [{"title": "A"}, {"title": "B", "guessed": ["project"]}], "guessed": ["start"]})"));
         QVERIFY2(two.ok, qPrintable(two.error));
         QVERIFY(two.proposal.tasks.at(0).guessed.isEmpty());
-        QCOMPARE(two.proposal.tasks.at(1).guessed, QStringList{QStringLiteral("projekt")});
+        QCOMPARE(two.proposal.tasks.at(1).guessed, QStringList{QStringLiteral("project")});
     }
 
     void taskLevelUnclearMovesToTopLevel()
     {
-        // eval-vibe-4, case 04: vibe put "uafklaret" inside the task. It is a
+        // eval-vibe-4, case 04: vibe put "unresolved" inside the task. It is a
         // list about the whole input, so it moves up and the proposal stands.
         const ParseResult r = parseProposal(QStringLiteral(
-            R"({"opgaver": [{"titel": "Nyhedsbrev", "start": "2026-11-26", "uafklaret": ["hver uge?"]}],)"
-            R"( "uafklaret": ["i november"]})"));
+            R"({"tasks": [{"title": "Nyhedsbrev", "start": "2026-11-26", "unresolved": ["hver uge?"]}],)"
+            R"( "unresolved": ["i november"]})"));
         QVERIFY2(r.ok, qPrintable(r.error));
-        QCOMPARE(r.proposal.unclear, (QStringList{QStringLiteral("i november"), QStringLiteral("hver uge?")}));
+        QCOMPARE(r.proposal.unresolved, (QStringList{QStringLiteral("i november"), QStringLiteral("hver uge?")}));
 
         const ParseResult empty = parseProposal(QStringLiteral(
-            R"({"opgaver": [{"titel": "Nyhedsbrev", "uafklaret": []}]})"));
+            R"({"tasks": [{"title": "Nyhedsbrev", "unresolved": []}]})"));
         QVERIFY2(empty.ok, qPrintable(empty.error));
-        QVERIFY(empty.proposal.unclear.isEmpty());
+        QVERIFY(empty.proposal.unresolved.isEmpty());
     }
 
     void systemPromptSeparatesDeadlineFromStart()
@@ -491,23 +491,64 @@ private slots:
         const QString prompt = buildSystemPrompt(ctx);
         for (const char *word : {"inden", "senest", "skal være klar", "aflever"})
             QVERIFY2(prompt.contains(QString::fromUtf8(word)), word);
-        QVERIFY(prompt.contains(QStringLiteral("\"frist\": \"<that Friday>T12:00\"")));
+        QVERIFY(prompt.contains(QStringLiteral("\"deadline\": \"<that Friday>T12:00\"")));
+    }
+
+    void legacyDanishKeysAreAcceptedAndEmittedInEnglish()
+    {
+        // Until 0.1 the schema was Danish; a model may still answer that way.
+        const ParseResult r = parseProposal(QStringLiteral(
+            R"({"opgaver": [{"titel": "Buy milk", "noter": "organic", "projekt": "Errands", "prioritet": 2,)"
+            R"("start": "2026-11-24", "varighed_min": 30, "frist": "2026-11-27T12:00",)"
+            R"("gaet": ["projekt", "varighed_min", "frist"]}], "uafklaret": ["??"]})"));
+        QVERIFY2(r.ok, qPrintable(r.error));
+        const ProposedTask &t = r.proposal.tasks.first();
+        QCOMPARE(t.title, QStringLiteral("Buy milk"));
+        QCOMPARE(t.notes, QStringLiteral("organic"));
+        QCOMPARE(t.project, QStringLiteral("Errands"));
+        QCOMPARE(t.priority, 2);
+        QCOMPARE(t.durationMin, 30);
+        QCOMPARE(t.deadline, QDateTime(QDate(2026, 11, 27), QTime(12, 0)));
+        QCOMPARE(t.guessed, (QStringList{QStringLiteral("project"), QStringLiteral("duration_min"),
+                                         QStringLiteral("deadline")}));
+        QCOMPARE(r.proposal.unresolved, QStringList{QStringLiteral("??")});
+
+        const QJsonObject out = r.proposal.toJson();
+        QVERIFY(out.contains(QStringLiteral("tasks")));
+        QVERIFY(out.contains(QStringLiteral("unresolved")));
+        QVERIFY(!out.contains(QStringLiteral("opgaver")));
+        const QJsonObject task = out.value(QStringLiteral("tasks")).toArray().first().toObject();
+        QCOMPARE(task.keys(), (QStringList{QStringLiteral("deadline"), QStringLiteral("duration_min"),
+                                           QStringLiteral("guessed"), QStringLiteral("notes"),
+                                           QStringLiteral("priority"), QStringLiteral("project"),
+                                           QStringLiteral("start"), QStringLiteral("title")}));
+
+        // The tolerances work on the old keys too: top-level "gaet" with one
+        // task moves into it, and an English key wins over its Danish twin.
+        const ParseResult top = parseProposal(QStringLiteral(
+            R"({"opgaver": [{"titel": "Old", "title": "New"}], "gaet": ["start"]})"));
+        QVERIFY2(top.ok, qPrintable(top.error));
+        QCOMPARE(top.proposal.tasks.first().title, QStringLiteral("New"));
+        QCOMPARE(top.proposal.tasks.first().guessed, QStringList{QStringLiteral("start")});
+
+        // Mixed and unknown keys are still judged by the schema.
+        QVERIFY(!parseProposal(QStringLiteral(R"({"opgaver": [{"titel": "X", "ukendt": 1}]})")).ok);
     }
 
     void datePatternIsEnforced()
     {
         // pattern on start/frist: ^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$
-        const QString withSeconds = QStringLiteral(R"({"opgaver": [{"titel": "X", "start": "2026-11-24T10:00:00"}]})");
+        const QString withSeconds = QStringLiteral(R"({"tasks": [{"title": "X", "start": "2026-11-24T10:00:00"}]})");
         QVERIFY(!parseProposal(withSeconds).ok);
-        const QString spaceSeparated = QStringLiteral(R"({"opgaver": [{"titel": "X", "start": "2026-11-24 10:00"}]})");
+        const QString spaceSeparated = QStringLiteral(R"({"tasks": [{"title": "X", "start": "2026-11-24 10:00"}]})");
         QVERIFY(!parseProposal(spaceSeparated).ok);
-        const QString danishOrder = QStringLiteral(R"({"opgaver": [{"titel": "X", "frist": "24-11-2026"}]})");
+        const QString danishOrder = QStringLiteral(R"({"tasks": [{"title": "X", "deadline": "24-11-2026"}]})");
         QVERIFY(!parseProposal(danishOrder).ok);
-        const QString badMonth = QStringLiteral(R"({"opgaver": [{"titel": "X", "start": "2026-13-24"}]})");
+        const QString badMonth = QStringLiteral(R"({"tasks": [{"title": "X", "start": "2026-13-24"}]})");
         QVERIFY(!parseProposal(badMonth).ok);
         // The two valid forms still pass.
-        QVERIFY(parseProposal(QStringLiteral(R"({"opgaver": [{"titel": "X", "start": "2026-11-24"}]})")).ok);
-        QVERIFY(parseProposal(QStringLiteral(R"({"opgaver": [{"titel": "X", "frist": "2026-11-24T10:00"}]})")).ok);
+        QVERIFY(parseProposal(QStringLiteral(R"({"tasks": [{"title": "X", "start": "2026-11-24"}]})")).ok);
+        QVERIFY(parseProposal(QStringLiteral(R"({"tasks": [{"title": "X", "deadline": "2026-11-24T10:00"}]})")).ok);
     }
 };
 
@@ -517,7 +558,7 @@ private slots:
     void fakeEngineDeliversParsedProposal()
     {
         FakeEngine engine;
-        engine.response = R"({"opgaver": [{"titel": "Køb mælk", "start": "2026-11-24"}]})";
+        engine.response = R"({"tasks": [{"title": "Køb mælk", "start": "2026-11-24"}]})";
         Proposal proposal;
         QString error;
         QVERIFY(runEngine(engine, QStringLiteral("køb mælk i morgen"), &proposal, &error));
@@ -755,7 +796,7 @@ private slots:
         QVERIFY(sp.open(QIODevice::ReadOnly));
         const QString spText = QString::fromUtf8(sp.readAll());
         QVERIFY(spText.contains(QStringLiteral("2026-11-23"))); // fixture date in the prompt
-        QVERIFY(spText.contains(QStringLiteral("opgaver")));    // schema embedded
+        QVERIFY(spText.contains(QStringLiteral("tasks")));    // schema embedded
 
         // Tools must be disabled (a glob matching no real tool) and one turn.
         QFile argsFile(dir.filePath(QStringLiteral("args.txt")));

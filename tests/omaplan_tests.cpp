@@ -1072,7 +1072,7 @@ private slots:
         const QJsonObject moved = cliJson(store, {QStringLiteral("move"), id, QStringLiteral("2026-12-02 10:00"),
                                                    QStringLiteral("--json")}, &err, &code);
         QCOMPARE(code, 0);
-        // --json dates follow docs/ai-skema.json: no milliseconds.
+        // --json dates follow docs/ai-schema.json: no milliseconds.
         QCOMPARE(moved["task"].toObject()["start"].toString(), QStringLiteral("2026-12-02T10:00"));
         QCOMPARE(moved["task"].toObject()["start_has_time"].toBool(), true);
 
@@ -1138,8 +1138,8 @@ private slots:
         // Without --ja the proposal is printed, nothing stored.
         const QJsonObject proposal = cliJson(store, {QStringLiteral("add"), QStringLiteral("køb mælk i morgen"), QStringLiteral("--json")}, &err, &code);
         QCOMPARE(code, 0);
-        QCOMPARE(proposal["proposal"].toObject()["opgaver"].toArray().size(), 1);
-        QCOMPARE(proposal["proposal"].toObject()["opgaver"].toArray().first().toObject()["titel"].toString(),
+        QCOMPARE(proposal["proposal"].toObject()["tasks"].toArray().size(), 1);
+        QCOMPARE(proposal["proposal"].toObject()["tasks"].toArray().first().toObject()["title"].toString(),
                  QStringLiteral("Køb mælk"));
         QVERIFY(!proposal["capture_id"].toString().isEmpty());
         QCOMPARE(cliJson(store, {QStringLiteral("list"), QStringLiteral("--json")}, &err, &code)["tasks"].toArray().size(), 0);
@@ -1220,7 +1220,7 @@ private slots:
 
     void jsonDatesHaveNoMilliseconds()
     {
-        // docs/ai-skema.json: YYYY-MM-DD or YYYY-MM-DDTHH:MM — never ms.
+        // docs/ai-schema.json: YYYY-MM-DD or YYYY-MM-DDTHH:MM — never ms.
         Task task;
         task.id = Task::newId();
         task.title = QStringLiteral("Format");
@@ -1403,10 +1403,10 @@ private slots:
         Actions actions(&store);
 
         // The user typed "fredag 10" over the engine's ISO date: it is parsed.
-        const QJsonObject good = QJsonDocument::fromJson(R"({"opgaver": [
-            {"titel": "Skriv blogindlæg", "start": "fredag 10", "projekt": "Blog"},
-            {"titel": "Ring til Kunde A", "start": "2026-12-01T09:30", "gaet": ["start"]},
-            {"titel": "Læs rapport", "frist": "2026-12-03"}]})").object();
+        const QJsonObject good = QJsonDocument::fromJson(R"({"tasks": [
+            {"title": "Skriv blogindlæg", "start": "fredag 10", "project": "Blog"},
+            {"title": "Ring til Kunde A", "start": "2026-12-01T09:30", "guessed": ["start"]},
+            {"title": "Læs rapport", "deadline": "2026-12-03"}]})").object();
         const ActionResult ok = actions.approve(good, QString(), QStringLiteral("gui"));
         QVERIFY2(ok.ok, qPrintable(ok.error));
         QCOMPARE(ok.payload["count"].toInt(), 3);
@@ -1424,8 +1424,8 @@ private slots:
 
         // An unreadable date in the last task stores nothing at all and
         // names the task and the problem.
-        const QJsonObject bad = QJsonDocument::fromJson(R"({"opgaver": [
-            {"titel": "Første"}, {"titel": "Anden", "start": "engang"}]})").object();
+        const QJsonObject bad = QJsonDocument::fromJson(R"({"tasks": [
+            {"title": "Første"}, {"title": "Anden", "start": "engang"}]})").object();
         const ActionResult refused = actions.approve(bad, QString(), QStringLiteral("gui"));
         QVERIFY(!refused.ok);
         QVERIFY2(refused.error.contains(QStringLiteral("Anden")) && refused.error.contains(QStringLiteral("engang")),
@@ -1479,7 +1479,7 @@ private slots:
         // Garbage numbers and statuses are errors, not silent defaults.
         err.clear();
         QCOMPARE(cli(store, {QStringLiteral("edit"), id, QStringLiteral("--varighed"), QStringLiteral("1t")}, &out, &err), 1);
-        QVERIFY(err.contains(QStringLiteral("varighed")));
+        QVERIFY(err.contains(QStringLiteral("duration")));
         QCOMPARE(cli(store, {QStringLiteral("new"), QStringLiteral("--titel"), QStringLiteral("Y"),
                              QStringLiteral("--prioritet"), QStringLiteral("høj")}, &out, &err), 1);
         QCOMPARE(cli(store, {QStringLiteral("edit"), id, QStringLiteral("--status"), QStringLiteral("færdig")}, &out, &err), 1);
@@ -1498,7 +1498,7 @@ private slots:
         task.title = QStringLiteral("X");
         const QString id = actions.create(task, QStringLiteral("cli")).payload["task"].toObject()["id"].toString();
         QJsonObject typo;
-        typo["titel"] = QStringLiteral("Y");
+        typo["tilte"] = QStringLiteral("Y");
         QVERIFY(!actions.update(id, typo, QStringLiteral("mcp")).ok);
         // A date-only start whose text carries a time keeps its date instead
         // of becoming unscheduled.
@@ -1690,18 +1690,18 @@ private slots:
                                                   {QStringLiteral("clientInfo"), QJsonObject{{QStringLiteral("name"), QStringLiteral("test")}}}}),
             notification,
             rpc(2, QStringLiteral("tools/list")),
-            call(3, QStringLiteral("new"), {{QStringLiteral("titel"), QStringLiteral("Skriv blogindlæg")},
+            call(3, QStringLiteral("new"), {{QStringLiteral("title"), QStringLiteral("Skriv blogindlæg")},
                                             {QStringLiteral("start"), QStringLiteral("2026-12-04 14:00")},
-                                            {QStringLiteral("varighed"), 60}, {QStringLiteral("projekt"), QStringLiteral("Blog")}}),
-            call(4, QStringLiteral("list"), {{QStringLiteral("projekt"), QStringLiteral("Blog")}}),
+                                            {QStringLiteral("duration"), 60}, {QStringLiteral("project"), QStringLiteral("Blog")}}),
+            call(4, QStringLiteral("list"), {{QStringLiteral("project"), QStringLiteral("Blog")}}),
             call(5, QStringLiteral("done"), {{QStringLiteral("id"), seeded.id}}),
             call(6, QStringLiteral("undo")),
             call(7, QStringLiteral("show"), {{QStringLiteral("id"), QStringLiteral("findes-ikke")}}),
-            call(8, QStringLiteral("new"), {{QStringLiteral("titel"), QStringLiteral("X")}, {QStringLiteral("start"), QStringLiteral("engang")}}),
+            call(8, QStringLiteral("new"), {{QStringLiteral("title"), QStringLiteral("X")}, {QStringLiteral("start"), QStringLiteral("engang")}}),
             call(9, QStringLiteral("frobnicate")),
             rpc(10, QStringLiteral("resources/list")),
-            call(11, QStringLiteral("summary"), {{QStringLiteral("periode"), QStringLiteral("uge")}}),
-            call(12, QStringLiteral("propose"), {{QStringLiteral("tekst"), QStringLiteral("køb mælk")}}),
+            call(11, QStringLiteral("summary"), {{QStringLiteral("period"), QStringLiteral("week")}}),
+            call(12, QStringLiteral("propose"), {{QStringLiteral("text"), QStringLiteral("køb mælk")}}),
         }, &stderrText);
         // One answer per request (not for the notification), plus a parse error.
         QCOMPARE(r.size(), 13);
@@ -1769,7 +1769,7 @@ private slots:
         cfg.close();
         QString stderrText;
         QList<QJsonObject> r = mcpSession(db, {
-            call(1, QStringLiteral("propose"), {{QStringLiteral("tekst"), QStringLiteral("køb mælk i morgen")}}),
+            call(1, QStringLiteral("propose"), {{QStringLiteral("text"), QStringLiteral("køb mælk i morgen")}}),
             call(2, QStringLiteral("list")),
         }, &stderrText);
         QCOMPARE(r.size(), 3);
@@ -1778,9 +1778,9 @@ private slots:
         QCOMPARE(r[1]["result"].toObject()["structuredContent"].toObject()["tasks"].toArray().size(), 0); // nothing stored yet
 
         r = mcpSession(db, {
-            call(1, QStringLiteral("approve"), {{QStringLiteral("forslag"), proposed["proposal"]},
+            call(1, QStringLiteral("approve"), {{QStringLiteral("proposal"), proposed["proposal"]},
                                                 {QStringLiteral("capture_id"), proposed["capture_id"]}}),
-            call(2, QStringLiteral("add"), {{QStringLiteral("tekst"), QStringLiteral("køb mælk fredag")}}),
+            call(2, QStringLiteral("add"), {{QStringLiteral("text"), QStringLiteral("køb mælk fredag")}}),
             call(3, QStringLiteral("list")),
         }, &stderrText);
         QCOMPARE(r[0]["result"].toObject()["isError"].toBool(), false);
@@ -1926,21 +1926,21 @@ private slots:
 
         // The editor creates and edits with text fields, dates as in the CLI.
         const QDate monday = QDate(2026, 12, 7);
-        QJsonObject r = actions.guiNew({{QStringLiteral("titel"), QStringLiteral("Møde")},
+        QJsonObject r = actions.guiNew({{QStringLiteral("title"), QStringLiteral("Møde")},
                                         {QStringLiteral("start"), QStringLiteral("2026-12-07 10:00")},
-                                        {QStringLiteral("projekt"), QStringLiteral("Kunde A")}});
+                                        {QStringLiteral("project"), QStringLiteral("Kunde A")}});
         QVERIFY2(r["ok"].toBool(), qPrintable(r["error"].toString()));
         const QString meeting = r["payload"].toObject()["task"].toObject()["id"].toString();
-        r = actions.guiNew({{QStringLiteral("titel"), QStringLiteral("Heldag")}, {QStringLiteral("start"), QStringLiteral("2026-12-07")}});
+        r = actions.guiNew({{QStringLiteral("title"), QStringLiteral("Heldag")}, {QStringLiteral("start"), QStringLiteral("2026-12-07")}});
         const QString allDay = r["payload"].toObject()["task"].toObject()["id"].toString();
-        r = actions.guiNew({{QStringLiteral("titel"), QStringLiteral("Blog")}, {QStringLiteral("projekt"), QStringLiteral("Blog")}});
+        r = actions.guiNew({{QStringLiteral("title"), QStringLiteral("Blog")}, {QStringLiteral("project"), QStringLiteral("Blog")}});
         const QString blog = r["payload"].toObject()["task"].toObject()["id"].toString();
-        QVERIFY(!actions.guiNew({{QStringLiteral("titel"), QStringLiteral("X")}, {QStringLiteral("frist"), QStringLiteral("snart")}})["ok"].toBool());
+        QVERIFY(!actions.guiNew({{QStringLiteral("title"), QStringLiteral("X")}, {QStringLiteral("deadline"), QStringLiteral("snart")}})["ok"].toBool());
 
-        r = actions.guiEdit(meeting, {{QStringLiteral("varighed"), QStringLiteral("90")}, {QStringLiteral("frist"), QStringLiteral("2026-12-08")}});
+        r = actions.guiEdit(meeting, {{QStringLiteral("duration"), QStringLiteral("90")}, {QStringLiteral("deadline"), QStringLiteral("2026-12-08")}});
         QVERIFY2(r["ok"].toBool(), qPrintable(r["error"].toString()));
         QCOMPARE(actions.guiTask(meeting)["payload"].toObject()["task"].toObject()["duration_minutes"].toInt(), 90);
-        QVERIFY(!actions.guiEdit(meeting, {{QStringLiteral("varighed"), QStringLiteral("halvanden time")}})["ok"].toBool());
+        QVERIFY(!actions.guiEdit(meeting, {{QStringLiteral("duration"), QStringLiteral("halvanden time")}})["ok"].toBool());
 
         // Date preview while typing.
         const QJsonObject parsed = actions.guiParseDate(QStringLiteral("2026-12-09 kl. 14"));

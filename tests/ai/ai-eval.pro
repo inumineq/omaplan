@@ -40,4 +40,4 @@ HEADERS += \
     ../../src/task.h \
     ../../src/translator.h
 
-RESOURCES += ../../src/ai-skema.qrc
+RESOURCES += ../../src/ai-schema.qrc

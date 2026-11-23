@@ -1,5 +1,5 @@
 Her er forslaget:
 ```json
-{"opgaver": [{"titel": "Køb mælk"}]}
+{"tasks": [{"title": "Køb mælk"}]}
 ```
 Håber det kan bruges.

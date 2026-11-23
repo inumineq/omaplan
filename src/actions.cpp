@@ -60,7 +60,7 @@ ActionResult Actions::update(const QString &id, const QJsonObject &patch, const 
     QJsonObject json = current.toJson();
     for (auto it = patch.begin(); it != patch.end(); ++it)
         json[it.key()] = it.value();
-    // Only known fields may be patched; a typo ("titel") is an error, not a
+    // Only known fields may be patched; a typo ("tilte") is an error, not a
     // silent no-op.
     for (auto it = patch.begin(); it != patch.end(); ++it)
         if (!current.toJson().contains(it.key()) || it.key() == QLatin1String("id")
@@ -307,16 +307,10 @@ QJsonObject Actions::guiParseDate(const QString &text) const {
 // ---------------------------------------------------------------------------
 // AI proposals
 
-// Maps the schema's guessed-field names (gaet) to Task's guess keys.
+// Maps the schema's guessed-field names to Task's guess keys; only the
+// duration differs.
 static QString guessKeyFromSchema(const QString &schemaField) {
-    static const QHash<QString, QString> map = {
-        {QStringLiteral("start"), QStringLiteral("start")},
-        {QStringLiteral("varighed_min"), QStringLiteral("duration_minutes")},
-        {QStringLiteral("frist"), QStringLiteral("deadline")},
-        {QStringLiteral("projekt"), QStringLiteral("project")},
-        {QStringLiteral("prioritet"), QStringLiteral("priority")},
-    };
-    return map.value(schemaField, schemaField);
+    return schemaField == QLatin1String("duration_min") ? QStringLiteral("duration_minutes") : schemaField;
 }
 
 static QStringList existingTaskLines(Store *store) {
@@ -427,22 +421,23 @@ ActionResult Actions::propose(const QString &rawText, const QString &motorId,
 ActionResult Actions::approve(const QJsonObject &proposalJson, const QString &captureId, const QString &source) {
     // Build and validate every task before writing any, so a bad field in
     // the third task never leaves the first two stored on their own.
-    const QJsonArray tasks = proposalJson.value(QStringLiteral("opgaver")).toArray();
+    // A proposal saved before 0.1 may still carry the Danish keys.
+    const QJsonArray tasks = withEnglishKeys(proposalJson).value(QStringLiteral("tasks")).toArray();
     const QDate today = QDateTime::currentDateTime().date();
     QList<Task> built;
     for (const QJsonValue &value : tasks) {
         const QJsonObject o = value.toObject();
         Task task;
         task.id = Task::newId();
-        task.title = o.value(QStringLiteral("titel")).toString().trimmed();
-        task.notes = o.value(QStringLiteral("noter")).toString();
-        task.project = o.value(QStringLiteral("projekt")).toString().trimmed();
-        task.priority = o.value(QStringLiteral("prioritet")).toVariant().toInt();
+        task.title = o.value(QStringLiteral("title")).toString().trimmed();
+        task.notes = o.value(QStringLiteral("notes")).toString();
+        task.project = o.value(QStringLiteral("project")).toString().trimmed();
+        task.priority = o.value(QStringLiteral("priority")).toVariant().toInt();
         if (task.priority == 0)
             task.priority = 3;
         // Dates go through the same parser as the CLI: the engine's ISO
         // values, and whatever the user typed over them in the proposal
-        // ("fredag 10"). An unreadable date is an error, never a silent drop.
+        // ("friday 10"). An unreadable date is an error, never a silent drop.
         const auto readDate = [&](const char *key, QDateTime *when, bool *hasTime, QString *error) {
             const QString text = o.value(QLatin1String(key)).toString().trimmed();
             if (text.isEmpty())
@@ -456,11 +451,11 @@ ActionResult Actions::approve(const QJsonObject &proposalJson, const QString &ca
         };
         QString error;
         if (!readDate("start", &task.start, &task.startHasTime, &error)
-            || !readDate("frist", &task.deadline, &task.deadlineHasTime, &error))
+            || !readDate("deadline", &task.deadline, &task.deadlineHasTime, &error))
             return {false, error, {}, {}};
-        task.durationMinutes = o.value(QStringLiteral("varighed_min")).toVariant().toInt();
-        const QJsonArray gaet = o.value(QStringLiteral("gaet")).toArray();
-        for (const QJsonValue &g : gaet)
+        task.durationMinutes = o.value(QStringLiteral("duration_min")).toVariant().toInt();
+        const QJsonArray guessed = o.value(QStringLiteral("guessed")).toArray();
+        for (const QJsonValue &g : guessed)
             task.guesses.append(guessKeyFromSchema(g.toString()));
         task.captureId = captureId;
         const QString invalid = task.validate();
@@ -761,33 +756,48 @@ static bool intField(const Actions::Fields &fields, const QString &key, int *out
 
 static const QStringList &knownFields() {
     static const QStringList keys = {
-        QStringLiteral("titel"), QStringLiteral("noter"), QStringLiteral("projekt"), QStringLiteral("prioritet"),
-        QStringLiteral("start"), QStringLiteral("varighed"), QStringLiteral("frist"), QStringLiteral("status")};
+        QStringLiteral("title"), QStringLiteral("notes"), QStringLiteral("project"), QStringLiteral("priority"),
+        QStringLiteral("start"), QStringLiteral("duration"), QStringLiteral("deadline"), QStringLiteral("status")};
     return keys;
 }
 
-static bool checkKnown(const Actions::Fields &fields, QString *error) {
-    for (auto it = fields.begin(); it != fields.end(); ++it)
-        if (!knownFields().contains(it.key())) {
+const QHash<QString, QString> &Actions::legacyFieldNames() {
+    static const QHash<QString, QString> names = {
+        {QStringLiteral("titel"), QStringLiteral("title")},       {QStringLiteral("noter"), QStringLiteral("notes")},
+        {QStringLiteral("projekt"), QStringLiteral("project")},   {QStringLiteral("prioritet"), QStringLiteral("priority")},
+        {QStringLiteral("varighed"), QStringLiteral("duration")}, {QStringLiteral("frist"), QStringLiteral("deadline")},
+    };
+    return names;
+}
+
+// Renames the old Danish field names, then rejects anything still unknown.
+static bool englishFields(const Actions::Fields &in, Actions::Fields *out, QString *error) {
+    out->clear();
+    for (auto it = in.begin(); it != in.end(); ++it) {
+        const QString key = Actions::legacyFieldNames().value(it.key(), it.key());
+        if (!knownFields().contains(key)) {
             *error = QCoreApplication::translate("Actions", "Unknown field: %1 (known: %2)")
                          .arg(it.key(), knownFields().join(QStringLiteral(", ")));
             return false;
         }
+        out->insert(key, it.value());
+    }
     return true;
 }
 
-bool Actions::taskFromFields(const Fields &fields, Task *task, QString *error) {
-    if (!checkKnown(fields, error))
+bool Actions::taskFromFields(const Fields &given, Task *task, QString *error) {
+    Fields fields;
+    if (!englishFields(given, &fields, error))
         return false;
-    if (fields.value(QStringLiteral("titel")).trimmed().isEmpty()) {
-        *error = QCoreApplication::translate("Actions", "Missing titel");
+    if (fields.value(QStringLiteral("title")).trimmed().isEmpty()) {
+        *error = QCoreApplication::translate("Actions", "Missing title");
         return false;
     }
-    task->title = fields.value(QStringLiteral("titel")).trimmed();
-    task->notes = fields.value(QStringLiteral("noter"));
-    task->project = fields.value(QStringLiteral("projekt")).trimmed();
-    if (!intField(fields, QStringLiteral("prioritet"), &task->priority, error)
-        || !intField(fields, QStringLiteral("varighed"), &task->durationMinutes, error))
+    task->title = fields.value(QStringLiteral("title")).trimmed();
+    task->notes = fields.value(QStringLiteral("notes"));
+    task->project = fields.value(QStringLiteral("project")).trimmed();
+    if (!intField(fields, QStringLiteral("priority"), &task->priority, error)
+        || !intField(fields, QStringLiteral("duration"), &task->durationMinutes, error))
         return false;
     if (fields.contains(QStringLiteral("status"))) {
         bool ok = false;
@@ -799,25 +809,26 @@ bool Actions::taskFromFields(const Fields &fields, Task *task, QString *error) {
     }
     return dateField(QStringLiteral("start"), fields.value(QStringLiteral("start")), &task->start,
                      &task->startHasTime, error)
-           && dateField(QStringLiteral("frist"), fields.value(QStringLiteral("frist")), &task->deadline,
+           && dateField(QStringLiteral("deadline"), fields.value(QStringLiteral("deadline")), &task->deadline,
                         &task->deadlineHasTime, error);
 }
 
-bool Actions::patchFromFields(const Fields &fields, QJsonObject *patch, QString *error) {
-    if (!checkKnown(fields, error))
+bool Actions::patchFromFields(const Fields &given, QJsonObject *patch, QString *error) {
+    Fields fields;
+    if (!englishFields(given, &fields, error))
         return false;
-    if (fields.contains(QStringLiteral("titel"))) (*patch)["title"] = fields.value(QStringLiteral("titel"));
-    if (fields.contains(QStringLiteral("noter"))) (*patch)["notes"] = fields.value(QStringLiteral("noter"));
-    if (fields.contains(QStringLiteral("projekt"))) (*patch)["project"] = fields.value(QStringLiteral("projekt")).trimmed();
+    if (fields.contains(QStringLiteral("title"))) (*patch)["title"] = fields.value(QStringLiteral("title"));
+    if (fields.contains(QStringLiteral("notes"))) (*patch)["notes"] = fields.value(QStringLiteral("notes"));
+    if (fields.contains(QStringLiteral("project"))) (*patch)["project"] = fields.value(QStringLiteral("project")).trimmed();
     if (fields.contains(QStringLiteral("status"))) (*patch)["status"] = fields.value(QStringLiteral("status"));
     int number = 0;
-    if (fields.contains(QStringLiteral("prioritet"))) {
-        if (!intField(fields, QStringLiteral("prioritet"), &number, error))
+    if (fields.contains(QStringLiteral("priority"))) {
+        if (!intField(fields, QStringLiteral("priority"), &number, error))
             return false;
         (*patch)["priority"] = number;
     }
-    if (fields.contains(QStringLiteral("varighed"))) {
-        if (!intField(fields, QStringLiteral("varighed"), &number, error))
+    if (fields.contains(QStringLiteral("duration"))) {
+        if (!intField(fields, QStringLiteral("duration"), &number, error))
             return false;
         (*patch)["duration_minutes"] = number;
     }
@@ -835,7 +846,7 @@ bool Actions::patchFromFields(const Fields &fields, QJsonObject *patch, QString 
         return true;
     };
     return setDate(QStringLiteral("start"), QStringLiteral("start"))
-           && setDate(QStringLiteral("frist"), QStringLiteral("deadline"));
+           && setDate(QStringLiteral("deadline"), QStringLiteral("deadline"));
 }
 
 // ---------------------------------------------------------------------------

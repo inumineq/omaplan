@@ -310,7 +310,7 @@ Item {
                             onReleased: {
                                 const minutes = Math.max(15, Math.round(barItem.width / gantt.dayWidth * gantt.spanMinutes / 15) * 15)
                                 if (minutes !== barItem.task.durationMinutes)
-                                    win.check(actions.guiEdit(barItem.task.taskId, { "varighed": String(minutes) }))
+                                    win.check(actions.guiEdit(barItem.task.taskId, { "duration": String(minutes) }))
                                 barItem.width = Qt.binding(() => barItem.modelData.w)
                             }
                         }

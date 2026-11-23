@@ -36,19 +36,19 @@ QString buildSystemPrompt(const PromptContext &context)
                   .arg(schemaText().trimmed());
     prompt += QStringLiteral("\nRules:\n"
                              "- Do not use any tools; answer with only the JSON object.\n"
-                             "- \"start\" and \"frist\" are ISO 8601 local dates (YYYY-MM-DD) or date+time "
+                             "- \"start\" and \"deadline\" are ISO 8601 local dates (YYYY-MM-DD) or date+time "
                              "(YYYY-MM-DDTHH:MM).\n"
-                             "- \"start\" is when the user works on the task; \"frist\" is when it must be "
+                             "- \"start\" is when the user works on the task; \"deadline\" is when it must be "
                              "finished. Words like \"inden\", \"senest\", \"skal være klar\", \"aflever\", "
-                             "\"deadline\", \"by\" and \"before\" set \"frist\", not \"start\". Examples: "
-                             "\"artikel skal være klar fredag 12\" -> {\"titel\": \"Skriv artikel\", "
-                             "\"frist\": \"<that Friday>T12:00\"}; \"aflever rapporten inden søndag\" -> "
-                             "{\"titel\": \"Aflever rapporten\", \"frist\": \"<that Sunday>\"}.\n"
+                             "\"deadline\", \"by\" and \"before\" set \"deadline\", not \"start\". Examples: "
+                             "\"artikel skal være klar fredag 12\" -> {\"title\": \"Skriv artikel\", "
+                             "\"deadline\": \"<that Friday>T12:00\"}; \"aflever rapporten inden søndag\" -> "
+                             "{\"title\": \"Aflever rapporten\", \"deadline\": \"<that Sunday>\"}.\n"
                              "- Unfold recurring tasks (\"hver torsdag i november\") into one task per "
                              "occurrence.\n"
                              "- When you had to guess a field's value (a date, a duration, a project, a "
-                             "priority), list the schema field name in \"gaet\".\n"
-                             "- Put text you could not turn into a task into \"uafklaret\".\n"
+                             "priority), list the schema field name in \"guessed\".\n"
+                             "- Put text you could not turn into a task into \"unresolved\".\n"
                              "- Keep titles short and imperative.\n");
     // NOTE: existing tasks deliberately go into the USER prompt (see
     // buildUserPrompt), so this system prompt is identical all day.

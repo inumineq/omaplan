@@ -15,7 +15,7 @@
 // task's title (case-insensitive) and whose start date (date part only)
 // matches that expected task's start date (tasks without a start must have
 // none on both sides). Cases whose expected answer has no tasks at all (only
-// "uafklaret") count as correct when the engine also produced no tasks.
+// "unresolved") count as correct when the engine also produced no tasks.
 #include "dateannotate.h"
 #include "engine.h"
 #include "prompt.h"
