@@ -40,13 +40,13 @@ protected:
     {
         const QStringList parts = QProcess::splitCommand(m_commandLine);
         if (parts.isEmpty()) {
-            fail(tr("No command configured. Set a command that reads the prompt on stdin "
+            fail(AiEngine::tr("No command configured. Set a command that reads the prompt on stdin "
                                 "and writes JSON to stdout."));
             return;
         }
         const QString fullPrompt = systemPrompt + QStringLiteral("\n\n") + userPrompt;
         launch(parts.first(), parts.mid(1), fullPrompt.toUtf8(),
-               tr("The configured command is not installed or not on PATH."));
+               AiEngine::tr("The configured command is not installed or not on PATH."));
     }
 
 private:

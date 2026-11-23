@@ -1,1 +1,1 @@
-{"opgaver": [{"titel": "Køb mælk", "projekt": "Indkøb", "prioritet": 2, "varighed_min": 30, "gaet": ["projekt", "varighed_min"]}]}
+{"tasks": [{"title": "Køb mælk", "project": "Indkøb", "priority": 2, "duration_min": 30, "guessed": ["project", "duration_min"]}]}

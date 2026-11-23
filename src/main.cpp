@@ -16,25 +16,35 @@
 #include "snapshot.h"
 #include "store.h"
 #include "theme.h"
-#include "translator.h"
+#include "uilanguage.h"
 
 int main(int argc, char *argv[]) {
     QStringList args;
     for (int i = 1; i < argc; ++i)
         args << QString::fromLocal8Bit(argv[i]);
 
-    QString dbPath;
-    for (int i = 0; i < args.size(); ++i)
+    // Global options, wherever they stand; runCli skips them too.
+    QString dbPath, language;
+    QStringList command;
+    for (int i = 0; i < args.size(); ++i) {
         if (args[i] == QLatin1String("--db") && i + 1 < args.size())
             dbPath = args[++i];
+        else if (args[i] == QLatin1String("--lang") && i + 1 < args.size())
+            language = args[++i];
+        else
+            command << args[i];
+    }
 
     // Everything except `open` (and no arguments) is a CLI command, which runs
     // without a display.
-    const bool gui = args.isEmpty() || args.first() == QLatin1String("open");
+    const bool gui = command.isEmpty() || command.first() == QLatin1String("open");
     if (!gui) {
         QCoreApplication app(argc, argv);
         app.setApplicationName("omaplan");
         app.setApplicationVersion("0.1.0");
+        // Text output and error messages in the interface language; --json
+        // stays English.
+        UiLanguage uiLanguage(&app, language, false);
         Store store(dbPath);
         QTextStream out(stdout);
         QTextStream err(stderr);
@@ -53,9 +63,14 @@ int main(int argc, char *argv[]) {
     QQuickStyle::setStyle("Material");
 
     // Installed before anything is translated, and every qsTr() binding is
-    // re-evaluated when the Omarchy language changes.
-    Translator translator;
-    app.installTranslator(&translator);
+    // re-evaluated when the language changes (the Omarchy language, live).
+    UiLanguage uiLanguage(&app, language, true);
+    // Right-to-left languages mirror the window.
+    const auto applyDirection = [&uiLanguage] {
+        QGuiApplication::setLayoutDirection(UiLanguage::formatLocale(uiLanguage.language()).textDirection());
+    };
+    applyDirection();
+    QObject::connect(&uiLanguage, &UiLanguage::changed, &app, applyDirection);
 
     registerQmlTypes();
 
@@ -71,6 +86,12 @@ int main(int argc, char *argv[]) {
     // plan.json for the read-only edition: written now, so it exists from the
     // first start, and again after every change made in the window.
     Snapshotter snapshotter(&store, Snapshot::path(store.path()));
+    snapshotter.setLanguage(uiLanguage.language());
+    QObject::connect(&uiLanguage, &UiLanguage::changed, &snapshotter, [&] {
+        snapshotter.setLanguage(uiLanguage.language());
+        if (storeOpen)
+            snapshotter.write();
+    });
     if (storeOpen)
         snapshotter.write();
     PlanModel planModel(&store);
@@ -83,8 +104,8 @@ int main(int argc, char *argv[]) {
     planModel.startLivePolling(500);
 
     QQmlApplicationEngine engine;
-    QObject::connect(&translator, &Translator::changed, &engine, &QQmlEngine::retranslate);
-    engine.rootContext()->setContextProperty("translator", &translator);
+    QObject::connect(&uiLanguage, &UiLanguage::changed, &engine, &QQmlEngine::retranslate);
+    engine.rootContext()->setContextProperty("uiLanguage", &uiLanguage);
     engine.rootContext()->setContextProperty("theme", &theme);
     engine.rootContext()->setContextProperty("actions", &actions);
     engine.rootContext()->setContextProperty("planModel", &planModel);

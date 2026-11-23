@@ -3,8 +3,14 @@ set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 
+# Tests run offscreen; a desktop platform theme (e.g. gtk3) would need a display.
+unset QT_QPA_PLATFORMTHEME
+
 # The app itself first: the MCP tests talk to the real binary over stdio.
 "$ROOT/bin/build" >/dev/null
+
+# Every UI string has a translation in each i18n/omaplan_*.ts.
+"$ROOT/bin/i18n-check"
 
 # Core tests (store, actions, CLI, models, date annotation).
 mkdir -p "$ROOT/build/tests"
@@ -20,3 +26,9 @@ cd "$ROOT/build/ai-tests"
 qmake6 "$ROOT/tests/unit/unit.pro"
 make -j"$(nproc)"
 QT_QPA_PLATFORM=offscreen ./ai-unit-tests
+
+# The read-only page's JavaScript against the same reference pages, when
+# Node is installed (it is not a build dependency).
+if command -v node >/dev/null 2>&1; then
+    node "$ROOT/web/test.mjs"
+fi

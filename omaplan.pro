@@ -6,7 +6,7 @@ TEMPLATE = app
 
 HEADERS += \
     src/theme.h \
-    src/translator.h \
+    src/uilanguage.h \
     src/task.h \
     src/store.h \
     src/actions.h \
@@ -14,6 +14,7 @@ HEADERS += \
     src/planmodel.h \
     src/config.h \
     src/dateannotate.h \
+    src/datewords.h \
     src/skill.h \
     src/engine.h \
     src/prompt.h \
@@ -26,7 +27,7 @@ HEADERS += \
 SOURCES += \
     src/main.cpp \
     src/theme.cpp \
-    src/translator.cpp \
+    src/uilanguage.cpp \
     src/task.cpp \
     src/store.cpp \
     src/actions.cpp \
@@ -34,6 +35,7 @@ SOURCES += \
     src/planmodel.cpp \
     src/config.cpp \
     src/dateannotate.cpp \
+    src/datewords.cpp \
     src/skill.cpp \
     src/engine.cpp \
     src/engine_vibe.cpp \
@@ -47,4 +49,10 @@ SOURCES += \
     src/snapshot.cpp \
     src/server.cpp
 
-RESOURCES += src/resources.qrc src/ai-skema.qrc src/skill.qrc src/web.qrc
+RESOURCES += src/resources.qrc src/ai-schema.qrc src/skill.qrc src/web.qrc
+
+# Translations: every i18n/omaplan_<lang>.ts is compiled by lrelease and
+# embedded as :/i18n/omaplan_<lang>.qm, so a new language needs no code
+# change (see docs/translating.md).
+TRANSLATIONS = $$files(i18n/omaplan_*.ts)
+CONFIG += lrelease embed_translations

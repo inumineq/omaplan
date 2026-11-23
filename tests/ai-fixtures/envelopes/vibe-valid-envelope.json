@@ -15,7 +15,7 @@
     "type": "message",
     "role": "assistant",
     "content": [
-      {"type": "text", "text": "{\"opgaver\": [{\"titel\": \"Køb mælk\", \"start\": \"2026-11-24\"}]}"}
+      {"type": "text", "text": "{\"tasks\": [{\"title\": \"Køb mælk\", \"start\": \"2026-11-24\"}]}"}
     ]
   }
 ]

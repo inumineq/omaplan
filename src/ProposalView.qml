@@ -5,12 +5,12 @@ import QtQuick.Layouts
 
 import Omaplan
 
-// AI-motorens forslag som en redigerbar liste, før noget gemmes. Felter, som
-// motoren har gættet, er markeret. Man retter direkte i felterne (datoer som i
-// CLI'en: "fredag 10"), sletter med Ctrl+Delete og tilføjer med Ctrl+N.
-// Ctrl+Enter godkender, Esc kasserer. I Sammenlign står to motorers forslag
-// side om side; Ctrl+1 / Ctrl+2 godkender det ene (Alt+←/→ vælger).
-// Motorfejl vises her med motorens råsvar.
+// The AI engine's proposal as an editable list, before anything is stored.
+// Fields the engine guessed are marked. Edit right in the fields (dates as in
+// the CLI: "friday 10"), delete with Ctrl+Delete and add with Ctrl+N.
+// Ctrl+Enter approves, Esc discards. In Compare two engines' proposals stand
+// side by side; Ctrl+1 / Ctrl+2 approves one of them (Alt+←/→ selects).
+// Engine errors are shown here with the engine's raw answer.
 Rectangle {
     id: overlay
     color: Qt.alpha(theme.background, 0.82) // a scrim in the theme's own colour, light or dark
@@ -40,17 +40,17 @@ Rectangle {
         return m ? m[1] + (m[2] ? " " + m[2] : "") : (iso || "")
     }
     function columnFrom(engine, proposal, captureId) {
-        const tasks = (proposal.opgaver || []).map(t => ({
-            "titel": t.titel || "",
+        const tasks = (proposal.tasks || []).map(t => ({
+            "title": t.title || "",
             "start": overlay.editable(t.start),
-            "varighed_min": t.varighed_min ? String(t.varighed_min) : "",
-            "frist": overlay.editable(t.frist),
-            "projekt": t.projekt || "",
-            "prioritet": t.prioritet ? String(t.prioritet) : "",
-            "noter": t.noter || "",
-            "gaet": t.gaet || []
+            "duration_min": t.duration_min ? String(t.duration_min) : "",
+            "deadline": overlay.editable(t.deadline),
+            "project": t.project || "",
+            "priority": t.priority ? String(t.priority) : "",
+            "notes": t.notes || "",
+            "guessed": t.guessed || []
         }))
-        return { engine: engine, state: "ready", tasks: tasks, unclear: proposal.uafklaret || [],
+        return { engine: engine, state: "ready", tasks: tasks, unclear: proposal.unresolved || [],
                  captureId: captureId, error: "" }
     }
     function bump(col) {
@@ -115,8 +115,8 @@ Rectangle {
     function addTask(col) {
         if (!columns[col] || columns[col].state !== "ready")
             return
-        columns[col].tasks.push({ "titel": "", "start": "", "varighed_min": "", "frist": "", "projekt": "",
-                                  "prioritet": "", "noter": "", "gaet": [] })
+        columns[col].tasks.push({ "title": "", "start": "", "duration_min": "", "deadline": "", "project": "",
+                                  "priority": "", "notes": "", "guessed": [] })
         focusCol = col
         focusTask = columns[col].tasks.length - 1
         bump(col)
@@ -135,33 +135,33 @@ Rectangle {
         const c = columns[col]
         if (!c || c.state !== "ready")
             return
-        const out = { "opgaver": [] }
+        const out = { "tasks": [] }
         for (const t of c.tasks) {
-            if (t.titel.trim() === "")
+            if (t.title.trim() === "")
                 continue
-            const o = { "titel": t.titel.trim() }
-            if (t.noter) o.noter = t.noter
-            if (t.projekt.trim()) o.projekt = t.projekt.trim()
+            const o = { "title": t.title.trim() }
+            if (t.notes) o.notes = t.notes
+            if (t.project.trim()) o.project = t.project.trim()
             if (t.start.trim()) o.start = t.start.trim()
-            if (t.frist.trim()) o.frist = t.frist.trim()
-            if (t.varighed_min.trim()) {
-                if (!/^\d+$/.test(t.varighed_min.trim())) {
-                    problem = qsTr("“%1”: duration must be whole minutes").arg(t.titel)
+            if (t.deadline.trim()) o.deadline = t.deadline.trim()
+            if (t.duration_min.trim()) {
+                if (!/^\d+$/.test(t.duration_min.trim())) {
+                    problem = qsTr("“%1”: duration must be whole minutes").arg(t.title)
                     return
                 }
-                o.varighed_min = parseInt(t.varighed_min)
+                o.duration_min = parseInt(t.duration_min)
             }
-            if (t.prioritet.trim()) {
-                if (!/^[123]$/.test(t.prioritet.trim())) {
-                    problem = qsTr("“%1”: priority must be 1, 2 or 3").arg(t.titel)
+            if (t.priority.trim()) {
+                if (!/^[123]$/.test(t.priority.trim())) {
+                    problem = qsTr("“%1”: priority must be 1, 2 or 3").arg(t.title)
                     return
                 }
-                o.prioritet = parseInt(t.prioritet)
+                o.priority = parseInt(t.priority)
             }
-            if (t.gaet.length) o.gaet = t.gaet
-            out.opgaver.push(o)
+            if (t.guessed.length) o.guessed = t.guessed
+            out.tasks.push(o)
         }
-        if (out.opgaver.length === 0) {
+        if (out.tasks.length === 0) {
             problem = qsTr("Nothing to approve: every task was removed")
             return
         }

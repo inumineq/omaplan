@@ -1,11 +1,11 @@
 pragma Singleton
 import QtQuick
 
-// Dates, times and durations in the Omarchy language. Every binding that
+// Dates, times and durations in the interface language. Every binding that
 // calls these reads `lang`, so it re-renders on a language switch.
 // Danish: "mandag 24. november", the week starts on Monday.
 QtObject {
-    readonly property string lang: translator.language
+    readonly property string lang: uiLanguage.language
     readonly property bool danish: lang.indexOf("da") === 0
     readonly property var locale: Qt.locale(danish ? "da_DK" : "en_GB")
 
@@ -49,7 +49,7 @@ QtObject {
     function monthTitle(d) { return d.toLocaleDateString(locale, "MMMM yyyy") }
     function dayNumber(d) { return d.toLocaleDateString(locale, "d") }
 
-    // "I dag", "I morgen", "I går" or the long day.
+    // "Today", "Tomorrow", "Yesterday" or the long day.
     function relativeDay(d, today) {
         var n = daysBetween(today, d)
         if (n === 0) return qsTr("Today")
@@ -57,7 +57,7 @@ QtObject {
         if (n === -1) return qsTr("Yesterday")
         return capitalize(dayLong(d))
     }
-    // Short relative date for meta lines: "i dag", "i morgen", "fre. 27.", "3. dec."
+    // Short relative date for meta lines: "today", "tomorrow", "Fri 27", "3 Dec".
     function relativeShort(d, today) {
         var n = daysBetween(today, d)
         if (n === 0) return qsTr("today")
@@ -82,7 +82,7 @@ QtObject {
         if (!minutes) return time(start)
         return time(start) + "–" + time(new Date(start.getTime() + minutes * 60000))
     }
-    // "uge 48 · 23.–29. november" / "Week 48 · 23–29 November"
+    // "Week 48 · 23–29 November" (Danish: "Uge 48 · 23.–29. november")
     function weekTitle(monday) {
         var sunday = addDays(monday, 6)
         var range = monday.getMonth() === sunday.getMonth()

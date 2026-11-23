@@ -58,11 +58,14 @@ public:
     static bool parseDateTime(const QString &text, const QDate &today, QDateTime *out, bool *hasTime,
                               QString *error = nullptr);
 
-    // Task fields by their CLI/MCP names (titel, noter, projekt, prioritet,
-    // start, varighed, frist, status), as text: dates take everything
+    // Task fields by their CLI/MCP names (title, notes, project, priority,
+    // start, duration, deadline, status), as text: dates take everything
     // parseDateTime accepts, an empty value clears a field. Shared by the
-    // CLI and the MCP server so both accept exactly the same input.
+    // CLI, the MCP server and the window, so all accept exactly the same
+    // input. The Danish names of 0.1 (titel, noter, projekt,
+    // prioritet, varighed, frist) are accepted as aliases.
     using Fields = QHash<QString, QString>;
+    static const QHash<QString, QString> &legacyFieldNames();
     static bool taskFromFields(const Fields &fields, Task *task, QString *error);
     static bool patchFromFields(const Fields &fields, QJsonObject *patch, QString *error);
 
@@ -78,28 +81,28 @@ public:
     // The task as JSON (payload.task), for the editor.
     Q_INVOKABLE QJsonObject guiTask(const QString &id);
     // Edit and create from the editor's text fields, by their CLI names
-    // (titel, start, frist, varighed, ...), so the window accepts the same
+    // (title, start, deadline, duration, ...), so the window accepts the same
     // date expressions as the CLI.
     Q_INVOKABLE QJsonObject guiEdit(const QString &id, const QVariantMap &fields);
     Q_INVOKABLE QJsonObject guiNew(const QVariantMap &fields);
     // Live preview while typing a date: {ok, error, date (ISO), hasTime}.
     Q_INVOKABLE QJsonObject guiParseDate(const QString &text) const;
 
-    // Sends free text to an AI engine (motorId empty = config default). The
+    // Sends free text to an AI engine (engineChoice empty = config default). The
     // raw text and the date-annotated variant are stored in `captures` with
     // engine and model. Used by `omaplan add` (synchronous, with event loop).
-    ActionResult propose(const QString &rawText, const QString &motorId = QString(),
+    ActionResult propose(const QString &rawText, const QString &engineChoice = QString(),
                          const QString &modelOverride = QString(), const QString &endpointOverride = QString(),
                          QString *captureIdOut = nullptr);
-    // Creates tasks from a proposal JSON (schema keys: opgaver/titel/gaet/...)
-    // and links them to the capture. Used by `omaplan add --ja` and the GUI.
+    // Creates tasks from a proposal JSON (schema keys: tasks/title/guessed/...)
+    // and links them to the capture. Used by `omaplan add --yes` and the GUI.
     ActionResult approve(const QJsonObject &proposalJson, const QString &captureId, const QString &source);
 
     // Async variant for QML: results arrive as proposalReady/proposalFailed,
     // so the GUI never blocks.
-    Q_INVOKABLE void guiPropose(const QString &text, const QString &motorId = QString());
+    Q_INVOKABLE void guiPropose(const QString &text, const QString &engineChoice = QString());
     Q_INVOKABLE void guiCancelProposal();
-    // Sammenlign: the same text to the two engines of `compare` in
+    // Compare: the same text to the two engines of `compare` in
     // config.toml (default vibe and claude) at once. Each side answers with
     // compareReady/compareFailed (side 0 or 1) and stores its own capture,
     // so both answers are kept whichever one is approved.
@@ -117,13 +120,13 @@ signals:
     void compareFailed(int side, const QString &message, const QString &engine);
 
 private:
-    ActionResult runEngine(const QString &rawText, const QString &motorId, const QString &modelOverride,
+    ActionResult runEngine(const QString &rawText, const QString &engineChoice, const QString &modelOverride,
                            const QString &endpointOverride, QString *captureIdOut, bool wait);
 
     // Builds and starts an engine for the GUI; on success `onReady` gets the
     // proposal and the new capture id, otherwise `onFailed` the message.
     // Cancelled runs report nothing.
-    std::unique_ptr<AiEngine> startGuiEngine(const QString &motorId, const QString &text,
+    std::unique_ptr<AiEngine> startGuiEngine(const QString &engineChoice, const QString &text,
                                              std::function<void(const QJsonObject &, const QString &)> onReady,
                                              std::function<void(const QString &)> onFailed);
 

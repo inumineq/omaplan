@@ -1,6 +1,7 @@
 #include "proposal.h"
 
 #include <QFile>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonValue>
@@ -8,13 +9,13 @@
 #include <cmath>
 
 // ---------------------------------------------------------------------------
-// Schema access (docs/ai-skema.json is embedded as a Qt resource)
+// Schema access (docs/ai-schema.json is embedded as a Qt resource)
 // ---------------------------------------------------------------------------
 
 QJsonObject schemaObject()
 {
     static const QJsonObject schema = [] {
-        QFile f(QStringLiteral(":/ai-skema.json"));
+        QFile f(QStringLiteral(":/ai-schema.json"));
         if (!f.open(QIODevice::ReadOnly))
             return QJsonObject();
         return QJsonDocument::fromJson(f.readAll()).object();
@@ -24,14 +25,14 @@ QJsonObject schemaObject()
 
 QString schemaText()
 {
-    QFile f(QStringLiteral(":/ai-skema.json"));
+    QFile f(QStringLiteral(":/ai-schema.json"));
     if (!f.open(QIODevice::ReadOnly))
         return QString();
     return QString::fromUtf8(f.readAll());
 }
 
 // ---------------------------------------------------------------------------
-// Minimal JSON Schema validator for the subset used by ai-skema.json:
+// Minimal JSON Schema validator for the subset used by ai-schema.json:
 // type, required, properties, additionalProperties, items, minLength,
 // maxLength, minimum, maximum, enum. Reading the rules from the embedded
 // schema (instead of hardcoding them) means the schema file stays the single
@@ -143,6 +144,76 @@ static void validate(const QJsonValue &value, const QJsonValue &schemaValue,
 }
 
 // ---------------------------------------------------------------------------
+// The Danish keys of the schema in 0.1, mapped to the English ones.
+// ---------------------------------------------------------------------------
+
+static QJsonObject renameKeys(const QJsonObject &obj, const QHash<QString, QString> &names)
+{
+    QJsonObject out = obj;
+    for (auto it = names.begin(); it != names.end(); ++it) {
+        if (!out.contains(it.key()))
+            continue;
+        const QJsonValue value = out.take(it.key());
+        if (!out.contains(it.value()))
+            out.insert(it.value(), value);
+    }
+    return out;
+}
+
+static QJsonArray englishGuesses(const QJsonArray &guesses)
+{
+    static const QHash<QString, QString> names = {
+        {QStringLiteral("varighed_min"), QStringLiteral("duration_min")},
+        {QStringLiteral("frist"), QStringLiteral("deadline")},
+        {QStringLiteral("projekt"), QStringLiteral("project")},
+        {QStringLiteral("prioritet"), QStringLiteral("priority")},
+    };
+    QJsonArray out;
+    for (const QJsonValue &g : guesses)
+        out.append(g.isString() ? QJsonValue(names.value(g.toString(), g.toString())) : g);
+    return out;
+}
+
+QJsonObject withEnglishKeys(const QJsonObject &proposal)
+{
+    static const QHash<QString, QString> topNames = {
+        {QStringLiteral("opgaver"), QStringLiteral("tasks")},
+        {QStringLiteral("uafklaret"), QStringLiteral("unresolved")},
+        {QStringLiteral("gaet"), QStringLiteral("guessed")},
+        {QStringLiteral("guesses"), QStringLiteral("guessed")},
+    };
+    static const QHash<QString, QString> taskNames = {
+        {QStringLiteral("titel"), QStringLiteral("title")},
+        {QStringLiteral("noter"), QStringLiteral("notes")},
+        {QStringLiteral("projekt"), QStringLiteral("project")},
+        {QStringLiteral("prioritet"), QStringLiteral("priority")},
+        {QStringLiteral("varighed_min"), QStringLiteral("duration_min")},
+        {QStringLiteral("frist"), QStringLiteral("deadline")},
+        {QStringLiteral("gaet"), QStringLiteral("guessed")},
+        {QStringLiteral("guesses"), QStringLiteral("guessed")}, // the CLI's key before 0.2
+        {QStringLiteral("uafklaret"), QStringLiteral("unresolved")},
+    };
+    QJsonObject out = renameKeys(proposal, topNames);
+    if (out.value(QStringLiteral("guessed")).isArray())
+        out.insert(QStringLiteral("guessed"), englishGuesses(out.value(QStringLiteral("guessed")).toArray()));
+    if (out.value(QStringLiteral("tasks")).isArray()) {
+        QJsonArray tasks;
+        for (const QJsonValue &t : out.value(QStringLiteral("tasks")).toArray()) {
+            if (!t.isObject()) {
+                tasks.append(t);
+                continue;
+            }
+            QJsonObject task = renameKeys(t.toObject(), taskNames);
+            if (task.value(QStringLiteral("guessed")).isArray())
+                task.insert(QStringLiteral("guessed"), englishGuesses(task.value(QStringLiteral("guessed")).toArray()));
+            tasks.append(task);
+        }
+        out.insert(QStringLiteral("tasks"), tasks);
+    }
+    return out;
+}
+
+// ---------------------------------------------------------------------------
 // JSON extraction: engines wrap the schema JSON in prose, ``` fences, or
 // their own envelope objects ({"result": "..."} etc.).
 // ---------------------------------------------------------------------------
@@ -207,8 +278,8 @@ static QJsonObject extractJsonObject(const QString &text, bool *found)
 // runs recursively. Stops as soon as an object shaped like the schema appears.
 static QJsonObject unwrapEnvelopes(const QJsonObject &obj, bool *ok, int depth = 0)
 {
-    if (obj.contains(QStringLiteral("opgaver")) || depth > 8) {
-        *ok = obj.contains(QStringLiteral("opgaver"));
+    if (obj.contains(QStringLiteral("tasks")) || obj.contains(QStringLiteral("opgaver")) || depth > 8) {
+        *ok = obj.contains(QStringLiteral("tasks")) || obj.contains(QStringLiteral("opgaver"));
         return obj;
     }
     QString payload;
@@ -340,76 +411,77 @@ ParseResult parseProposal(const QString &rawResponse)
     bool schemaShaped = false;
     obj = unwrapEnvelopes(obj, &schemaShaped);
     if (!schemaShaped) {
-        result.error = QStringLiteral("No object matching the 'opgaver' schema found in the engine response.\n\nRaw response:\n%1")
+        result.error = QStringLiteral("No object matching the 'tasks' schema found in the engine response.\n\nRaw response:\n%1")
                            .arg(rawResponse);
         return result;
     }
+    obj = withEnglishKeys(obj);
 
     // Some engines echo the schema's own metadata at the top level ($schema,
     // title, description, type). Ignore exactly those four keys when a valid
-    // "opgaver" array is present; anything else is still rejected.
-    if (obj.contains(QStringLiteral("opgaver"))) {
+    // "tasks" array is present; anything else is still rejected.
+    if (obj.contains(QStringLiteral("tasks"))) {
         for (const char *key : {"$schema", "title", "description", "type"})
             obj.remove(QString::fromLatin1(key));
-        // Vibe sometimes puts "gaet" next to "opgaver" instead of inside the
+        // Vibe sometimes puts "guessed" next to "tasks" instead of inside the
         // task. With exactly one task the meaning is unambiguous, so move it
         // in; with several it cannot be attributed and is dropped rather than
         // failing the whole proposal.
-        if (obj.contains(QStringLiteral("gaet"))) {
-            const QJsonValue topGuess = obj.take(QStringLiteral("gaet"));
-            QJsonArray tasks = obj.value(QStringLiteral("opgaver")).toArray();
+        if (obj.contains(QStringLiteral("guessed"))) {
+            const QJsonValue topGuess = obj.take(QStringLiteral("guessed"));
+            QJsonArray tasks = obj.value(QStringLiteral("tasks")).toArray();
             if (tasks.size() == 1 && topGuess.isArray()) {
                 QJsonObject only = tasks.first().toObject();
-                QJsonArray merged = only.value(QStringLiteral("gaet")).toArray();
+                QJsonArray merged = only.value(QStringLiteral("guessed")).toArray();
                 for (const QJsonValue &g : topGuess.toArray())
                     if (!merged.contains(g))
                         merged.append(g);
-                only.insert(QStringLiteral("gaet"), merged);
+                only.insert(QStringLiteral("guessed"), merged);
                 tasks.replace(0, only);
-                obj.insert(QStringLiteral("opgaver"), tasks);
+                obj.insert(QStringLiteral("tasks"), tasks);
             }
         }
-        // The opposite slip: "uafklaret" inside a task. It lists what was not
+        // The opposite slip: "unresolved" inside a task. It lists what was not
         // understood in the whole input, so it moves up to the top level.
-        QJsonArray tasks = obj.value(QStringLiteral("opgaver")).toArray();
-        QJsonArray unclear = obj.value(QStringLiteral("uafklaret")).toArray();
+        QJsonArray tasks = obj.value(QStringLiteral("tasks")).toArray();
+        QJsonArray unresolved = obj.value(QStringLiteral("unresolved")).toArray();
         bool moved = false;
         for (qsizetype i = 0; i < tasks.size(); ++i) {
             QJsonObject task = tasks.at(i).toObject();
-            if (!task.contains(QStringLiteral("uafklaret")))
+            if (!task.contains(QStringLiteral("unresolved")))
                 continue;
-            for (const QJsonValue &u : task.take(QStringLiteral("uafklaret")).toArray())
-                if (!unclear.contains(u))
-                    unclear.append(u);
+            for (const QJsonValue &u : task.take(QStringLiteral("unresolved")).toArray())
+                if (!unresolved.contains(u))
+                    unresolved.append(u);
             tasks.replace(i, task);
             moved = true;
         }
         if (moved) {
-            obj.insert(QStringLiteral("opgaver"), tasks);
-            if (!unclear.isEmpty() || obj.contains(QStringLiteral("uafklaret")))
-                obj.insert(QStringLiteral("uafklaret"), unclear);
+            obj.insert(QStringLiteral("tasks"), tasks);
+            if (!unresolved.isEmpty() || obj.contains(QStringLiteral("unresolved")))
+                obj.insert(QStringLiteral("unresolved"), unresolved);
         }
     }
 
     const QStringList errors = validateAgainstSchema(obj);
     if (!errors.isEmpty()) {
-        result.error = QStringLiteral("Response does not match docs/ai-skema.json: %1\n\nRaw response:\n%2")
+        result.error = QStringLiteral("Response does not match docs/ai-schema.json: %1\n\nRaw response:\n%2")
                            .arg(errors.join(QStringLiteral("; ")), rawResponse);
         return result;
     }
 
     Proposal proposal;
-    const QJsonArray tasks = obj.value(QStringLiteral("opgaver")).toArray();
+    const QJsonArray tasks = obj.value(QStringLiteral("tasks")).toArray();
     for (const QJsonValue &t : tasks) {
         const QJsonObject o = t.toObject();
         ProposedTask task;
-        task.title = o.value(QStringLiteral("titel")).toString();
-        task.notes = o.value(QStringLiteral("noter")).toString();
-        task.project = o.value(QStringLiteral("projekt")).toString();
-        if (o.contains(QStringLiteral("prioritet")))
-            task.priority = o.value(QStringLiteral("prioritet")).toInt();
-        if (o.contains(QStringLiteral("varighed_min")))
-            task.durationMin = o.value(QStringLiteral("varighed_min")).toInt();
+        task.title = o.value(QStringLiteral("title")).toString();
+        task.notes = o.value(QStringLiteral("notes")).toString();
+        task.project = o.value(QStringLiteral("project")).toString();
+        if (o.contains(QStringLiteral("priority")))
+            task.priority = o.value(QStringLiteral("priority")).toInt();
+        if (o.contains(QStringLiteral("duration_min")))
+            task.durationMin = o.value(QStringLiteral("duration_min")).toInt();
         if (o.contains(QStringLiteral("start"))) {
             if (!parseIsoDateTime(o.value(QStringLiteral("start")).toString(), &task.start, &task.startHasTime)) {
                 result.error = QStringLiteral("Invalid ISO date/datetime in 'start': '%1'\n\nRaw response:\n%2")
@@ -417,21 +489,21 @@ ParseResult parseProposal(const QString &rawResponse)
                 return result;
             }
         }
-        if (o.contains(QStringLiteral("frist"))) {
-            if (!parseIsoDateTime(o.value(QStringLiteral("frist")).toString(), &task.deadline, &task.deadlineHasTime)) {
-                result.error = QStringLiteral("Invalid ISO date/datetime in 'frist': '%1'\n\nRaw response:\n%2")
-                                   .arg(o.value(QStringLiteral("frist")).toString(), rawResponse);
+        if (o.contains(QStringLiteral("deadline"))) {
+            if (!parseIsoDateTime(o.value(QStringLiteral("deadline")).toString(), &task.deadline, &task.deadlineHasTime)) {
+                result.error = QStringLiteral("Invalid ISO date/datetime in 'deadline': '%1'\n\nRaw response:\n%2")
+                                   .arg(o.value(QStringLiteral("deadline")).toString(), rawResponse);
                 return result;
             }
         }
-        const QJsonArray gaet = o.value(QStringLiteral("gaet")).toArray();
-        for (const QJsonValue &g : gaet)
+        const QJsonArray guessed = o.value(QStringLiteral("guessed")).toArray();
+        for (const QJsonValue &g : guessed)
             task.guessed.append(g.toString());
         proposal.tasks.append(task);
     }
-    const QJsonArray unclear = obj.value(QStringLiteral("uafklaret")).toArray();
-    for (const QJsonValue &u : unclear)
-        proposal.unclear.append(u.toString());
+    const QJsonArray unresolved = obj.value(QStringLiteral("unresolved")).toArray();
+    for (const QJsonValue &u : unresolved)
+        proposal.unresolved.append(u.toString());
 
     result.ok = true;
     result.proposal = proposal;
@@ -453,33 +525,33 @@ bool ProposedTask::operator==(const ProposedTask &other) const
 QJsonObject ProposedTask::toJson() const
 {
     QJsonObject o;
-    o.insert(QStringLiteral("titel"), title);
+    o.insert(QStringLiteral("title"), title);
     if (!notes.isEmpty())
-        o.insert(QStringLiteral("noter"), notes);
+        o.insert(QStringLiteral("notes"), notes);
     if (!project.isEmpty())
-        o.insert(QStringLiteral("projekt"), project);
+        o.insert(QStringLiteral("project"), project);
     if (priority != 0)
-        o.insert(QStringLiteral("prioritet"), priority);
+        o.insert(QStringLiteral("priority"), priority);
     if (start.isValid())
         o.insert(QStringLiteral("start"),
                  startHasTime ? start.toString(Qt::ISODate) : start.date().toString(Qt::ISODate));
     if (durationMin > 0)
-        o.insert(QStringLiteral("varighed_min"), durationMin);
+        o.insert(QStringLiteral("duration_min"), durationMin);
     if (deadline.isValid())
-        o.insert(QStringLiteral("frist"),
+        o.insert(QStringLiteral("deadline"),
                  deadlineHasTime ? deadline.toString(Qt::ISODate) : deadline.date().toString(Qt::ISODate));
     if (!guessed.isEmpty()) {
         QJsonArray g;
         for (const QString &field : guessed)
             g.append(field);
-        o.insert(QStringLiteral("gaet"), g);
+        o.insert(QStringLiteral("guessed"), g);
     }
     return o;
 }
 
 bool Proposal::operator==(const Proposal &other) const
 {
-    return tasks == other.tasks && unclear == other.unclear;
+    return tasks == other.tasks && unresolved == other.unresolved;
 }
 
 QJsonObject Proposal::toJson() const
@@ -488,12 +560,12 @@ QJsonObject Proposal::toJson() const
     QJsonArray arr;
     for (const ProposedTask &t : tasks)
         arr.append(t.toJson());
-    o.insert(QStringLiteral("opgaver"), arr);
-    if (!unclear.isEmpty()) {
+    o.insert(QStringLiteral("tasks"), arr);
+    if (!unresolved.isEmpty()) {
         QJsonArray u;
-        for (const QString &s : unclear)
+        for (const QString &s : unresolved)
             u.append(s);
-        o.insert(QStringLiteral("uafklaret"), u);
+        o.insert(QStringLiteral("unresolved"), u);
     }
     return o;
 }

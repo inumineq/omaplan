@@ -9,10 +9,10 @@
 #include <QNetworkRequest>
 #include <QUrl>
 
-// One generic local engine (id "lokal") that speaks both Ollama's
+// One generic local engine (id "local") that speaks both Ollama's
 // /api/chat and an OpenAI-compatible /v1/chat/completions (llama-server,
-// LM Studio, m.fl.). Endpoint, model and protocol are the user's choice
-// (config.toml [motor.lokal] or CLI flags --endpoint/--model); nothing is
+// LM Studio and others). Endpoint, model and protocol are the user's choice
+// (config.toml [engine.local] or CLI flags --endpoint/--model); nothing is
 // hardcoded and no model is bundled. The schema is sent as grammar (Ollama
 // "format", OpenAI response_format json_schema) so small models stay valid.
 // A truncated answer (done_reason/finish_reason "length") is an error and
@@ -28,7 +28,7 @@ public:
     {
     }
 
-    QString id() const override { return QStringLiteral("lokal"); }
+    QString id() const override { return QStringLiteral("local"); }
     QString displayName() const override { return m_model.isEmpty() ? QStringLiteral("Lokal") : QStringLiteral("Lokal (%1)").arg(m_model); }
     QString modelInfo() const override { return m_model; }
 
@@ -44,20 +44,20 @@ protected:
     void start(const QString &systemPrompt, const QString &userPrompt) override
     {
         if (m_model.isEmpty() || m_endpoint.isEmpty()) {
-            fail(tr("The local engine needs a model and an endpoint. Example config "
+            fail(AiEngine::tr("The local engine needs a model and an endpoint. Example config "
                                 "(~/.config/omaplan/config.toml):\n\n"
-                                "[motor.lokal]\n"
+                                "[engine.local]\n"
                                 "api = \"ollama\"\n"
                                 "endpoint = \"http://127.0.0.1:11434\"\n"
-                                "model = \"dit-valg\"\n\n"
-                                "or on the command line: omaplan add \"...\" --motor lokal "
-                                "--endpoint http://127.0.0.1:11434 --model dit-valg"));
+                                "model = \"your-choice\"\n\n"
+                                "or on the command line: omaplan add \"...\" --engine local "
+                                "--endpoint http://127.0.0.1:11434 --model your-choice"));
             return;
         }
 
         const QUrl base(m_endpoint);
         if (!base.isValid() || base.host().isEmpty()) {
-            fail(tr("Invalid endpoint '%1'. Example: http://127.0.0.1:11434").arg(m_endpoint));
+            fail(AiEngine::tr("Invalid endpoint '%1'. Example: http://127.0.0.1:11434").arg(m_endpoint));
             return;
         }
 
@@ -81,7 +81,7 @@ protected:
             body.insert(QStringLiteral("response_format"),
                         QJsonObject{{QStringLiteral("type"), QStringLiteral("json_schema")},
                                     {QStringLiteral("json_schema"),
-                                     QJsonObject{{QStringLiteral("name"), QStringLiteral("omaplan-forslag")},
+                                     QJsonObject{{QStringLiteral("name"), QStringLiteral("omaplan-proposal")},
                                                  {QStringLiteral("strict"), true},
                                                  {QStringLiteral("schema"), schemaObject()}}}});
         }
@@ -112,18 +112,18 @@ protected:
             // HTTP status errors (QNetworkAccessManager also reports them as
             // network errors) carry the body -- show status + raw response.
             if (httpStatus >= 400) {
-                fail(tr("Local engine at %1 answered HTTP %2.\n\nRaw response:\n%3")
+                fail(AiEngine::tr("Local engine at %1 answered HTTP %2.\n\nRaw response:\n%3")
                          .arg(m_endpoint).arg(httpStatus).arg(QString::fromUtf8(bodyBytes)));
                 return;
             }
             if (netError != QNetworkReply::NoError) {
-                fail(tr("Local engine at %1 is not reachable (%2, HTTP %3). Is the server running?")
+                fail(AiEngine::tr("Local engine at %1 is not reachable (%2, HTTP %3). Is the server running?")
                          .arg(m_endpoint, errorString).arg(httpStatus));
                 return;
             }
             const QJsonObject obj = QJsonDocument::fromJson(bodyBytes).object();
             if (obj.value(QStringLiteral("error")).isString()) {
-                fail(tr("Local engine error: %1\n\nRaw response:\n%2")
+                fail(AiEngine::tr("Local engine error: %1\n\nRaw response:\n%2")
                          .arg(obj.value(QStringLiteral("error")).toString(), QString::fromUtf8(bodyBytes)));
                 return;
             }
@@ -138,7 +138,7 @@ protected:
                                        : finishReason == QLatin1String("length") ? finishReason
                                                                                    : QString();
             if (!truncation.isEmpty()) {
-                fail(tr("The model's answer was truncated (%1) before it finished. "
+                fail(AiEngine::tr("The model's answer was truncated (%1) before it finished. "
                                     "Raw response:\n%2").arg(truncation, QString::fromUtf8(bodyBytes)));
                 return;
             }

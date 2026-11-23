@@ -2,9 +2,9 @@ MIT License
 
 Copyright (c) 2026 inumineq
 
-The theme and translator code in src/ is copied from the Omacut and
-Monologue apps and keeps its attribution: Copyright (c) 2025 David
-Heinemeier Hansson.
+The theme code and the language-file watching in src/ are copied from the
+Omacut and Monologue apps and keep their attribution: Copyright (c) 2025
+David Heinemeier Hansson.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

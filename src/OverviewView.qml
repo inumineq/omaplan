@@ -4,8 +4,8 @@ import QtQuick.Layouts
 
 import Omaplan
 
-// Overblik: forfaldne øverst, så i dag og de næste 7 dage, så åbne opgaver
-// uden dato.
+// Overview: overdue tasks first, then today and the next 7 days, then open
+// tasks without a date.
 Item {
     id: view
     readonly property bool canPage: false

@@ -5,8 +5,8 @@ import QtQuick.Layouts
 
 import Omaplan
 
-// Liste: alle opgaver med afkrydsning. Gruppering (g), projektfilter (f) og
-// statusfilter (s) står synligt i værktøjslinjen og kan også klikkes.
+// List: every task with a checkbox. Grouping (g), project filter (f) and
+// status filter (s) are visible in the toolbar and can be clicked too.
 Item {
     id: root
     readonly property bool canPage: false

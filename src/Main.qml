@@ -218,7 +218,7 @@ ApplicationWindow {
         }
     }
 
-    // Right-to-left languages mirror the window; the Translator sets the
+    // Right-to-left languages mirror the window; main.cpp sets the
     // application's layout direction.
     Item {
         id: keySink
@@ -282,7 +282,7 @@ ApplicationWindow {
                                        : qsTr("%1 tasks added · Ctrl+Z takes them back").arg(count))
             }
             onRetryRequested: text => inputOverlay.open(text)
-            onCreateYourselfRequested: text => win.newTask({ "titel": text })
+            onCreateYourselfRequested: text => win.newTask({ "title": text })
         }
 
         TaskEditor {

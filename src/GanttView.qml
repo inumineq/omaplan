@@ -4,11 +4,11 @@ import QtQuick.Layouts
 
 import Omaplan
 
-// Tidslinje: opgaverne som bjælker over dagene, placeret efter dag og
-// klokkeslæt og lange som deres varighed. Heldagsopgaver fylder hele dagen,
-// overlap lægges i hver sit spor, og en rød linje viser nu. Træk en bjælke for
-// at flytte den (kvarter ad gangen), træk i højre kant for at ændre
-// varigheden. h/l bladrer, t går til i dag, + / - zoomer.
+// Timeline: the tasks as bars over the days, placed by day and time and as
+// long as their duration. All-day tasks fill the whole day, overlaps get a
+// lane each, and a red line shows now. Drag a bar to move it (a quarter hour
+// at a time), drag its right edge to change the duration. h/l pages, t goes
+// to today, + / - zooms.
 Item {
     id: gantt
 
@@ -310,7 +310,7 @@ Item {
                             onReleased: {
                                 const minutes = Math.max(15, Math.round(barItem.width / gantt.dayWidth * gantt.spanMinutes / 15) * 15)
                                 if (minutes !== barItem.task.durationMinutes)
-                                    win.check(actions.guiEdit(barItem.task.taskId, { "varighed": String(minutes) }))
+                                    win.check(actions.guiEdit(barItem.task.taskId, { "duration": String(minutes) }))
                                 barItem.width = Qt.binding(() => barItem.modelData.w)
                             }
                         }

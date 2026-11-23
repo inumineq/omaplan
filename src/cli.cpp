@@ -17,6 +17,7 @@
 #include "skill.h"
 #include "store.h"
 #include "task.h"
+#include "uilanguage.h"
 
 static void printJson(QTextStream &out, const QJsonObject &object) {
     out << QString::fromUtf8(QJsonDocument(object).toJson(QJsonDocument::Compact)) << "\n";
@@ -24,46 +25,63 @@ static void printJson(QTextStream &out, const QJsonObject &object) {
 
 static void printHelp(QTextStream &out) {
     out << QObject::tr(
-        "Usage: omaplan [--db <path>] <command> [options] [--json]\n"
+        "Usage: omaplan [--db <path>] [--lang da|en] <command> [options] [--json]\n"
         "\n"
         "Commands:\n"
         "  open                  Open the window (default without arguments)\n"
-        "  new --titel T [--noter N] [--projekt P] [--prioritet 1-3] [--start D] [--varighed MIN] [--frist D]\n"
-        "  list [--fra D] [--til D] [--projekt P] [--status todo|done]\n"
+        "  new --title T [--notes N] [--project P] [--priority 1-3] [--start D] [--duration MIN] [--deadline D]\n"
+        "  list [--from D] [--to D] [--project P] [--status todo|done]\n"
         "  show <id>\n"
-        "  edit <id> [--titel T] [--noter N] [--projekt P] [--prioritet N] [--start D] [--varighed MIN] [--frist D] [--status S]\n"
-        "  move <id> <tid>\n"
+        "  edit <id> [--title T] [--notes N] [--project P] [--priority N] [--start D] [--duration MIN] [--deadline D] [--status S]\n"
+        "  move <id> <when>\n"
         "  done <id> | undone <id>\n"
         "  rm <id>\n"
         "  undo\n"
         "  projects\n"
-        "  summary [--uge|--maaned]\n"
-        "  add <text> [--motor ...] [--ja] [--model M] [--endpoint URL]   AI proposal; --ja stores it\n"
+        "  summary [--week|--month]\n"
+        "  add <text> [--engine ...] [--yes] [--model M] [--endpoint URL]   AI proposal; --yes stores it\n"
         "  skill install [--force]|uninstall   install/remove the bundled agent skill\n"
         "  mcp                   MCP server over stdio (claude mcp add omaplan -- omaplan mcp)\n"
         "  snapshot [path]       write plan.json for the read-only edition (also automatic after every change)\n"
         "  serve [--port N] [--bind ADDR] [--snapshot PATH]   read-only web page (default 127.0.0.1:8787)\n"
         "\n"
-        "Dates accept ISO (2026-12-01, 2026-12-01 14:30) and Danish/English expressions\n"
-        "(\"i morgen\", \"fredag 12\", \"tomorrow\", \"next monday\", optional \"kl. 14:30\").\n"
-        "An empty value clears a field: --projekt \"\".\n"
+        "Dates accept ISO (2026-12-01, 2026-12-01 14:30) and English/Danish expressions\n"
+        "(\"tomorrow\", \"friday 12\", \"next monday\", optional \"at 14:30\"; \"i morgen\", \"kl. 14:30\").\n"
+        "An empty value clears a field: --project \"\".\n"
         "\n"
         "Examples:\n"
-        "  omaplan new --titel \"Write blog post\" --projekt Blog --start \"fredag\"\n"
-        "  omaplan list --fra \"i dag\" --til \"næste fredag\" --json\n"
-        "  omaplan move <id> \"tirsdag kl. 14:00\"\n"
+        "  omaplan new --title \"Write blog post\" --project Blog --start friday\n"
+        "  omaplan list --from today --to \"next friday\" --json\n"
+        "  omaplan move <id> \"tuesday at 14:00\"\n"
         "  omaplan done <id>\n"
         "  omaplan undo --json\n"
         "  omaplan skill install --force   replace customized skill files\n");
 }
 
+// The flag names of 0.1, still accepted so habits and older skill
+// files keep working. They are not in --help.
+static const QHash<QString, QString> &legacyFlags() {
+    static const QHash<QString, QString> names = [] {
+        QHash<QString, QString> map = Actions::legacyFieldNames();
+        map.insert(QStringLiteral("ja"), QStringLiteral("yes"));
+        map.insert(QStringLiteral("motor"), QStringLiteral("engine"));
+        map.insert(QStringLiteral("fra"), QStringLiteral("from"));
+        map.insert(QStringLiteral("til"), QStringLiteral("to"));
+        map.insert(QStringLiteral("uge"), QStringLiteral("week"));
+        map.insert(QStringLiteral("maaned"), QStringLiteral("month"));
+        return map;
+    }();
+    return names;
+}
+
 // Splits "--flag value" pairs from positional arguments. A flag at the end, or
-// followed by another flag, gets an empty value.
+// followed by another flag, gets an empty value. Old Danish flag names are
+// stored under their English names.
 static QHash<QString, QString> parseFlags(const QStringList &args, QStringList *positional) {
     QHash<QString, QString> flags;
     for (int i = 0; i < args.size(); ++i) {
         if (args[i].startsWith(QLatin1String("--"))) {
-            const QString key = args[i].mid(2);
+            const QString key = legacyFlags().value(args[i].mid(2), args[i].mid(2));
             if (i + 1 < args.size() && !args[i + 1].startsWith(QLatin1String("--")))
                 flags[key] = args[++i];
             else
@@ -103,8 +121,8 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
     for (int i = 0; i < args.size(); ++i) {
         if (args[i] == QLatin1String("--json"))
             json = true;
-        else if (args[i] == QLatin1String("--db"))
-            ++i; // the store was already built from this by the caller
+        else if (args[i] == QLatin1String("--db") || args[i] == QLatin1String("--lang"))
+            ++i; // handled by the caller: the store and the language are already set
         else
             rest.append(args[i]);
     }
@@ -166,6 +184,8 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
         QStringList positional;
         const auto flags = parseFlags(rest, &positional);
         PlanServer::Options options;
+        // Visitors get their browser's language; this is the fallback.
+        options.language = UiLanguage::current();
         options.snapshotPath = flags.contains(QStringLiteral("snapshot")) ? flags.value(QStringLiteral("snapshot"))
                                                                           : Snapshot::path(store->path());
         if (flags.contains(QStringLiteral("port"))) {
@@ -209,6 +229,7 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
     const QString source = QStringLiteral("cli");
     // plan.json follows every change made here (CLI and MCP alike).
     Snapshotter snapshotter(store, Snapshot::path(store->path()));
+    snapshotter.setLanguage(UiLanguage::current());
 
     if (command == QLatin1String("snapshot")) {
         QStringList positional;
@@ -218,7 +239,7 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
             err << QObject::tr("No snapshot path") << "\n";
             return 1;
         }
-        if (!Snapshot::write(store, path, &error)) {
+        if (!Snapshot::write(store, path, &error, UiLanguage::current())) {
             err << error << "\n";
             return 1;
         }
@@ -249,12 +270,12 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
         const auto flags = parseFlags(rest, &positional);
         const QString text = positional.join(QLatin1Char(' ')).trimmed();
         if (text.isEmpty()) {
-            err << QObject::tr("Usage: omaplan add \"<text>\" [--motor vibe|claude|lokal|command] [--ja] "
+            err << QObject::tr("Usage: omaplan add \"<text>\" [--engine vibe|claude|local|command] [--yes] "
                                "[--model M] [--endpoint URL] [--json]") << "\n";
             return 1;
         }
         QString captureId;
-        ActionResult result = actions.propose(text, flags.value(QStringLiteral("motor")),
+        ActionResult result = actions.propose(text, flags.value(QStringLiteral("engine")),
                                                flags.value(QStringLiteral("model")),
                                                flags.value(QStringLiteral("endpoint")), &captureId);
         if (!result.ok) {
@@ -262,7 +283,7 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
             return 1;
         }
         QJsonObject payload = result.payload;
-        if (flags.contains(QStringLiteral("ja"))) {
+        if (flags.contains(QStringLiteral("yes"))) {
             ActionResult approved = actions.approve(payload["proposal"].toObject(), captureId,
                                                     QStringLiteral("cli"));
             if (!approved.ok) {
@@ -280,26 +301,26 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
             printJson(out, payload);
         } else {
             // Human-readable proposal: one line per task plus unclear text.
-            const QJsonArray tasks = payload["proposal"].toObject()["opgaver"].toArray();
+            const QJsonArray tasks = payload["proposal"].toObject()["tasks"].toArray();
             for (const QJsonValue &t : tasks) {
                 const QJsonObject o = t.toObject();
-                QString line = o["titel"].toString();
+                QString line = o["title"].toString();
                 if (o.contains("start"))
                     line += QStringLiteral("  (%1)").arg(o["start"].toString());
-                if (o.contains("frist"))
-                    line += QStringLiteral("  Frist: %1").arg(o["frist"].toString());
-                const QJsonArray gaet = o["gaet"].toArray();
-                if (!gaet.isEmpty()) {
+                if (o.contains("deadline"))
+                    line += QStringLiteral("  ") + QObject::tr("Deadline: %1").arg(o["deadline"].toString());
+                const QJsonArray guessed = o["guessed"].toArray();
+                if (!guessed.isEmpty()) {
                     QStringList g;
-                    for (const QJsonValue &gv : gaet)
+                    for (const QJsonValue &gv : guessed)
                         g << gv.toString();
-                    line += QStringLiteral("  [gæt: %1]").arg(g.join(QStringLiteral(", ")));
+                    line += QStringLiteral("  ") + QObject::tr("[guessed: %1]").arg(g.join(QStringLiteral(", ")));
                 }
                 out << line << "\n";
             }
-            const QJsonArray unclear = payload["proposal"].toObject()["uafklaret"].toArray();
-            for (const QJsonValue &u : unclear)
-                out << QObject::tr("Unclear: %1").arg(u.toString()) << "\n";
+            const QJsonArray unresolved = payload["proposal"].toObject()["unresolved"].toArray();
+            for (const QJsonValue &u : unresolved)
+                out << QObject::tr("Unresolved: %1").arg(u.toString()) << "\n";
         }
         return 0;
     }
@@ -307,8 +328,8 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
     if (command == QLatin1String("new")) {
         QStringList positional;
         const auto flags = parseFlags(rest, &positional);
-        if (!flags.contains(QStringLiteral("titel")) || flags[QStringLiteral("titel")].trimmed().isEmpty()) {
-            err << QObject::tr("Missing --titel") << "\n";
+        if (flags.value(QStringLiteral("title")).trimmed().isEmpty()) {
+            err << QObject::tr("Missing --title") << "\n";
             return 1;
         }
         Task task;
@@ -330,20 +351,20 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
         ListFilter filter;
         QDateTime when;
         bool hasTime;
-        if (flags.contains(QStringLiteral("fra"))) {
-            if (!parseDateFlag(flags["fra"], &when, &hasTime, err))
+        if (flags.contains(QStringLiteral("from"))) {
+            if (!parseDateFlag(flags["from"], &when, &hasTime, err))
                 return 1;
             filter.hasFrom = true;
             filter.from = when.date();
         }
-        if (flags.contains(QStringLiteral("til"))) {
-            if (!parseDateFlag(flags["til"], &when, &hasTime, err))
+        if (flags.contains(QStringLiteral("to"))) {
+            if (!parseDateFlag(flags["to"], &when, &hasTime, err))
                 return 1;
             filter.hasTo = true;
             filter.to = when.date();
         }
-        if (flags.contains(QStringLiteral("projekt")))
-            filter.project = flags[QStringLiteral("projekt")];
+        if (flags.contains(QStringLiteral("project")))
+            filter.project = flags[QStringLiteral("project")];
         if (flags.contains(QStringLiteral("status")))
             filter.status = flags[QStringLiteral("status")];
         ActionResult result = actions.list(filter);
@@ -393,16 +414,16 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
         QStringList positional;
         parseFlags(rest, &positional);
         if (positional.size() < 2) {
-            err << QObject::tr("Usage: omaplan move <id> <tid>") << "\n";
+            err << QObject::tr("Usage: omaplan move <id> <when>") << "\n";
             return 1;
         }
         QDateTime when;
         bool hasTime;
-        // `move <id> tirsdag 14` without quotes is the same as "tirsdag 14".
+        // `move <id> tuesday 14` without quotes is the same as "tuesday 14".
         if (!parseDateFlag(positional.mid(1).join(QLatin1Char(' ')), &when, &hasTime, err))
             return 1;
         if (!when.isValid()) {
-            err << QObject::tr("Usage: omaplan move <id> <tid>") << "\n";
+            err << QObject::tr("Usage: omaplan move <id> <when>") << "\n";
             return 1;
         }
         ActionResult result = actions.move(positional.first(), when, hasTime, source);
@@ -464,10 +485,10 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
     if (command == QLatin1String("summary")) {
         QStringList positional;
         const auto flags = parseFlags(rest, &positional);
-        const bool week = flags.contains(QStringLiteral("uge"));
-        const bool month = flags.contains(QStringLiteral("maaned"));
+        const bool week = flags.contains(QStringLiteral("week"));
+        const bool month = flags.contains(QStringLiteral("month"));
         if (week && month) {
-            err << QObject::tr("Choose either --uge or --maaned") << "\n";
+            err << QObject::tr("Choose either --week or --month") << "\n";
             return 1;
         }
         ActionResult result = actions.summary(!month); // default: this week

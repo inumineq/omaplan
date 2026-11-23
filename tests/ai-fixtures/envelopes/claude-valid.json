@@ -1,1 +1,1 @@
-{"result": "{\"opgaver\": [{\"titel\": \"Køb mælk\", \"frist\": \"2026-11-27\"}]}", "is_error": false}
+{"result": "{\"tasks\": [{\"title\": \"Køb mælk\", \"deadline\": \"2026-11-27\"}]}", "is_error": false}

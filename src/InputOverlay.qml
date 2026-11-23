@@ -5,11 +5,11 @@ import QtQuick.Layouts
 
 import Omaplan
 
-// Fri tekst, åbnet med n eller Space. Ctrl+Enter sender til AI-motoren; med
-// Sammenlign (Alt+S) går teksten til to motorer på én gang. Mens motoren
-// arbejder, står vinduet åbent med en tæller, og Esc afbryder. Teksten
-// bevares, til et forslag er godkendt, så en fejl eller et afbrud aldrig
-// koster det, man har skrevet.
+// Free text, opened with n or Space. Ctrl+Enter sends it to the AI engine;
+// with Compare (Alt+S) the text goes to two engines at once. While the engine
+// works, the window stays open with a timer, and Esc cancels. The text is kept
+// until a proposal is approved, so an error or a cancel never costs what was
+// written.
 Rectangle {
     id: overlay
     color: Qt.alpha(theme.background, 0.82) // a scrim in the theme's own colour, light or dark

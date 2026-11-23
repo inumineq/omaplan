@@ -1,11 +1,11 @@
-// ai-eval: runs one AI engine against the 20 fixture inputs and prints the
+// ai-eval: runs one AI engine against the fixture inputs and prints the
 // share of valid and correct answers. This is a manual evaluation tool -- it
 // DOES call a real engine; run it by hand, never from the unit tests.
 //
 // Usage:
-//   ai-eval <vibe|claude|lokal|command> [--command "..."] [--model <name>] [--endpoint <url>] [--timeout <ms>]
+//   ai-eval <vibe|claude|local|command> [--command "..."] [--model <name>] [--endpoint <url>] [--timeout <ms>]
 //
-// "lokal" reads endpoint/model/api from ~/.config/omaplan/config.toml
+// "local" reads endpoint/model/api from ~/.config/omaplan/config.toml
 // (OMAPLAN_CONFIG overrides), unless --model/--endpoint are given. Every input
 // is date-annotated in C++ first (annotateDates), exactly like `omaplan add`,
 // so the engine sees the resolved dates in the text.
@@ -15,7 +15,7 @@
 // task's title (case-insensitive) and whose start date (date part only)
 // matches that expected task's start date (tasks without a start must have
 // none on both sides). Cases whose expected answer has no tasks at all (only
-// "uafklaret") count as correct when the engine also produced no tasks.
+// "unresolved") count as correct when the engine also produced no tasks.
 #include "dateannotate.h"
 #include "engine.h"
 #include "prompt.h"
@@ -140,7 +140,7 @@ int main(int argc, char **argv)
     QCoreApplication app(argc, argv);
     const QStringList args = app.arguments();
     if (args.size() < 2) {
-        QTextStream(stderr) << "Usage: ai-eval <vibe|claude|lokal|command> [--command \"...\"] "
+        QTextStream(stderr) << "Usage: ai-eval <vibe|claude|local|command> [--command \"...\"] "
                                "[--model <name>] [--endpoint <url>] [--timeout <ms>]\n";
         return 2;
     }
@@ -160,7 +160,7 @@ int main(int argc, char **argv)
             timeoutMs = args.at(++i).toInt();
     }
 
-    // Same factory as `omaplan add`: lokal reads config.toml, CLI flags win.
+    // Same factory as `omaplan add`: local reads config.toml, CLI flags win.
     // The command engine takes an explicit --command for ad-hoc testing.
     std::unique_ptr<AiEngine> engine;
     if (engineId == QLatin1String("command") && !commandLine.isEmpty())

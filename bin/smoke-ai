@@ -1,10 +1,10 @@
 #!/bin/sh
-# Manual smoke test of the real AI engines: sends one short Danish text to a
-# motor and prints the raw answer plus the elapsed time. NOT run by bin/test,
-# and never run by the test suite -- a human runs it when they have a motor
+# Manual smoke test of the real AI engines: sends one short Danish text to an
+# engine and prints the raw answer plus the elapsed time. NOT run by bin/test,
+# and never run by the test suite -- a human runs it when they have an engine
 # configured (vibe/claude login, or a local server in config.toml).
 #
-# Usage: bin/smoke-ai [motor]        # motor: vibe | claude | lokal (default: config default)
+# Usage: bin/smoke-ai [engine]       # engine: vibe | claude | local (default: config default)
 set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
@@ -12,11 +12,12 @@ BIN="$ROOT/build/omaplan"
 
 [ -x "$BIN" ] || "$ROOT/bin/build"
 
-MOTOR="${1:-}"
+ENGINE="${1:-}"
+# User input may be in any language; Danish exercises the date annotation.
 TEXT="køb mælk i morgen og skriv et blogindlæg fredag kl. 14:30, 30 min, projekt Blog"
 
-if [ -n "$MOTOR" ]; then
-    set -- "$BIN" add "$TEXT" --motor "$MOTOR" --json
+if [ -n "$ENGINE" ]; then
+    set -- "$BIN" add "$TEXT" --engine "$ENGINE" --json
 else
     set -- "$BIN" add "$TEXT" --json
 fi

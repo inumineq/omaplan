@@ -20,7 +20,7 @@ Rectangle {
     color: theme.surface
     border.color: current ? theme.accent : theme.border
 
-    function guessed(key) { return (task.gaet || []).indexOf(key) >= 0 }
+    function guessed(key) { return (task.guessed || []).indexOf(key) >= 0 }
     function focused() {
         view.currentCol = col
         view.currentTask = taskIndex
@@ -102,7 +102,7 @@ Rectangle {
             TextField {
                 id: titleField
                 Layout.fillWidth: true
-                text: card.task.titel
+                text: card.task.title
                 placeholderText: text === "" ? qsTr("Title") : ""
                 font.pixelSize: 15
                 font.bold: true
@@ -117,7 +117,7 @@ Rectangle {
                         color: titleField.activeFocus ? theme.accent : theme.border
                     }
                 }
-                onTextChanged: card.view.setField(card.col, card.taskIndex, "titel", text)
+                onTextChanged: card.view.setField(card.col, card.taskIndex, "title", text)
                 onActiveFocusChanged: if (activeFocus) card.focused()
             }
             AbstractButton {
@@ -141,10 +141,10 @@ Rectangle {
             columnSpacing: 8
             rowSpacing: 4
             Field { Layout.fillWidth: true; Layout.preferredWidth: 3; key: "start"; label: qsTr("Start"); isDate: true }
-            Field { Layout.fillWidth: true; Layout.preferredWidth: 1; key: "varighed_min"; label: qsTr("Minutes") }
-            Field { Layout.fillWidth: true; Layout.preferredWidth: 3; key: "frist"; label: qsTr("Deadline"); isDate: true }
-            Field { Layout.fillWidth: true; Layout.preferredWidth: 2; key: "projekt"; label: qsTr("Project") }
-            Field { Layout.fillWidth: true; Layout.preferredWidth: 1; key: "prioritet"; label: qsTr("Priority 1-3") }
+            Field { Layout.fillWidth: true; Layout.preferredWidth: 1; key: "duration_min"; label: qsTr("Minutes") }
+            Field { Layout.fillWidth: true; Layout.preferredWidth: 3; key: "deadline"; label: qsTr("Deadline"); isDate: true }
+            Field { Layout.fillWidth: true; Layout.preferredWidth: 2; key: "project"; label: qsTr("Project") }
+            Field { Layout.fillWidth: true; Layout.preferredWidth: 1; key: "priority"; label: qsTr("Priority 1-3") }
         }
     }
 }

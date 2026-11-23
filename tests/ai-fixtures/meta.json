@@ -2,5 +2,5 @@
   "today": "2026-11-23",
   "timezone": "Europe/Copenhagen",
   "language": "da",
-  "note": "Fixed 'today' for every eval run and unit test. 2026-11-23 is a Monday, so 'på tirsdag' = 2026-11-24, 'fredag' = 2026-11-27, 'i morgen' = 2026-11-24, 'mandag' = 2026-11-30, 'næste uge' starts 2026-11-30. All names and projects are invented."
+  "note": "Fixed 'today' for every eval run and unit test. 2026-11-23 is a Monday, so 'på tirsdag' = 2026-11-24, 'fredag' = 2026-11-27, 'i morgen'/'tomorrow' = 2026-11-24, 'mandag'/'next monday' = 2026-11-30, 'næste uge' starts 2026-11-30. Cases 01-20 are Danish input, 21-25 English; expected titles stay in the input's language. All names and projects are invented."
 }

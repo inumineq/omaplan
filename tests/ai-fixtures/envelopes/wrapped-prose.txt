@@ -1,1 +1,1 @@
-Jeg har lavet opgaven {"opgaver": [{"titel": "Køb mælk", "start": "2026-11-24T10:00"}]} som du bad om.
+Jeg har lavet opgaven {"tasks": [{"title": "Køb mælk", "start": "2026-11-24T10:00"}]} som du bad om.

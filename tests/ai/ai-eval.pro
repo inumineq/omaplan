@@ -18,6 +18,7 @@ SOURCES += \
     ../../src/actions.cpp \
     ../../src/config.cpp \
     ../../src/dateannotate.cpp \
+    ../../src/datewords.cpp \
     ../../src/engine.cpp \
     ../../src/engine_vibe.cpp \
     ../../src/engine_claude.cpp \
@@ -33,6 +34,7 @@ HEADERS += \
     ../../src/actions.h \
     ../../src/config.h \
     ../../src/dateannotate.h \
+    ../../src/datewords.h \
     ../../src/engine.h \
     ../../src/prompt.h \
     ../../src/proposal.h \
@@ -40,4 +42,4 @@ HEADERS += \
     ../../src/task.h \
     ../../src/translator.h
 
-RESOURCES += ../../src/ai-skema.qrc
+RESOURCES += ../../src/ai-schema.qrc

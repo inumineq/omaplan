@@ -1,0 +1,35 @@
+#!/bin/sh
+# Updates the translation files i18n/omaplan_<lang>.ts from the source code
+# (qsTr/tr strings in src/), so translators see every new or changed string.
+#
+#   bin/i18n-update          update every existing i18n/omaplan_*.ts
+#   bin/i18n-update pt fr    also create i18n/omaplan_pt.ts and omaplan_fr.ts
+#
+# English is the source language; omaplan_en.ts only carries the plural forms
+# ("%n tasks" -> "1 task"). See docs/translating.md.
+set -eu
+
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+LUPDATE="$(command -v lupdate6 || command -v lupdate-qt6 || true)"
+[ -n "$LUPDATE" ] || LUPDATE="$(qmake6 -query QT_HOST_BINS)/lupdate"
+
+cd "$ROOT"
+mkdir -p i18n
+for lang in "$@"; do
+    case "$lang" in
+        *[!a-z_A-Z]*|'') echo "Not a language code: $lang" >&2; exit 1 ;;
+    esac
+    [ -e "i18n/omaplan_$lang.ts" ] || NEW="${NEW:-} $lang"
+done
+LANGS="$(ls i18n/omaplan_*.ts 2>/dev/null | sed 's#i18n/omaplan_\(.*\)\.ts#\1#') ${NEW:-}"
+
+for lang in $LANGS; do
+    if [ "$lang" = en ]; then
+        "$LUPDATE" -silent -extensions cpp,h,qml -locations none -no-obsolete -pluralonly \
+            -source-language en -target-language en src -ts "i18n/omaplan_en.ts"
+    else
+        "$LUPDATE" -silent -extensions cpp,h,qml -locations none -no-obsolete \
+            -source-language en -target-language "$lang" src -ts "i18n/omaplan_$lang.ts"
+    fi
+    echo "Updated i18n/omaplan_$lang.ts"
+done

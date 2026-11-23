@@ -34,7 +34,7 @@ AppConfig AppConfig::load(const QString &path) {
         const QString key = line.left(eq).trimmed();
         QString value = line.mid(eq + 1).trimmed();
         // A quoted value ends at its closing quote, so a comment after it
-        // ("vibe"   # standardmotor) is dropped; an unquoted value ends at #.
+        // ("vibe"   # default engine) is dropped; an unquoted value ends at #.
         if (!value.isEmpty() && (value.front() == QLatin1Char('"') || value.front() == QLatin1Char('\''))) {
             const int close = value.indexOf(value.front(), 1);
             value = close > 0 ? value.mid(1, close - 1) : value.mid(1);
@@ -42,21 +42,28 @@ AppConfig AppConfig::load(const QString &path) {
             value = value.left(value.indexOf(QLatin1Char('#'))).trimmed();
         }
 
-        if (section == QLatin1String("motor")) {
-            if (key == QLatin1String("engine"))
-                config.engine = value;
+        // Engine ids of 0.1: "lokal" is now "local".
+        const auto engineId = [](const QString &id) {
+            return id == QLatin1String("lokal") ? QStringLiteral("local") : id;
+        };
+        if (section.isEmpty()) {
+            if (key == QLatin1String("language"))
+                config.language = value.toLower();
+        } else if (section == QLatin1String("engine") || section == QLatin1String("motor")) {
+            if (key == QLatin1String("default") || key == QLatin1String("engine"))
+                config.engine = engineId(value);
             else if (key == QLatin1String("command"))
                 config.command = value;
             else if (key == QLatin1String("compare")) {
-                // compare = "vibe, claude": the two engines of Sammenlign.
+                // compare = "vibe, claude": the two engines of Compare.
                 const QStringList ids = value.split(QLatin1Char(','), Qt::SkipEmptyParts);
                 if (ids.size() == 2)
-                    config.compare = {ids.at(0).trimmed(), ids.at(1).trimmed()};
+                    config.compare = {engineId(ids.at(0).trimmed()), engineId(ids.at(1).trimmed())};
             }
         } else if (section == QLatin1String("snapshot")) {
             if (key == QLatin1String("path"))
                 config.snapshotPath = value.startsWith(QLatin1String("~/")) ? QDir::homePath() + value.mid(1) : value;
-        } else if (section == QLatin1String("motor.lokal")) {
+        } else if (section == QLatin1String("engine.local") || section == QLatin1String("motor.lokal")) {
             if (key == QLatin1String("api"))
                 config.localApi = value.toLower();
             else if (key == QLatin1String("endpoint"))
