@@ -820,10 +820,12 @@ private slots:
         QVERIFY(actions.setDone(overdue.id, true, QStringLiteral("gui")).ok);
         QCOMPARE(spy.count(), 1);
         model.reload();
-        // The done task still shows (its deadline is within the window) but is
-        // no longer sorted as overdue.
-        QCOMPARE(overview.rowCount(), 3);
-        QCOMPARE(overview.data(overview.index(0, 0), PlanModel::TitleRole).toString(), QStringLiteral("I dag"));
+        QCOMPARE(overview.rowCount(), 3); // still within the 7-day window
+        QCOMPARE(actions.show(overdue.id).payload["task"].toObject()["status"].toString(), QStringLiteral("done"));
+        // A still-todo task with a past deadline sorts before everything else.
+        QVERIFY(actions.setDone(overdue.id, false, QStringLiteral("gui")).ok);
+        model.reload();
+        QCOMPARE(overview.data(overview.index(0, 0), PlanModel::TitleRole).toString(), QStringLiteral("Forfalden"));
     }
 };
 
