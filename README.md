@@ -9,17 +9,34 @@ Byg med `bin/build`, kør tests med `bin/test`, installér som Arch-pakke med `b
 
 ## Taster (i vinduet)
 
+Alt kan gøres med tastaturet. `?` viser alle taster i vinduet.
+
 | Tast | Handling |
 | --- | --- |
 | `1` / `2` / `3` / `4` | Skift visning: overblik, kalender, liste, tidslinje |
-| `n` eller Space | Ny opgave i almindelig tekst (AI-forslag) |
-| `Ctrl+Enter` | Send indtastning / godkend forslag |
-| `Esc` | Luk indtastning / kassér forslag |
+| `n` eller Space | Nye opgaver i fri tekst (AI-forslag) |
+| `a` | Ny opgave uden AI |
+| `j` / `k` eller ↓ / ↑ | Vælg næste / forrige opgave |
+| `x` | Færdig / ikke færdig |
+| `e` eller Enter | Ret den valgte opgave |
+| `Shift+←` / `Shift+→` | Flyt en dag |
+| `Shift+↑` / `Shift+↓` | Flyt et kvarter |
+| `Delete` eller `d` | Slet |
+| `h` / `l` eller ← / → | Forrige / næste uge eller måned |
+| `t` | Gå til i dag |
 | `w` / `m` | Kalender: uge / måned |
-| `g` / `f` | Liste: skift gruppering / projektfilter |
-| `Ctrl+Z` / `Ctrl+Shift+Z` | Fortryd / gendan (virker på tværs af GUI og CLI) |
-| `?` | Genvejsoversigt |
+| `g` / `s` / `f` | Liste: gruppering / åbne-færdige-alle / projektfilter |
+| `+` / `-` | Tidslinje: zoom |
+| `Ctrl+Enter` | Send indtastning / godkend forslag / gem |
+| `Alt+S` | Sammenlign to motorer (i indtastningen) |
+| `Ctrl+1` / `Ctrl+2` | Godkend venstre / højre forslag ved sammenlign |
+| `Ctrl+N` / `Ctrl+Delete` | Tilføj / fjern en opgave i forslaget |
+| `Esc` | Luk / kassér / afbryd motoren (kladden bevares) |
+| `Ctrl+Z` / `Ctrl+Shift+Z` | Fortryd / gendan (virker på tværs af GUI, CLI og MCP) |
 | `q` | Luk |
+
+Med musen kan opgaver trækkes til en anden dag i kalenderen, i ugevisningen også til et andet klokkeslæt. I
+tidslinjen ændrer et træk i en bjælkes højre kant varigheden.
 
 ## Kommandolinje
 
@@ -77,6 +94,7 @@ Konfigurationen ligger i `~/.config/omaplan/config.toml`:
 ```toml
 [motor]
 engine = "vibe"            # standardmotor: vibe | claude | lokal | command
+compare = "vibe, claude"   # de to motorer, Sammenlign (Alt+S) sender teksten til
 
 [motor.lokal]
 api = "ollama"             # ollama | openai (OpenAI-kompatibelt endpoint)
@@ -89,6 +107,10 @@ for `lokal`, får du en fejl med et eksempel i stedet for et gæt.
 
 **Modeller er kun eksempler** -- vælg selv, fx `gemma4:e2b` eller `qwen3.5:2b` (til Ollama), eller hvad din
 llama-server/LM Studio stiller til rådighed. Omaplan henter eller bygger ingen modeller selv.
+
+**Sammenlign:** Tryk `Alt+S` i indtastningen, og teksten går til begge `compare`-motorer på én gang. De to forslag
+vises side om side, og du godkender det ene med `Ctrl+1` eller `Ctrl+2`. Begge svar gemmes i `captures`, så de
+kan sammenlignes bagefter.
 
 `bin/smoke-ai [motor]` kalder en rigtig motor manuelt med en kort dansk tekst og skriver svar og tid. Den køres
 ikke af `bin/test`.
