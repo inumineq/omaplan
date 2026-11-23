@@ -2,6 +2,7 @@
 
 #include <QDate>
 #include <QDir>
+#include <QFile>
 #include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -9,6 +10,7 @@
 #include <QTextStream>
 
 #include "actions.h"
+#include "mcp.h"
 #include "skill.h"
 #include "store.h"
 #include "task.h"
@@ -35,7 +37,8 @@ static void printHelp(QTextStream &out) {
         "  summary [--uge|--maaned]\n"
         "  add <text> [--motor ...] [--ja] [--model M] [--endpoint URL]   AI proposal; --ja stores it\n"
         "  skill install|uninstall   install/remove the bundled agent skill\n"
-        "  snapshot | serve | mcp ...   (not implemented yet)\n"
+        "  mcp                   MCP server over stdio (claude mcp add omaplan -- omaplan mcp)\n"
+        "  snapshot | serve ...  (not implemented yet)\n"
         "\n"
         "Dates accept ISO (2026-12-01, 2026-12-01 14:30) and Danish/English expressions\n"
         "(\"i morgen\", \"fredag 12\", \"tomorrow\", \"next monday\", optional \"kl. 14:30\").\n"
@@ -77,68 +80,6 @@ static bool parseDateFlag(const QString &text, QDateTime *when, bool *hasTime, Q
     if (!Actions::parseDateTime(text, QDateTime::currentDateTime().date(), when, hasTime, &error)) {
         err << error << "\n";
         return false;
-    }
-    return true;
-}
-
-// A number flag must be a whole number; "1t" or "høj" is an error instead of
-// silently becoming 0.
-static bool parseIntFlag(const QHash<QString, QString> &flags, const QString &key, int *out, QTextStream &err) {
-    if (!flags.contains(key))
-        return true;
-    bool ok = false;
-    const int value = flags.value(key).trimmed().toInt(&ok);
-    if (!ok) {
-        err << QObject::tr("--%1 must be a whole number, got \"%2\"").arg(key, flags.value(key)) << "\n";
-        return false;
-    }
-    *out = value;
-    return true;
-}
-
-static void setDateField(QJsonObject *patch, const QString &key, const QDateTime &when, bool hasTime) {
-    (*patch)[key] = hasTime ? when.toString(Qt::ISODateWithMs) : when.date().toString(Qt::ISODate);
-    (*patch)[key + "_has_time"] = hasTime;
-}
-
-// Builds the edit patch from CLI flags; returns false (and prints) on bad input.
-static bool buildPatch(const QHash<QString, QString> &flags, QJsonObject *patch, QTextStream &err) {
-    if (flags.contains(QStringLiteral("titel"))) (*patch)["title"] = flags["titel"];
-    if (flags.contains(QStringLiteral("noter"))) (*patch)["notes"] = flags["noter"];
-    if (flags.contains(QStringLiteral("projekt"))) (*patch)["project"] = flags["projekt"];
-    int number = 0;
-    if (flags.contains(QStringLiteral("prioritet"))) {
-        if (!parseIntFlag(flags, QStringLiteral("prioritet"), &number, err))
-            return false;
-        (*patch)["priority"] = number;
-    }
-    if (flags.contains(QStringLiteral("status"))) (*patch)["status"] = flags["status"];
-    if (flags.contains(QStringLiteral("varighed"))) {
-        if (!parseIntFlag(flags, QStringLiteral("varighed"), &number, err))
-            return false;
-        (*patch)["duration_minutes"] = number;
-    }
-    QDateTime when;
-    bool hasTime;
-    if (flags.contains(QStringLiteral("start"))) {
-        if (!parseDateFlag(flags["start"], &when, &hasTime, err))
-            return false;
-        if (when.isValid())
-            setDateField(patch, QStringLiteral("start"), when, hasTime);
-        else {
-            (*patch)["start"] = QString();
-            (*patch)["start_has_time"] = false;
-        }
-    }
-    if (flags.contains(QStringLiteral("frist"))) {
-        if (!parseDateFlag(flags["frist"], &when, &hasTime, err))
-            return false;
-        if (when.isValid())
-            setDateField(patch, QStringLiteral("deadline"), when, hasTime);
-        else {
-            (*patch)["deadline"] = QString();
-            (*patch)["deadline_has_time"] = false;
-        }
     }
     return true;
 }
@@ -212,8 +153,7 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
     }
 
     // Later phases; they answer "not implemented yet" with exit 1.
-    if (command == QLatin1String("snapshot") || command == QLatin1String("serve")
-        || command == QLatin1String("mcp")) {
+    if (command == QLatin1String("snapshot") || command == QLatin1String("serve")) {
         err << QObject::tr("Not implemented yet: %1").arg(command) << "\n";
         return 1;
     }
@@ -225,6 +165,17 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
     }
     Actions actions(store);
     const QString source = QStringLiteral("cli");
+
+    if (command == QLatin1String("mcp")) {
+        // stdout carries the protocol only; anything else goes to stderr.
+        QFile in, outFile;
+        if (!in.open(stdin, QIODevice::ReadOnly) || !outFile.open(stdout, QIODevice::WriteOnly)) {
+            err << QObject::tr("Cannot open stdin/stdout for MCP") << "\n";
+            return 1;
+        }
+        McpServer server(&actions);
+        return server.serve(&in, &outFile);
+    }
 
     if (command == QLatin1String("add")) {
         QStringList positional;
@@ -294,27 +245,9 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
             return 1;
         }
         Task task;
-        task.title = flags[QStringLiteral("titel")];
-        if (flags.contains(QStringLiteral("noter")))
-            task.notes = flags[QStringLiteral("noter")];
-        if (flags.contains(QStringLiteral("projekt")))
-            task.project = flags[QStringLiteral("projekt")];
-        if (!parseIntFlag(flags, QStringLiteral("prioritet"), &task.priority, err)
-            || !parseIntFlag(flags, QStringLiteral("varighed"), &task.durationMinutes, err))
+        if (!Actions::taskFromFields(flags, &task, &error)) {
+            err << error << "\n";
             return 1;
-        QDateTime when;
-        bool hasTime;
-        if (flags.contains(QStringLiteral("start"))) {
-            if (!parseDateFlag(flags[QStringLiteral("start")], &when, &hasTime, err))
-                return 1;
-            task.start = when;
-            task.startHasTime = hasTime;
-        }
-        if (flags.contains(QStringLiteral("frist"))) {
-            if (!parseDateFlag(flags[QStringLiteral("frist")], &when, &hasTime, err))
-                return 1;
-            task.deadline = when;
-            task.deadlineHasTime = hasTime;
         }
         ActionResult result = actions.create(task, source);
         if (!result.ok) {
@@ -377,8 +310,10 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
             return 1;
         }
         QJsonObject patch;
-        if (!buildPatch(flags, &patch, err))
+        if (!Actions::patchFromFields(flags, &patch, &error)) {
+            err << error << "\n";
             return 1;
+        }
         ActionResult result = actions.update(positional.first(), patch, source);
         if (!result.ok) {
             err << result.error << "\n";

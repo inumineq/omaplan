@@ -3,6 +3,9 @@ set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 
+# The app itself first: the MCP tests talk to the real binary over stdio.
+"$ROOT/bin/build" >/dev/null
+
 # Core tests (store, actions, CLI, models, date annotation).
 mkdir -p "$ROOT/build/tests"
 cd "$ROOT/build/tests"

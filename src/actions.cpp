@@ -651,6 +651,117 @@ ActionResult Actions::summary(bool week) {
 }
 
 // ---------------------------------------------------------------------------
+// Fields from the CLI and MCP
+
+static bool dateField(const QString &key, const QString &text, QDateTime *when, bool *hasTime, QString *error) {
+    *when = QDateTime();
+    *hasTime = false;
+    if (text.trimmed().isEmpty()) // an empty value clears the field
+        return true;
+    QString why;
+    if (!Actions::parseDateTime(text, QDate::currentDate(), when, hasTime, &why)) {
+        *error = QCoreApplication::translate("Actions", "%1: %2").arg(key, why);
+        return false;
+    }
+    return true;
+}
+
+// A number field must be a whole number; "1t" or "høj" is an error instead
+// of silently becoming 0.
+static bool intField(const Actions::Fields &fields, const QString &key, int *out, QString *error) {
+    if (!fields.contains(key))
+        return true;
+    bool ok = false;
+    const int value = fields.value(key).trimmed().toInt(&ok);
+    if (!ok) {
+        *error = QCoreApplication::translate("Actions", "%1 must be a whole number, got \"%2\"")
+                     .arg(key, fields.value(key));
+        return false;
+    }
+    *out = value;
+    return true;
+}
+
+static const QStringList &knownFields() {
+    static const QStringList keys = {
+        QStringLiteral("titel"), QStringLiteral("noter"), QStringLiteral("projekt"), QStringLiteral("prioritet"),
+        QStringLiteral("start"), QStringLiteral("varighed"), QStringLiteral("frist"), QStringLiteral("status")};
+    return keys;
+}
+
+static bool checkKnown(const Actions::Fields &fields, QString *error) {
+    for (auto it = fields.begin(); it != fields.end(); ++it)
+        if (!knownFields().contains(it.key())) {
+            *error = QCoreApplication::translate("Actions", "Unknown field: %1 (known: %2)")
+                         .arg(it.key(), knownFields().join(QStringLiteral(", ")));
+            return false;
+        }
+    return true;
+}
+
+bool Actions::taskFromFields(const Fields &fields, Task *task, QString *error) {
+    if (!checkKnown(fields, error))
+        return false;
+    if (fields.value(QStringLiteral("titel")).trimmed().isEmpty()) {
+        *error = QCoreApplication::translate("Actions", "Missing titel");
+        return false;
+    }
+    task->title = fields.value(QStringLiteral("titel")).trimmed();
+    task->notes = fields.value(QStringLiteral("noter"));
+    task->project = fields.value(QStringLiteral("projekt")).trimmed();
+    if (!intField(fields, QStringLiteral("prioritet"), &task->priority, error)
+        || !intField(fields, QStringLiteral("varighed"), &task->durationMinutes, error))
+        return false;
+    if (fields.contains(QStringLiteral("status"))) {
+        bool ok = false;
+        task->status = Task::statusFromString(fields.value(QStringLiteral("status")), &ok);
+        if (!ok) {
+            *error = QCoreApplication::translate("Actions", "status must be todo or done");
+            return false;
+        }
+    }
+    return dateField(QStringLiteral("start"), fields.value(QStringLiteral("start")), &task->start,
+                     &task->startHasTime, error)
+           && dateField(QStringLiteral("frist"), fields.value(QStringLiteral("frist")), &task->deadline,
+                        &task->deadlineHasTime, error);
+}
+
+bool Actions::patchFromFields(const Fields &fields, QJsonObject *patch, QString *error) {
+    if (!checkKnown(fields, error))
+        return false;
+    if (fields.contains(QStringLiteral("titel"))) (*patch)["title"] = fields.value(QStringLiteral("titel"));
+    if (fields.contains(QStringLiteral("noter"))) (*patch)["notes"] = fields.value(QStringLiteral("noter"));
+    if (fields.contains(QStringLiteral("projekt"))) (*patch)["project"] = fields.value(QStringLiteral("projekt")).trimmed();
+    if (fields.contains(QStringLiteral("status"))) (*patch)["status"] = fields.value(QStringLiteral("status"));
+    int number = 0;
+    if (fields.contains(QStringLiteral("prioritet"))) {
+        if (!intField(fields, QStringLiteral("prioritet"), &number, error))
+            return false;
+        (*patch)["priority"] = number;
+    }
+    if (fields.contains(QStringLiteral("varighed"))) {
+        if (!intField(fields, QStringLiteral("varighed"), &number, error))
+            return false;
+        (*patch)["duration_minutes"] = number;
+    }
+    const auto setDate = [&](const QString &field, const QString &key) {
+        if (!fields.contains(field))
+            return true;
+        QDateTime when;
+        bool hasTime = false;
+        if (!dateField(field, fields.value(field), &when, &hasTime, error))
+            return false;
+        (*patch)[key] = !when.isValid() ? QString()
+                        : hasTime      ? when.toString(QStringLiteral("yyyy-MM-ddTHH:mm"))
+                                       : when.date().toString(Qt::ISODate);
+        (*patch)[key + QStringLiteral("_has_time")] = hasTime;
+        return true;
+    };
+    return setDate(QStringLiteral("start"), QStringLiteral("start"))
+           && setDate(QStringLiteral("frist"), QStringLiteral("deadline"));
+}
+
+// ---------------------------------------------------------------------------
 // Date parsing
 
 static const QHash<QString, int> &weekdays() {

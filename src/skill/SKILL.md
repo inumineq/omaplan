@@ -41,3 +41,7 @@ expressions ("i morgen", "fredag 12", "tomorrow", "next monday", optional
 "kl. 14:30"). Every command takes `--json`, exits 0/1 and prints errors on
 stderr, so it is safe to script. Examples use invented names ("Blog",
 "Kunde A") — use the user's own words in real calls.
+
+If your agent has MCP, `omaplan mcp` offers the same actions as tools
+(`claude mcp add omaplan -- omaplan mcp`); `propose` + `approve` there is the
+same "show first, then save" flow as `add` and `add --ja`.

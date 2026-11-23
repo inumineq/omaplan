@@ -17,7 +17,8 @@ HEADERS += \
     src/skill.h \
     src/engine.h \
     src/prompt.h \
-    src/proposal.h
+    src/proposal.h \
+    src/mcp.h
 
 SOURCES += \
     src/main.cpp \
@@ -37,6 +38,7 @@ SOURCES += \
     src/engine_local.cpp \
     src/engine_command.cpp \
     src/prompt.cpp \
-    src/proposal.cpp
+    src/proposal.cpp \
+    src/mcp.cpp
 
 RESOURCES += src/resources.qrc src/ai-skema.qrc src/skill.qrc

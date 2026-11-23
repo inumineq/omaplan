@@ -2,6 +2,7 @@
 
 #include <QDate>
 #include <QDateTime>
+#include <QHash>
 #include <QJsonObject>
 #include <QObject>
 #include <QString>
@@ -55,6 +56,14 @@ public:
     // can pass a fixed one.
     static bool parseDateTime(const QString &text, const QDate &today, QDateTime *out, bool *hasTime,
                               QString *error = nullptr);
+
+    // Task fields by their CLI/MCP names (titel, noter, projekt, prioritet,
+    // start, varighed, frist, status), as text: dates take everything
+    // parseDateTime accepts, an empty value clears a field. Shared by the
+    // CLI and the MCP server so both accept exactly the same input.
+    using Fields = QHash<QString, QString>;
+    static bool taskFromFields(const Fields &fields, Task *task, QString *error);
+    static bool patchFromFields(const Fields &fields, QJsonObject *patch, QString *error);
 
     // QML-friendly wrappers (source "gui"); each returns
     // {"ok": bool, "error": string, "text": string, "payload": object}.

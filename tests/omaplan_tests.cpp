@@ -1,6 +1,7 @@
 #include <QDir>
 #include <QFile>
 #include <QJsonDocument>
+#include <QProcess>
 #include <QJsonObject>
 #include <QSqlDatabase>
 #include <QSqlQuery>
@@ -697,7 +698,7 @@ private slots:
         QCOMPARE(cli(store, {QStringLiteral("new"), QStringLiteral("--titel"), QStringLiteral("X"), QStringLiteral("--start"), QStringLiteral("bogus")}, &out, &err), 1);
 
         // Later-phase commands answer "not implemented yet" with exit 1.
-        for (const char *cmd : {"snapshot", "serve", "mcp"}) {
+        for (const char *cmd : {"snapshot", "serve"}) {
             err.clear();
             QCOMPARE(cli(store, {QString::fromLatin1(cmd), QStringLiteral("x")}, &out, &err), 1);
             QVERIFY2(err.contains(QStringLiteral("Not implemented yet")), qPrintable(err));
@@ -1209,6 +1210,172 @@ private slots:
         // Defaults without a file: vibe, and Sammenlign = vibe vs claude.
         const AppConfig none = AppConfig::load(dir.filePath("findes-ikke.toml"));
         QCOMPARE(none.compare, (QStringList{QStringLiteral("vibe"), QStringLiteral("claude")}));
+    }
+
+    // Runs `omaplan mcp` (the real binary) with the given JSON-RPC lines on
+    // stdin and returns the response lines from stdout.
+    static QList<QJsonObject> mcpSession(const QString &db, const QList<QJsonObject> &messages, QString *stderrText)
+    {
+        QProcess process;
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        env.insert(QStringLiteral("OMAPLAN_DB"), db);
+        env.insert(QStringLiteral("OMAPLAN_CONFIG"), QFileInfo(db).absolutePath() + QStringLiteral("/config.toml"));
+        process.setProcessEnvironment(env);
+        process.start(QCoreApplication::applicationDirPath() + QStringLiteral("/../omaplan"), {QStringLiteral("mcp")});
+        if (!process.waitForStarted(5000))
+            return {};
+        for (const QJsonObject &message : messages)
+            process.write(QJsonDocument(message).toJson(QJsonDocument::Compact) + "\n");
+        process.write("dette er ikke json\n");
+        process.closeWriteChannel();
+        process.waitForFinished(20000);
+        *stderrText = QString::fromUtf8(process.readAllStandardError());
+        QList<QJsonObject> responses;
+        for (const QByteArray &line : process.readAllStandardOutput().split('\n'))
+            if (!line.trimmed().isEmpty())
+                responses << QJsonDocument::fromJson(line).object();
+        return responses;
+    }
+
+    static QJsonObject rpc(int id, const QString &method, const QJsonObject &params = {})
+    {
+        QJsonObject m{{QStringLiteral("jsonrpc"), QStringLiteral("2.0")}, {QStringLiteral("id"), id},
+                      {QStringLiteral("method"), method}};
+        if (!params.isEmpty())
+            m.insert(QStringLiteral("params"), params);
+        return m;
+    }
+
+    static QJsonObject call(int id, const QString &tool, const QJsonObject &arguments = {})
+    {
+        return rpc(id, QStringLiteral("tools/call"), {{QStringLiteral("name"), tool}, {QStringLiteral("arguments"), arguments}});
+    }
+
+    void mcpSpeaksTheProtocolOverStdio()
+    {
+        QTemporaryDir dir;
+        const QString db = dir.filePath("mcp.db");
+        // Never a real AI: "lokal" without a model fails before any request.
+        QFile cfg(dir.filePath("config.toml"));
+        QVERIFY(cfg.open(QIODevice::WriteOnly));
+        cfg.write("[motor]\nengine = \"lokal\"\n");
+        cfg.close();
+        // Seed one task through the CLI, so the MCP side reads shared data.
+        Task seeded;
+        {
+            Store store(db);
+            QString error;
+            QVERIFY(store.open(&error));
+            Actions actions(&store);
+            seeded.title = QStringLiteral("Fra CLI");
+            seeded.project = QStringLiteral("Kunde A");
+            seeded.id = actions.create(seeded, QStringLiteral("cli")).payload["task"].toObject()["id"].toString();
+        }
+        const QJsonObject notification{{QStringLiteral("jsonrpc"), QStringLiteral("2.0")},
+                                       {QStringLiteral("method"), QStringLiteral("notifications/initialized")}};
+        QString stderrText;
+        const QList<QJsonObject> r = mcpSession(db, {
+            rpc(1, QStringLiteral("initialize"), {{QStringLiteral("protocolVersion"), QStringLiteral("2025-03-26")},
+                                                  {QStringLiteral("capabilities"), QJsonObject{}},
+                                                  {QStringLiteral("clientInfo"), QJsonObject{{QStringLiteral("name"), QStringLiteral("test")}}}}),
+            notification,
+            rpc(2, QStringLiteral("tools/list")),
+            call(3, QStringLiteral("new"), {{QStringLiteral("titel"), QStringLiteral("Skriv blogindlæg")},
+                                            {QStringLiteral("start"), QStringLiteral("2026-12-04 14:00")},
+                                            {QStringLiteral("varighed"), 60}, {QStringLiteral("projekt"), QStringLiteral("Blog")}}),
+            call(4, QStringLiteral("list"), {{QStringLiteral("projekt"), QStringLiteral("Blog")}}),
+            call(5, QStringLiteral("done"), {{QStringLiteral("id"), seeded.id}}),
+            call(6, QStringLiteral("undo")),
+            call(7, QStringLiteral("show"), {{QStringLiteral("id"), QStringLiteral("findes-ikke")}}),
+            call(8, QStringLiteral("new"), {{QStringLiteral("titel"), QStringLiteral("X")}, {QStringLiteral("start"), QStringLiteral("engang")}}),
+            call(9, QStringLiteral("frobnicate")),
+            rpc(10, QStringLiteral("resources/list")),
+            call(11, QStringLiteral("summary"), {{QStringLiteral("periode"), QStringLiteral("uge")}}),
+            call(12, QStringLiteral("propose"), {{QStringLiteral("tekst"), QStringLiteral("køb mælk")}}),
+        }, &stderrText);
+        // One answer per request (not for the notification), plus a parse error.
+        QCOMPARE(r.size(), 13);
+
+        const QJsonObject init = r[0]["result"].toObject();
+        QCOMPARE(r[0]["id"].toInt(), 1);
+        QCOMPARE(init["protocolVersion"].toString(), QStringLiteral("2025-03-26")); // the client's version
+        QCOMPARE(init["serverInfo"].toObject()["name"].toString(), QStringLiteral("omaplan"));
+        QVERIFY(init["capabilities"].toObject().contains(QStringLiteral("tools")));
+
+        QStringList names;
+        for (const QJsonValue &t : r[1]["result"].toObject()["tools"].toArray()) {
+            names << t.toObject()["name"].toString();
+            QCOMPARE(t.toObject()["inputSchema"].toObject()["type"].toString(), QStringLiteral("object"));
+        }
+        for (const char *expected : {"list", "show", "new", "edit", "move", "done", "undone", "rm", "undo",
+                                     "projects", "summary", "propose", "approve", "add"})
+            QVERIFY2(names.contains(QString::fromLatin1(expected)), expected);
+
+        const QJsonObject created = r[2]["result"].toObject();
+        QCOMPARE(created["isError"].toBool(), false);
+        const QJsonObject task = created["structuredContent"].toObject()["task"].toObject();
+        QCOMPARE(task["start"].toString(), QStringLiteral("2026-12-04T14:00"));
+        QCOMPARE(task["duration_minutes"].toInt(), 60);
+        // The text content is the same JSON, for clients without structured output.
+        QCOMPARE(QJsonDocument::fromJson(created["content"].toArray()[0].toObject()["text"].toString().toUtf8())
+                     .object()["task"].toObject()["id"], task["id"]);
+
+        QCOMPARE(r[3]["result"].toObject()["structuredContent"].toObject()["tasks"].toArray().size(), 1);
+        QCOMPARE(r[4]["result"].toObject()["isError"].toBool(), false);
+        QCOMPARE(r[5]["result"].toObject()["structuredContent"].toObject()["change"].toObject()["kind"].toString(),
+                 QStringLiteral("update")); // undid the done
+        // Tool failures are results with isError, protocol failures are errors.
+        QCOMPARE(r[6]["result"].toObject()["isError"].toBool(), true);
+        QCOMPARE(r[7]["result"].toObject()["isError"].toBool(), true);
+        QVERIFY(r[7]["result"].toObject()["content"].toArray()[0].toObject()["text"].toString().contains(QStringLiteral("engang")));
+        QCOMPARE(r[8]["error"].toObject()["code"].toInt(), -32602);
+        QCOMPARE(r[9]["error"].toObject()["code"].toInt(), -32601);
+        QCOMPARE(r[10]["result"].toObject()["isError"].toBool(), false);
+        // An engine that is not set up → a clear error, not a hang.
+        QCOMPARE(r[11]["result"].toObject()["isError"].toBool(), true);
+        QCOMPARE(r[12]["error"].toObject()["code"].toInt(), -32700);
+
+        // Every change went through actions with the source "mcp".
+        Store store(db);
+        QString error;
+        QVERIFY(store.open(&error));
+        const auto log = store.changes(10, &error);
+        QCOMPARE(log.first().kind, QStringLiteral("undo"));
+        QCOMPARE(log.first().source, QStringLiteral("mcp"));
+        Task stillTodo;
+        QVERIFY(store.task(seeded.id, &stillTodo, &error));
+        QCOMPARE(stillTodo.status, Task::Status::Todo);
+    }
+
+    void mcpProposeAndApproveWithAFakeEngine()
+    {
+        QTemporaryDir dir;
+        const QString db = dir.filePath("mcp.db");
+        const QString fixture = QDir(QCoreApplication::applicationDirPath())
+                                    .filePath(QStringLiteral("../../tests/ai-fixtures/envelopes/command-valid.json"));
+        QFile cfg(dir.filePath("config.toml"));
+        QVERIFY(cfg.open(QIODevice::WriteOnly));
+        cfg.write("[motor]\nengine = \"command\"\ncommand = \"cat " + fixture.toUtf8() + "\"\n");
+        cfg.close();
+        QString stderrText;
+        QList<QJsonObject> r = mcpSession(db, {
+            call(1, QStringLiteral("propose"), {{QStringLiteral("tekst"), QStringLiteral("køb mælk i morgen")}}),
+            call(2, QStringLiteral("list")),
+        }, &stderrText);
+        QCOMPARE(r.size(), 3);
+        const QJsonObject proposed = r[0]["result"].toObject()["structuredContent"].toObject();
+        QVERIFY2(!proposed.isEmpty(), qPrintable(r[0]["result"].toObject()["content"].toArray()[0].toObject()["text"].toString()));
+        QCOMPARE(r[1]["result"].toObject()["structuredContent"].toObject()["tasks"].toArray().size(), 0); // nothing stored yet
+
+        r = mcpSession(db, {
+            call(1, QStringLiteral("approve"), {{QStringLiteral("forslag"), proposed["proposal"]},
+                                                {QStringLiteral("capture_id"), proposed["capture_id"]}}),
+            call(2, QStringLiteral("add"), {{QStringLiteral("tekst"), QStringLiteral("køb mælk fredag")}}),
+            call(3, QStringLiteral("list")),
+        }, &stderrText);
+        QCOMPARE(r[0]["result"].toObject()["isError"].toBool(), false);
+        QCOMPARE(r[1]["result"].toObject()["structuredContent"].toObject()["stored"].toArray().size(), 1);
+        QCOMPARE(r[2]["result"].toObject()["structuredContent"].toObject()["tasks"].toArray().size(), 2);
     }
 
     void dataVersionDetectsOtherConnections()

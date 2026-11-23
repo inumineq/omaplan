@@ -44,6 +44,22 @@ omaplan skill install        # bundtet agent-skill i ~/.claude/skills, ~/.codex/
 GUI'en poller `PRAGMA data_version` hvert 500 ms og genindlæser ved ændringer fra andre processer, med en kort
 besked om kilden ("Ændret fra CLI"). Samtidige skrivninger er sikre (WAL + busy-timeout).
 
+## MCP
+
+`omaplan mcp` er en MCP-server over stdio (JSON-RPC 2.0) med de samme handlinger som kommandolinjen som værktøjer:
+`list`, `show`, `new`, `edit`, `move`, `done`, `undone`, `rm`, `undo`, `redo`, `projects`, `summary`, `propose`,
+`approve` og `add`. Felterne hedder som CLI'ens flag (`titel`, `start`, `varighed`, `frist`, `projekt`, ...), og
+datoer accepterer de samme udtryk. Ændringer får kilden `mcp`, vises live i vinduet og kan fortrydes derfra.
+
+Tilføj den til Claude Code:
+
+```sh
+claude mcp add omaplan -- omaplan mcp
+```
+
+`propose` gemmer intet: vis forslaget for brugeren, og gem det med `approve` (med `capture_id` fra svaret). `add`
+gemmer med det samme og er kun til, når brugeren har bedt om det.
+
 ## Agent-skill
 
 `omaplan skill install` lægger den bundtede skill (`src/skill/SKILL.md`) i de agent-mapper, der findes
