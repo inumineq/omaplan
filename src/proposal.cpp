@@ -1,0 +1,386 @@
+#include "proposal.h"
+
+#include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonValue>
+#include <cmath>
+
+// ---------------------------------------------------------------------------
+// Schema access (docs/ai-skema.json is embedded as a Qt resource)
+// ---------------------------------------------------------------------------
+
+QJsonObject schemaObject()
+{
+    static const QJsonObject schema = [] {
+        QFile f(QStringLiteral(":/ai-skema.json"));
+        if (!f.open(QIODevice::ReadOnly))
+            return QJsonObject();
+        return QJsonDocument::fromJson(f.readAll()).object();
+    }();
+    return schema;
+}
+
+QString schemaText()
+{
+    QFile f(QStringLiteral(":/ai-skema.json"));
+    if (!f.open(QIODevice::ReadOnly))
+        return QString();
+    return QString::fromUtf8(f.readAll());
+}
+
+// ---------------------------------------------------------------------------
+// Minimal JSON Schema validator for the subset used by ai-skema.json:
+// type, required, properties, additionalProperties, items, minLength,
+// maxLength, minimum, maximum, enum. Reading the rules from the embedded
+// schema (instead of hardcoding them) means the schema file stays the single
+// contract for every engine.
+// ---------------------------------------------------------------------------
+
+static bool isIntegerValue(const QJsonValue &v)
+{
+    if (!v.isDouble())
+        return false;
+    const double d = v.toDouble();
+    return std::floor(d) == d && d >= -2147483648.0 && d <= 2147483647.0;
+}
+
+static bool typeMatches(const QJsonValue &v, const QString &type)
+{
+    if (type == QLatin1String("object"))
+        return v.isObject();
+    if (type == QLatin1String("array"))
+        return v.isArray();
+    if (type == QLatin1String("string"))
+        return v.isString();
+    if (type == QLatin1String("integer"))
+        return isIntegerValue(v);
+    if (type == QLatin1String("number"))
+        return v.isDouble();
+    if (type == QLatin1String("boolean"))
+        return v.isBool();
+    if (type == QLatin1String("null"))
+        return v.isNull();
+    return false;
+}
+
+static void validate(const QJsonValue &value, const QJsonValue &schemaValue,
+                     const QString &path, QStringList &errors)
+{
+    const QJsonObject schema = schemaValue.toObject();
+    const QString type = schema.value(QStringLiteral("type")).toString();
+    if (!type.isEmpty() && !typeMatches(value, type)) {
+        errors.append(QStringLiteral("%1: expected type %2").arg(path, type));
+        return; // deeper checks are meaningless on a type mismatch
+    }
+
+    if (const QJsonArray enumValues = schema.value(QStringLiteral("enum")).toArray();
+        !enumValues.isEmpty()) {
+        bool found = false;
+        for (const QJsonValue &e : enumValues)
+            if (e == value)
+                found = true;
+        if (!found)
+            errors.append(QStringLiteral("%1: value not in enum").arg(path));
+    }
+
+    if (value.isString()) {
+        const QString s = value.toString();
+        const int minLength = schema.value(QStringLiteral("minLength")).toInt(-1);
+        const int maxLength = schema.value(QStringLiteral("maxLength")).toInt(-1);
+        if (minLength >= 0 && s.size() < minLength)
+            errors.append(QStringLiteral("%1: shorter than minLength %2").arg(path).arg(minLength));
+        if (maxLength >= 0 && s.size() > maxLength)
+            errors.append(QStringLiteral("%1: longer than maxLength %2").arg(path).arg(maxLength));
+    }
+
+    if (value.isDouble()) {
+        const double d = value.toDouble();
+        if (schema.contains(QStringLiteral("minimum")) && d < schema.value(QStringLiteral("minimum")).toDouble())
+            errors.append(QStringLiteral("%1: below minimum").arg(path));
+        if (schema.contains(QStringLiteral("maximum")) && d > schema.value(QStringLiteral("maximum")).toDouble())
+            errors.append(QStringLiteral("%1: above maximum").arg(path));
+    }
+
+    if (value.isObject()) {
+        const QJsonObject obj = value.toObject();
+        const QJsonObject properties = schema.value(QStringLiteral("properties")).toObject();
+        const QJsonArray required = schema.value(QStringLiteral("required")).toArray();
+        for (const QJsonValue &r : required) {
+            const QString key = r.toString();
+            if (!obj.contains(key))
+                errors.append(QStringLiteral("%1: missing required property '%2'").arg(path, key));
+        }
+        const QJsonValue additional = schema.value(QStringLiteral("additionalProperties"));
+        for (auto it = obj.begin(); it != obj.end(); ++it) {
+            const QString key = it.key();
+            if (properties.contains(key)) {
+                validate(it.value(), properties.value(key), path + QLatin1Char('.') + key, errors);
+            } else if (additional.isBool() && !additional.toBool()) {
+                errors.append(QStringLiteral("%1: additional property '%2' not allowed").arg(path, key));
+            } else if (additional.isObject()) {
+                validate(it.value(), additional, path + QLatin1Char('.') + key, errors);
+            }
+        }
+    }
+
+    if (value.isArray()) {
+        const QJsonValue items = schema.value(QStringLiteral("items"));
+        if (items.isObject()) {
+            const QJsonArray arr = value.toArray();
+            for (int i = 0; i < arr.size(); ++i)
+                validate(arr.at(i), items, QStringLiteral("%1[%2]").arg(path).arg(i), errors);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// JSON extraction: engines wrap the schema JSON in prose, ``` fences, or
+// their own envelope objects ({"result": "..."} etc.).
+// ---------------------------------------------------------------------------
+
+static bool parseJsonObject(const QString &text, QJsonObject *out)
+{
+    QJsonParseError err{};
+    const QJsonDocument doc = QJsonDocument::fromJson(text.toUtf8(), &err);
+    if (err.error != QJsonParseError::NoError || !doc.isObject())
+        return false;
+    *out = doc.object();
+    return true;
+}
+
+// Returns the first candidate substring that parses as a JSON object.
+static QJsonObject extractJsonObject(const QString &text, bool *found)
+{
+    const QString trimmed = text.trimmed();
+    QJsonObject obj;
+
+    // 1. The whole text is already a JSON object.
+    if (parseJsonObject(trimmed, &obj)) {
+        *found = true;
+        return obj;
+    }
+
+    // 2. ```-fenced blocks (with or without a language tag).
+    int searchFrom = 0;
+    while (true) {
+        const int open = trimmed.indexOf(QStringLiteral("```"), searchFrom);
+        if (open < 0)
+            break;
+        const int close = trimmed.indexOf(QStringLiteral("```"), open + 3);
+        if (close < 0)
+            break;
+        QString block = trimmed.mid(open + 3, close - open - 3);
+        const int newline = block.indexOf(QLatin1Char('\n'));
+        if (newline >= 0)
+            block = block.mid(newline + 1); // drop a language tag like "json"
+        if (parseJsonObject(block.trimmed(), &obj)) {
+            *found = true;
+            return obj;
+        }
+        searchFrom = close + 3;
+    }
+
+    // 3. First '{' to last '}' -- JSON embedded in surrounding prose.
+    const int first = trimmed.indexOf(QLatin1Char('{'));
+    const int last = trimmed.lastIndexOf(QLatin1Char('}'));
+    if (first >= 0 && last > first && parseJsonObject(trimmed.mid(first, last - first + 1), &obj)) {
+        *found = true;
+        return obj;
+    }
+
+    *found = false;
+    return QJsonObject();
+}
+
+// Unwraps engine envelopes: {"result": "..."} (claude -p, vibe --output json),
+// {"response": "..."} (Ollama), {"message": {"content": "..."}} (chat format).
+// The envelope's string payload may itself be fenced or wrapped, so extraction
+// runs recursively. Stops as soon as an object shaped like the schema appears.
+static QJsonObject unwrapEnvelopes(const QJsonObject &obj, bool *ok, int depth = 0)
+{
+    if (obj.contains(QStringLiteral("opgaver")) || depth > 8) {
+        *ok = obj.contains(QStringLiteral("opgaver"));
+        return obj;
+    }
+    QString payload;
+    if (obj.value(QStringLiteral("result")).isString())
+        payload = obj.value(QStringLiteral("result")).toString();
+    else if (obj.value(QStringLiteral("response")).isString())
+        payload = obj.value(QStringLiteral("response")).toString();
+    else if (obj.value(QStringLiteral("message")).isObject()
+             && obj.value(QStringLiteral("message")).toObject().value(QStringLiteral("content")).isString())
+        payload = obj.value(QStringLiteral("message")).toObject().value(QStringLiteral("content")).toString();
+    else if (obj.value(QStringLiteral("content")).isString())
+        payload = obj.value(QStringLiteral("content")).toString();
+    else if (obj.value(QStringLiteral("text")).isString())
+        payload = obj.value(QStringLiteral("text")).toString();
+    else if (obj.value(QStringLiteral("output")).isString())
+        payload = obj.value(QStringLiteral("output")).toString();
+
+    if (payload.isEmpty()) {
+        *ok = false;
+        return obj;
+    }
+    bool found = false;
+    const QJsonObject inner = extractJsonObject(payload, &found);
+    if (!found) {
+        *ok = false;
+        return obj;
+    }
+    return unwrapEnvelopes(inner, ok, depth + 1);
+}
+
+// ---------------------------------------------------------------------------
+// Semantic mapping: schema-valid JSON -> ProposedTask. Dates must be ISO
+// 8601 local date or date+time, otherwise the response is rejected.
+// ---------------------------------------------------------------------------
+
+static bool parseIsoDateTime(const QString &text, QDateTime *out, bool *hasTime)
+{
+    const QString trimmed = text.trimmed();
+    if (QDateTime dt = QDateTime::fromString(trimmed, Qt::ISODate); dt.isValid()) {
+        *out = dt;
+        *hasTime = trimmed.contains(QLatin1Char('T'));
+        return true;
+    }
+    return false;
+}
+
+static QStringList validateAgainstSchema(const QJsonValue &value)
+{
+    QStringList errors;
+    validate(value, schemaObject(), QStringLiteral("$"), errors);
+    return errors;
+}
+
+ParseResult parseProposal(const QString &rawResponse)
+{
+    ParseResult result;
+    if (rawResponse.trimmed().isEmpty()) {
+        result.error = QStringLiteral("Engine returned an empty response.\n\nRaw response:\n%1")
+                           .arg(rawResponse);
+        return result;
+    }
+
+    bool found = false;
+    QJsonObject obj = extractJsonObject(rawResponse, &found);
+    if (!found) {
+        result.error = QStringLiteral("No JSON object found in the engine response.\n\nRaw response:\n%1")
+                           .arg(rawResponse);
+        return result;
+    }
+    bool schemaShaped = false;
+    obj = unwrapEnvelopes(obj, &schemaShaped);
+    if (!schemaShaped) {
+        result.error = QStringLiteral("No object matching the 'opgaver' schema found in the engine response.\n\nRaw response:\n%1")
+                           .arg(rawResponse);
+        return result;
+    }
+
+    const QStringList errors = validateAgainstSchema(obj);
+    if (!errors.isEmpty()) {
+        result.error = QStringLiteral("Response does not match docs/ai-skema.json: %1\n\nRaw response:\n%2")
+                           .arg(errors.join(QStringLiteral("; ")), rawResponse);
+        return result;
+    }
+
+    Proposal proposal;
+    const QJsonArray tasks = obj.value(QStringLiteral("opgaver")).toArray();
+    for (const QJsonValue &t : tasks) {
+        const QJsonObject o = t.toObject();
+        ProposedTask task;
+        task.title = o.value(QStringLiteral("titel")).toString();
+        task.notes = o.value(QStringLiteral("noter")).toString();
+        task.project = o.value(QStringLiteral("projekt")).toString();
+        if (o.contains(QStringLiteral("prioritet")))
+            task.priority = o.value(QStringLiteral("prioritet")).toInt();
+        if (o.contains(QStringLiteral("varighed_min")))
+            task.durationMin = o.value(QStringLiteral("varighed_min")).toInt();
+        if (o.contains(QStringLiteral("start"))) {
+            if (!parseIsoDateTime(o.value(QStringLiteral("start")).toString(), &task.start, &task.startHasTime)) {
+                result.error = QStringLiteral("Invalid ISO date/datetime in 'start': '%1'\n\nRaw response:\n%2")
+                                   .arg(o.value(QStringLiteral("start")).toString(), rawResponse);
+                return result;
+            }
+        }
+        if (o.contains(QStringLiteral("frist"))) {
+            if (!parseIsoDateTime(o.value(QStringLiteral("frist")).toString(), &task.deadline, &task.deadlineHasTime)) {
+                result.error = QStringLiteral("Invalid ISO date/datetime in 'frist': '%1'\n\nRaw response:\n%2")
+                                   .arg(o.value(QStringLiteral("frist")).toString(), rawResponse);
+                return result;
+            }
+        }
+        const QJsonArray gaet = o.value(QStringLiteral("gaet")).toArray();
+        for (const QJsonValue &g : gaet)
+            task.guessed.append(g.toString());
+        proposal.tasks.append(task);
+    }
+    const QJsonArray unclear = obj.value(QStringLiteral("uafklaret")).toArray();
+    for (const QJsonValue &u : unclear)
+        proposal.unclear.append(u.toString());
+
+    result.ok = true;
+    result.proposal = proposal;
+    return result;
+}
+
+// ---------------------------------------------------------------------------
+// Value types
+// ---------------------------------------------------------------------------
+
+bool ProposedTask::operator==(const ProposedTask &other) const
+{
+    return title == other.title && notes == other.notes && project == other.project
+        && priority == other.priority && start == other.start && startHasTime == other.startHasTime
+        && durationMin == other.durationMin && deadline == other.deadline
+        && deadlineHasTime == other.deadlineHasTime && guessed == other.guessed;
+}
+
+QJsonObject ProposedTask::toJson() const
+{
+    QJsonObject o;
+    o.insert(QStringLiteral("titel"), title);
+    if (!notes.isEmpty())
+        o.insert(QStringLiteral("noter"), notes);
+    if (!project.isEmpty())
+        o.insert(QStringLiteral("projekt"), project);
+    if (priority != 0)
+        o.insert(QStringLiteral("prioritet"), priority);
+    if (start.isValid())
+        o.insert(QStringLiteral("start"),
+                 startHasTime ? start.toString(Qt::ISODate) : start.date().toString(Qt::ISODate));
+    if (durationMin > 0)
+        o.insert(QStringLiteral("varighed_min"), durationMin);
+    if (deadline.isValid())
+        o.insert(QStringLiteral("frist"),
+                 deadlineHasTime ? deadline.toString(Qt::ISODate) : deadline.date().toString(Qt::ISODate));
+    if (!guessed.isEmpty()) {
+        QJsonArray g;
+        for (const QString &field : guessed)
+            g.append(field);
+        o.insert(QStringLiteral("gaet"), g);
+    }
+    return o;
+}
+
+bool Proposal::operator==(const Proposal &other) const
+{
+    return tasks == other.tasks && unclear == other.unclear;
+}
+
+QJsonObject Proposal::toJson() const
+{
+    QJsonObject o;
+    QJsonArray arr;
+    for (const ProposedTask &t : tasks)
+        arr.append(t.toJson());
+    o.insert(QStringLiteral("opgaver"), arr);
+    if (!unclear.isEmpty()) {
+        QJsonArray u;
+        for (const QString &s : unclear)
+            u.append(s);
+        o.insert(QStringLiteral("uafklaret"), u);
+    }
+    return o;
+}
