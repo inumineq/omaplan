@@ -6,6 +6,7 @@
 #include <QTcpSocket>
 #include <QTimer>
 #include <QUrlQuery>
+#include <algorithm>
 
 #include "render.h"
 #include "snapshot.h"
@@ -83,7 +84,44 @@ void PlanServer::readRequest(QTcpSocket *socket) {
         send(socket, text(400, "Bad request"), false);
         return;
     }
-    send(socket, respond(parts[0], parts[1]), parts[0] == "HEAD");
+    QByteArray acceptLanguage;
+    for (const QByteArray &line : buffer.left(end).split('\n').mid(1)) {
+        const int colon = line.indexOf(':');
+        if (colon > 0 && line.left(colon).trimmed().toLower() == "accept-language")
+            acceptLanguage = line.mid(colon + 1).trimmed();
+    }
+    send(socket, respond(parts[0], parts[1], acceptLanguage), parts[0] == "HEAD");
+}
+
+QString PlanServer::language(const QByteArray &acceptLanguage) const {
+    // "da-DK,da;q=0.9,en;q=0.8": the first supported language by q, ties in
+    // header order.
+    struct Choice {
+        QString language;
+        double q;
+    };
+    QList<Choice> choices;
+    for (const QByteArray &entry : acceptLanguage.split(',')) {
+        const QList<QByteArray> params = entry.split(';');
+        double q = 1;
+        for (int i = 1; i < params.size(); ++i) {
+            const QByteArray param = params[i].trimmed();
+            if (param.startsWith("q=")) {
+                bool ok = false;
+                q = param.mid(2).toDouble(&ok);
+                if (!ok)
+                    q = 0;
+            }
+        }
+        const QString supported = Render::supportedLanguage(QString::fromLatin1(params.first()));
+        if (!supported.isEmpty() && q > 0)
+            choices << Choice{supported, q};
+    }
+    std::stable_sort(choices.begin(), choices.end(), [](const Choice &a, const Choice &b) { return a.q > b.q; });
+    if (!choices.isEmpty())
+        return choices.first().language;
+    const QString fallback = Render::supportedLanguage(m_options.language);
+    return fallback.isEmpty() ? QStringLiteral("en") : fallback;
 }
 
 QString PlanServer::htmlStyle(const QJsonObject &plan) const {
@@ -93,7 +131,8 @@ QString PlanServer::htmlStyle(const QJsonObject &plan) const {
     return Snapshot::themeStyle(local.isEmpty() ? plan.value("theme").toObject() : local);
 }
 
-PlanServer::Response PlanServer::respond(const QByteArray &method, const QByteArray &target) const {
+PlanServer::Response PlanServer::respond(const QByteArray &method, const QByteArray &target,
+                                         const QByteArray &acceptLanguage) const {
     if (method != "GET" && method != "HEAD")
         return {405, "text/plain; charset=utf-8", "Only GET and HEAD\n", "GET, HEAD"};
     if (!target.startsWith('/'))
@@ -106,29 +145,19 @@ PlanServer::Response PlanServer::respond(const QByteArray &method, const QByteAr
         return text(400, "Bad path");
 
     if (path == "/" || path == "/index.html") {
+        const QString lang = language(acceptLanguage);
         QFile file(m_options.snapshotPath);
-        if (!file.exists() || !file.open(QIODevice::ReadOnly)) {
-            const QString style = htmlStyle({});
+        if (!file.exists() || !file.open(QIODevice::ReadOnly))
             return {200, "text/html; charset=utf-8",
-                    Render::messagePage(QStringLiteral("Ingen plan endnu"),
-                                        QStringLiteral("Øjebliksbilledet (plan.json) findes ikke endnu. Omaplan skriver "
-                                                       "det, når planen ændres, eller med kommandoen omaplan snapshot. "
-                                                       "Opdatér siden bagefter."),
-                                        style).toUtf8(),
-                    {}};
-        }
+                    Render::messagePage(Render::Message::NoPlan, lang, htmlStyle({})).toUtf8(), {}};
         QJsonParseError parseError;
         const QJsonObject plan = QJsonDocument::fromJson(file.readAll(), &parseError).object();
         if (parseError.error != QJsonParseError::NoError || plan.value("format").toString() != QLatin1String("omaplan-plan"))
             return {500, "text/html; charset=utf-8",
-                    Render::messagePage(QStringLiteral("Planen kunne ikke læses"),
-                                        QStringLiteral("plan.json er ikke et gyldigt øjebliksbillede fra Omaplan. "
-                                                       "Skriv det igen med omaplan snapshot."),
-                                        htmlStyle({})).toUtf8(),
-                    {}};
-        const QString view = QUrlQuery(query).queryItemValue(QStringLiteral("visning"));
+                    Render::messagePage(Render::Message::Unreadable, lang, htmlStyle({})).toUtf8(), {}};
+        const QString view = QUrlQuery(query).queryItemValue(QStringLiteral("view"));
         return {200, "text/html; charset=utf-8",
-                Render::page(plan, m_options.today(), htmlStyle(plan), view).toUtf8(), {}};
+                Render::page(plan, m_options.today(), lang, htmlStyle(plan), view).toUtf8(), {}};
     }
     if (path == "/plan.json") {
         QFile file(m_options.snapshotPath);
@@ -142,6 +171,13 @@ PlanServer::Response PlanServer::respond(const QByteArray &method, const QByteAr
         return {200, path.endsWith(".css") ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8",
                 file.readAll(), {}};
     }
+    for (const char *lang : Render::kLanguages) {
+        if (path == "/i18n/" + QByteArray(lang) + ".json") {
+            QFile file(QStringLiteral(":/web") + QString::fromUtf8(path));
+            file.open(QIODevice::ReadOnly);
+            return {200, "application/json; charset=utf-8", file.readAll(), {}};
+        }
+    }
     return text(404, "Not found");
 }
 
@@ -150,6 +186,7 @@ void PlanServer::send(QTcpSocket *socket, const Response &response, bool head) {
     out += "Content-Type: " + response.contentType + "\r\n";
     out += "Content-Length: " + QByteArray::number(response.body.size()) + "\r\n";
     out += "Cache-Control: no-cache\r\n";
+    out += "Vary: Accept-Language\r\n"; // the page follows the browser's language
     out += "X-Content-Type-Options: nosniff\r\n";
     out += "Referrer-Policy: no-referrer\r\n";
     // Same origin only; inline style attributes carry the theme and the Gantt positions.

@@ -2,5 +2,7 @@
     <qresource prefix="/web">
         <file alias="style.css">../web/style.css</file>
         <file alias="app.js">../web/app.js</file>
+        <file alias="i18n/en.json">../web/i18n/en.json</file>
+        <file alias="i18n/da.json">../web/i18n/da.json</file>
     </qresource>
 </RCC>

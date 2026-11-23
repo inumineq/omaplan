@@ -1,15 +1,13 @@
-// Omaplan læseudgave – renderer plan.json til samme markup som omaplan serve skriver server-side.
-// Ren string-rendering, så både browseren og web/test.mjs (node) kan bruge funktionerne.
-// Brugervendt tekst er dansk; kode og kommentarer er engelsk.
+// Omaplan read-only edition: renders plan.json to the same markup that omaplan serve writes server-side
+// (src/render.cpp is a line-by-line port of this file). Pure string rendering, so both the browser and
+// web/test.mjs (node) can use the functions. Page texts come from a dictionary, web/i18n/<language>.json.
 
 'use strict';
 
-const UGE_DAGE = ['mandag', 'tirsdag', 'onsdag', 'torsdag', 'fredag', 'lørdag', 'søndag']; // mandag først
-const UGE_DAGE_KORT = ['man', 'tir', 'ons', 'tor', 'fre', 'lør', 'søn'];
-const MAANEDER = ['januar', 'februar', 'marts', 'april', 'maj', 'juni', 'juli', 'august', 'september', 'oktober', 'november', 'december'];
-const GAET_NAVNE = { start: 'start', duration_min: "varighed", deadline: "frist", project: "projekt", priority: "prioritet" };
+const VIEWS = ['overview', 'list', 'list-project', 'timeline'];
+const LANGUAGES = ['en', 'da'];
 
-// ---------- små hjælpere ----------
+// ---------- small helpers ----------
 
 function esc(s) {
   return String(s)
@@ -20,439 +18,459 @@ function esc(s) {
     .replace(/'/g, '&#39;');
 }
 
-function stort(s) {
+function capital(s) {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-// "YYYY-MM-DD" eller "YYYY-MM-DDTHH:MM" -> { dato, tid }; null/udeladt -> { dato: null, tid: null } (ikke planlagt)
+// "{d} {month}" with { d: 23, month: 'November' } -> "23 November"; unknown placeholders stay as written
+function fill(template, vars) {
+  return template.replace(/\{(\w+)\}/g, (m, key) => (Object.prototype.hasOwnProperty.call(vars, key) ? String(vars[key]) : m));
+}
+
+// The supported language for a BCP 47 tag: da* -> da, everything else en.
+function pickLanguage(tag) {
+  return String(tag || '').toLowerCase().startsWith('da') ? 'da' : 'en';
+}
+
+// "YYYY-MM-DD" or "YYYY-MM-DDTHH:MM" -> { date, time }; null/absent -> { date: null, time: null } (not scheduled)
 function parseStart(s) {
-  if (!s) return { dato: null, tid: null };
+  if (!s) return { date: null, time: null };
   const m = /^(\d{4}-\d{2}-\d{2})(?:T(\d{2}):(\d{2}))?$/.exec(s);
-  if (!m) throw new Error('Ugyldig dato: ' + s);
-  return { dato: m[1], tid: m[2] ? m[2] + ':' + m[3] : null };
+  if (!m) throw new Error('Invalid date: ' + s);
+  return { date: m[1], time: m[2] ? m[2] + ':' + m[3] : null };
 }
 
-function datoObj(dato) {
-  const dele = dato.split('-').map(Number);
-  return new Date(dele[0], dele[1] - 1, dele[2]);
+function dateObj(date) {
+  const parts = date.split('-').map(Number);
+  return new Date(parts[0], parts[1] - 1, parts[2]);
 }
 
-function datoStr(dt) {
+function dateStr(dt) {
   const p = (n) => String(n).padStart(2, '0');
   return dt.getFullYear() + '-' + p(dt.getMonth() + 1) + '-' + p(dt.getDate());
 }
 
-function iDagStr() {
-  return datoStr(new Date());
+function todayStr() {
+  return dateStr(new Date());
 }
 
-function tilfoejDage(dato, n) {
-  const dt = datoObj(dato);
+function addDays(date, n) {
+  const dt = dateObj(date);
   dt.setDate(dt.getDate() + n);
-  return datoStr(dt);
+  return dateStr(dt);
 }
 
-function ugeDag(dato) {
-  return UGE_DAGE[(datoObj(dato).getDay() + 6) % 7]; // ugen starter mandag
+// The placeholders a date offers the dictionary's formats.
+function dateVars(t, date) {
+  const wd = (dateObj(date).getDay() + 6) % 7; // the week starts on Monday
+  return {
+    weekday: t.weekdays[wd],
+    Weekday: capital(t.weekdays[wd]),
+    wd: t.weekdaysShort[wd],
+    Wd: capital(t.weekdaysShort[wd]),
+    d: String(Number(date.slice(8, 10))),
+    mm: date.slice(5, 7),
+    month: t.months[Number(date.slice(5, 7)) - 1],
+    yyyy: date.slice(0, 4),
+  };
 }
 
-function ugeDagKort(dato) {
-  return UGE_DAGE_KORT[(datoObj(dato).getDay() + 6) % 7];
+// "Monday 23 November 2026" / "Mandag 23. november 2026"
+function formatDateLong(t, date) {
+  return fill(t.dateLong, dateVars(t, date));
 }
 
-function maaned(dato) {
-  return MAANEDER[Number(dato.slice(5, 7)) - 1];
+// "Mon 23/11" / "Man 23/11"
+function formatDateShort(t, date) {
+  return fill(t.dateShort, dateVars(t, date));
 }
 
-function dagNr(dato) {
-  return String(Number(dato.slice(8, 10)));
+// "Friday 27 November 2026 at 12:00" / "fredag 27. november 2026 kl. 12:00" (running text)
+function formatDeadline(t, deadline) {
+  const p = parseStart(deadline);
+  const date = fill(t.dateInText, dateVars(t, p.date));
+  return p.time ? fill(t.atTime, { date, time: p.time }) : date;
 }
 
-// "Mandag 23. november 2026"
-function formaterDatoLang(dato) {
-  return stort(ugeDag(dato)) + ' ' + dagNr(dato) + '. ' + maaned(dato) + ' ' + dato.slice(0, 4);
-}
-
-// "Man 23/11"
-function formaterDatoKort(dato) {
-  return stort(ugeDagKort(dato)) + ' ' + dagNr(dato) + '/' + dato.slice(5, 7);
-}
-
-// "fredag 27. november 2026 kl. 12:00" (løbende tekst, små bogstaver)
-function formaterFrist(frist) {
-  const p = parseStart(frist);
-  return ugeDag(p.dato) + ' ' + dagNr(p.dato) + '. ' + maaned(p.dato) + ' ' + p.dato.slice(0, 4) + (p.tid ? ' kl. ' + p.tid : '');
-}
-
-// "23. november 2026 kl. 13:57" – væggtiden som skrevet i filen (ingen tidszone-konvertering)
-function formaterTidsstempel(iso) {
+// "23 November 2026 at 13:57": the wall time as written in the file (no time zone conversion)
+function formatTimestamp(t, iso) {
   const p = parseStart(iso.slice(0, 16));
-  return dagNr(p.dato) + '. ' + maaned(p.dato) + ' ' + p.dato.slice(0, 4) + ' kl. ' + p.tid;
+  return fill(t.timestamp, Object.assign(dateVars(t, p.date), { time: p.time }));
 }
 
-// "45 min", "2 t.", "2 t. 30 min"
-function formaterVarighed(min) {
-  if (min < 60) return min + ' min';
-  const t = Math.floor(min / 60);
+// "45 min", "2 h", "2 h 30 min"
+function formatDuration(t, min) {
+  if (min < 60) return fill(t.minutes, { m: min });
+  const h = Math.floor(min / 60);
   const m = min % 60;
-  return m ? t + ' t. ' + m + ' min' : t + ' t.';
+  return m ? fill(t.hoursMinutes, { h, m }) : fill(t.hours, { h });
 }
 
-function slutTid(tid, varighedMin) {
-  const h = Number(tid.slice(0, 2));
-  const m = Number(tid.slice(3, 5));
-  const slut = h * 60 + m + varighedMin;
+function endTime(time, durationMin) {
+  const h = Number(time.slice(0, 2));
+  const m = Number(time.slice(3, 5));
+  const end = h * 60 + m + durationMin;
   const p = (n) => String(n).padStart(2, '0');
-  return p(Math.floor(slut / 60) % 24) + ':' + p(slut % 60);
+  return p(Math.floor(end / 60) % 24) + ':' + p(end % 60);
 }
 
-function antal(n, ental) {
-  return n === 1 ? '1 ' + ental : n + ' ' + ental + 'r';
+function countTasks(t, n) {
+  return n === 1 ? t.taskOne : fill(t.taskMany, { n });
 }
 
-// Tal i style-attributter uden komma og uden unødige nuller: 9, 1.5, 24
+// Numbers in style attributes without a decimal comma or needless zeros: 9, 1.5, 24
 function num(x) {
   return String(Number(x.toFixed(2)));
 }
 
-// ---------- domænelogik ----------
+// ---------- domain logic ----------
 
-function tidligsteDato(o) {
-  const datoer = [];
-  if (o.start) datoer.push(o.start.slice(0, 10));
-  if (o.deadline) datoer.push(o.deadline.slice(0, 10));
-  return datoer.length ? datoer.sort()[0] : null;
+function earliestDate(o) {
+  const dates = [];
+  if (o.start) dates.push(o.start.slice(0, 10));
+  if (o.deadline) dates.push(o.deadline.slice(0, 10));
+  return dates.length ? dates.sort()[0] : null;
 }
 
-function erForfalden(o, iDag) {
+function isOverdue(o, today) {
   if (o.status !== 'todo') return false;
-  const d = tidligsteDato(o);
-  return !!d && d < iDag;
+  const d = earliestDate(o);
+  return !!d && d < today;
 }
 
-// Daterede først (efter dato, så tid først på dagen), så udaterede; derefter prioritet, så titel
-function sorterOpgaver(opgaver) {
-  return [...opgaver].sort((a, b) => {
+// Dated first (by date, then timed before all-day, by time), then undated; then priority, then title
+// (collated in the page's language)
+function sortTasks(tasks, t) {
+  return [...tasks].sort((a, b) => {
     const sa = parseStart(a.start);
     const sb = parseStart(b.start);
-    if (!!sa.dato !== !!sb.dato) return sa.dato ? -1 : 1;
-    if (sa.dato && sa.dato !== sb.dato) return sa.dato < sb.dato ? -1 : 1;
-    if (sa.dato && !!sa.tid !== !!sb.tid) return sa.tid ? -1 : 1;
-    if (sa.tid && sb.tid && sa.tid !== sb.tid) return sa.tid < sb.tid ? -1 : 1;
+    if (!!sa.date !== !!sb.date) return sa.date ? -1 : 1;
+    if (sa.date && sa.date !== sb.date) return sa.date < sb.date ? -1 : 1;
+    if (sa.date && !!sa.time !== !!sb.time) return sa.time ? -1 : 1;
+    if (sa.time && sb.time && sa.time !== sb.time) return sa.time < sb.time ? -1 : 1;
     if (a.priority !== b.priority) return a.priority - b.priority;
-    return a.title.localeCompare(b.title, 'da');
+    return a.title.localeCompare(b.title, t.language);
   });
 }
 
 // ---------- markup ----------
 
-function renderOpgave(o) {
+function renderTask(o, t) {
   const s = parseStart(o.start);
-  let tidTekst;
-  let tidKlasse = 'tid';
-  if (!s.dato) {
-    tidTekst = 'ingen dato';
-    tidKlasse += ' tid-ingen';
-  } else if (s.tid) {
-    tidTekst = o.duration_min ? s.tid + '–' + slutTid(s.tid, o.duration_min) : s.tid;
+  let timeText;
+  let timeClass = 'time';
+  if (!s.date) {
+    timeText = t.timeNone;
+    timeClass += ' time-none';
+  } else if (s.time) {
+    timeText = o.duration_min ? s.time + '–' + endTime(s.time, o.duration_min) : s.time;
   } else {
-    tidTekst = 'heldag';
-    tidKlasse += ' tid-heldag';
+    timeText = t.allDay;
+    timeClass += ' time-all-day';
   }
   const meta = [];
-  if (o.project) meta.push('<span class="projekt-tag">' + esc(o.project) + '</span>');
-  if (o.deadline) meta.push('<span class="frist">frist ' + esc(formaterFrist(o.deadline)) + '</span>');
-  if (o.duration_min) meta.push('<span class="varighed">' + esc(formaterVarighed(o.duration_min)) + '</span>');
-  if (o.guessed && o.guessed.length) meta.push('<span class="gaet">gæt: ' + esc(o.guessed.map((g) => GAET_NAVNE[g] || g).join(', ')) + '</span>');
+  if (o.project) meta.push('<span class="project-tag">' + esc(o.project) + '</span>');
+  if (o.deadline) meta.push('<span class="deadline">' + esc(fill(t.deadline, { date: formatDeadline(t, o.deadline) })) + '</span>');
+  if (o.duration_min) meta.push('<span class="duration">' + esc(formatDuration(t, o.duration_min)) + '</span>');
+  if (o.guessed && o.guessed.length) {
+    const fields = o.guessed.map((g) => t.guessNames[g] || g).join(', ');
+    meta.push('<span class="guessed">' + esc(fill(t.guessed, { fields })) + '</span>');
+  }
   meta.push('<span class="badge badge-p' + o.priority + '">P' + o.priority + '</span>');
-  if (o.status === 'done') meta.push('<span class="badge badge-done">færdig</span>');
-  const projektAttr = o.project ? ' data-projekt="' + esc(o.project) + '"' : '';
-  const noter = o.notes ? '\n    <details class="noter"><summary>Noter</summary><p>' + esc(o.notes) + '</p></details>' : '';
+  if (o.status === 'done') meta.push('<span class="badge badge-done">' + esc(t.done) + '</span>');
+  const projectAttr = o.project ? ' data-project="' + esc(o.project) + '"' : '';
+  const notes = o.notes ? '\n    <details class="notes"><summary>' + esc(t.notes) + '</summary><p>' + esc(o.notes) + '</p></details>' : '';
   return (
-    '<li class="opgave status-' + o.status + '" data-id="' + esc(o.id) + '" data-prioritet="' + o.priority + '"' + projektAttr + '>\n' +
-    '    <p class="opgave-rad"><span class="' + tidKlasse + '">' + esc(tidTekst) + '</span><span class="titel">' + esc(o.title) + '</span></p>\n' +
-    '    <p class="opgave-meta">' + meta.join('') + '</p>' + noter + '\n' +
+    '<li class="task status-' + esc(o.status) + '" data-id="' + esc(o.id) + '" data-priority="' + o.priority + '"' + projectAttr + '>\n' +
+    '    <p class="task-row"><span class="' + timeClass + '">' + esc(timeText) + '</span><span class="task-title">' + esc(o.title) + '</span></p>\n' +
+    '    <p class="task-meta">' + meta.join('') + '</p>' + notes + '\n' +
     '  </li>'
   );
 }
 
-function renderOpgaveListe(opgaver) {
-  return '<ul class="opgaver">\n' + opgaver.map((o) => '    ' + renderOpgave(o).replace(/\n/g, '\n    ')).join('\n') + '\n  </ul>';
+function renderTaskList(tasks, t) {
+  return '<ul class="tasks">\n' + tasks.map((o) => '    ' + renderTask(o, t).replace(/\n/g, '\n    ')).join('\n') + '\n  </ul>';
 }
 
-function renderDagSektion(dato, opgaver, ekstraKlasse, badge) {
-  const badgeHtml = badge ? '<span class="badge ' + badge.klasse + '">' + badge.tekst + '</span>' : '';
-  const indhold = opgaver.length
-    ? renderOpgaveListe(opgaver)
-    : '    <p class="tom">Ingen opgaver.</p>';
+function renderDay(date, tasks, extraClass, badge, t) {
+  const badgeHtml = badge ? '<span class="badge ' + badge.cls + '">' + esc(badge.text) + '</span>' : '';
+  const body = tasks.length ? renderTaskList(tasks, t) : '    <p class="empty">' + esc(t.noTasks) + '</p>';
   return (
-    '  <section class="dag' + (ekstraKlasse ? ' ' + ekstraKlasse : '') + '" data-dato="' + dato + '">\n' +
-    '    <h3><time datetime="' + dato + '">' + esc(formaterDatoLang(dato)) + '</time>' + badgeHtml + '</h3>\n' +
-    indhold + '\n' +
+    '  <section class="day' + (extraClass ? ' ' + extraClass : '') + '" data-date="' + date + '">\n' +
+    '    <h3><time datetime="' + date + '">' + esc(formatDateLong(t, date)) + '</time>' + badgeHtml + '</h3>\n' +
+    body + '\n' +
     '  </section>'
   );
 }
 
-function renderOverblik(plan, iDag) {
-  const opgaver = plan.tasks;
-  const forfaldne = opgaver.filter((o) => erForfalden(o, iDag));
-  const grupper = new Map();
-  for (const o of forfaldne) {
-    const d = tidligsteDato(o);
-    if (!grupper.has(d)) grupper.set(d, []);
-    grupper.get(d).push(o);
+function viewClass(id, active) {
+  return id === active ? 'view active' : 'view';
+}
+
+function renderOverview(plan, today, t, active) {
+  const tasks = plan.tasks;
+  const groups = new Map();
+  for (const o of tasks.filter((o) => isOverdue(o, today))) {
+    const d = earliestDate(o);
+    if (!groups.has(d)) groups.set(d, []);
+    groups.get(d).push(o);
   }
-  const dele = [];
-  for (const dato of [...grupper.keys()].sort()) {
-    dele.push(renderDagSektion(dato, sorterOpgaver(grupper.get(dato)), 'forfalden', { klasse: 'badge-forfalden', tekst: 'forfalden' }));
+  const parts = [];
+  for (const date of [...groups.keys()].sort()) {
+    parts.push(renderDay(date, sortTasks(groups.get(date), t), 'overdue', { cls: 'badge-overdue', text: t.overdue }, t));
   }
   for (let k = 0; k < 8; k++) {
-    const dato = tilfoejDage(iDag, k);
-    const paaDag = opgaver.filter((o) => o.start && o.start.slice(0, 10) === dato); // udaterede vises ikke i overblik
-    const badge = k === 0 ? { klasse: 'badge-i-dag', tekst: 'i dag' } : null;
-    dele.push(renderDagSektion(dato, sorterOpgaver(paaDag), k === 0 ? 'i-dag' : '', badge));
+    const date = addDays(today, k);
+    const onDay = tasks.filter((o) => o.start && o.start.slice(0, 10) === date); // undated tasks are not in the overview
+    const badge = k === 0 ? { cls: 'badge-today', text: t.today } : null;
+    parts.push(renderDay(date, sortTasks(onDay, t), k === 0 ? 'today' : '', badge, t));
   }
   return (
-    '  <section id="overblik" class="view" aria-label="Overblik">\n' +
-    '    <h2>Overblik</h2>\n' +
-    '    <p class="beskrivelse">I dag og de næste 7 dage – forfaldne opgaver øverst.</p>\n' +
-    dele.join('\n') + '\n' +
+    '  <section id="overview" class="' + viewClass('overview', active) + '" aria-label="' + esc(t.overview) + '">\n' +
+    '    <h2>' + esc(t.overview) + '</h2>\n' +
+    '    <p class="description">' + esc(t.overviewDescription) + '</p>\n' +
+    parts.join('\n') + '\n' +
     '  </section>'
   );
 }
 
-function renderListeDato(plan) {
-  const grupper = new Map();
-  const udaterede = [];
+function renderGroup(dataGroup, heading, tasks, t) {
+  return (
+    '  <section class="group" data-group="' + dataGroup + '">\n' +
+    '    <h3>' + heading + '<span class="count">' + esc(countTasks(t, tasks.length)) + '</span></h3>\n' +
+    renderTaskList(tasks, t) + '\n' +
+    '  </section>'
+  );
+}
+
+function renderListByDate(plan, t, active) {
+  const groups = new Map();
+  const undated = [];
   for (const o of plan.tasks) {
     if (!o.start) {
-      udaterede.push(o); // gruppen "Uden dato" ligger sidst
+      undated.push(o); // the group "No date" comes last
       continue;
     }
     const d = o.start.slice(0, 10);
-    if (!grupper.has(d)) grupper.set(d, []);
-    grupper.get(d).push(o);
+    if (!groups.has(d)) groups.set(d, []);
+    groups.get(d).push(o);
   }
-  const dele = [];
-  for (const dato of [...grupper.keys()].sort()) {
-    const opgaver = sorterOpgaver(grupper.get(dato));
-    dele.push(
-      '  <section class="gruppe" data-gruppe="dato:' + dato + '">\n' +
-      '    <h3><time datetime="' + dato + '">' + esc(formaterDatoLang(dato)) + '</time><span class="antal">' + antal(opgaver.length, 'opgave') + '</span></h3>\n' +
-      renderOpgaveListe(opgaver) + '\n' +
-      '  </section>'
-    );
+  const parts = [];
+  for (const date of [...groups.keys()].sort()) {
+    parts.push(renderGroup('date:' + date, '<time datetime="' + date + '">' + esc(formatDateLong(t, date)) + '</time>', sortTasks(groups.get(date), t), t));
   }
-  if (udaterede.length) {
-    dele.push(
-      '  <section class="gruppe" data-gruppe="uden-dato">\n' +
-      '    <h3><span class="gruppe-titel">Uden dato</span><span class="antal">' + antal(udaterede.length, 'opgave') + '</span></h3>\n' +
-      renderOpgaveListe(sorterOpgaver(udaterede)) + '\n' +
-      '  </section>'
-    );
+  if (undated.length) {
+    parts.push(renderGroup('no-date', '<span class="group-title">' + esc(t.noDate) + '</span>', sortTasks(undated, t), t));
   }
   return (
-    '  <section id="liste" class="view" aria-label="Liste efter dato">\n' +
-    '    <h2>Liste</h2>\n' +
-    '    <p class="beskrivelse">Alle opgaver grupperet efter dato. <a href="#liste-projekt">Gruppér efter projekt</a></p>\n' +
-    dele.join('\n') + '\n' +
+    '  <section id="list" class="' + viewClass('list', active) + '" aria-label="' + esc(t.listByDate) + '">\n' +
+    '    <h2>' + esc(t.list) + '</h2>\n' +
+    '    <p class="description">' + esc(t.listDescription) + ' <a href="#list-project">' + esc(t.groupByProject) + '</a></p>\n' +
+    parts.join('\n') + '\n' +
     '  </section>'
   );
 }
 
-function renderListeProjekt(plan) {
-  const INGEN = 'Ingen projekt';
-  const grupper = new Map();
+function renderListByProject(plan, t, active) {
+  const none = t.noProject;
+  const groups = new Map();
   for (const o of plan.tasks) {
-    const p = o.project || INGEN;
-    if (!grupper.has(p)) grupper.set(p, []);
-    grupper.get(p).push(o);
+    const p = o.project || none;
+    if (!groups.has(p)) groups.set(p, []);
+    groups.get(p).push(o);
   }
-  const navne = [...grupper.keys()].sort((a, b) => (a === INGEN ? 1 : b === INGEN ? -1 : a.localeCompare(b, 'da')));
-  const dele = [];
-  for (const navn of navne) {
-    const opgaver = sorterOpgaver(grupper.get(navn));
-    dele.push(
-      '  <section class="gruppe" data-gruppe="projekt:' + esc(navn) + '">\n' +
-      '    <h3><span class="gruppe-titel">' + esc(navn) + '</span><span class="antal">' + antal(opgaver.length, 'opgave') + '</span></h3>\n' +
-      renderOpgaveListe(opgaver) + '\n' +
-      '  </section>'
-    );
+  const names = [...groups.keys()].sort((a, b) => (a === none ? 1 : b === none ? -1 : a.localeCompare(b, t.language)));
+  const parts = [];
+  for (const name of names) {
+    parts.push(renderGroup(name === none ? 'no-project' : 'project:' + esc(name), '<span class="group-title">' + esc(name) + '</span>', sortTasks(groups.get(name), t), t));
   }
   return (
-    '  <section id="liste-projekt" class="view" aria-label="Liste efter projekt">\n' +
-    '    <h2>Liste efter projekt</h2>\n' +
-    '    <p class="beskrivelse">Alle opgaver grupperet efter projekt. <a href="#liste">Gruppér efter dato</a></p>\n' +
-    dele.join('\n') + '\n' +
+    '  <section id="list-project" class="' + viewClass('list-project', active) + '" aria-label="' + esc(t.listByProject) + '">\n' +
+    '    <h2>' + esc(t.listByProject) + '</h2>\n' +
+    '    <p class="description">' + esc(t.listProjectDescription) + ' <a href="#list">' + esc(t.groupByDate) + '</a></p>\n' +
+    parts.join('\n') + '\n' +
     '  </section>'
   );
 }
 
-// Gantt: én række pr. dag i hele planens spænd (start- og frist-datoer; udaterede opgaver uden frist
-// ligger ikke i tidslinjen). Tidsaksen går kun over et vindue ud fra data: tidligste start til seneste
-// slut afrundet til hele timer, mindst 08–18. Bjælker ligger i spor efter overlap (første ledige spor).
-// Titlen står i bjælken når den kan være der (konservativt estimat, se nedenfor),
-// ellers ved siden af — aldrig klippet i en for kort bjælke.
-const TEGN_PR_DAG = 64; // tegn der højst passer i en heldagsbjælke ved kolonnens mindste bredde (34rem)
+// Gantt: one row per day across the whole plan (start and deadline dates; undated tasks without a deadline
+// are not in the timeline). The time axis spans a window taken from the data: earliest start to latest end,
+// rounded to whole hours, at least 08-18. Bars go in tracks by overlap (first free track). The title sits in
+// the bar when it fits (a conservative estimate, see below), otherwise beside it -- never clipped in a bar
+// that is too short.
+const CHARS_PER_DAY = 64; // characters that fit at most in an all-day bar at the column's minimum width (34rem)
 
-function renderTidslinje(plan, iDag) {
-  const daterede = plan.tasks.filter((o) => o.start);
-  const datoer = new Set();
-  for (const o of daterede) datoer.add(o.start.slice(0, 10));
-  for (const o of plan.tasks) if (o.deadline) datoer.add(o.deadline.slice(0, 10));
-  let dage = [...datoer].sort();
-  if (dage.length === 0) dage = [iDag];
-  const raekke = [];
-  for (let d = dage[0]; d <= dage[dage.length - 1]; d = tilfoejDage(d, 1)) raekke.push(d);
+function renderTimeline(plan, today, t, active) {
+  const dated = plan.tasks.filter((o) => o.start);
+  const dates = new Set();
+  for (const o of dated) dates.add(o.start.slice(0, 10));
+  for (const o of plan.tasks) if (o.deadline) dates.add(o.deadline.slice(0, 10));
+  let sortedDates = [...dates].sort();
+  if (sortedDates.length === 0) sortedDates = [today];
+  const days = [];
+  for (let d = sortedDates[0]; d <= sortedDates[sortedDates.length - 1]; d = addDays(d, 1)) days.push(d);
 
-  // rå bjælker pr. dag (heldag = null-tid)
-  const raa = new Map(); // dato -> [{ o, s, start, laengde, heldag }]
-  for (const dag of raekke) {
-    raa.set(
-      dag,
-      daterede
-        .filter((o) => o.start.slice(0, 10) === dag)
+  // raw bars per day (all-day = no time)
+  const raw = new Map(); // date -> [{ o, s, start, length, allDay }]
+  for (const day of days) {
+    raw.set(
+      day,
+      dated
+        .filter((o) => o.start.slice(0, 10) === day)
         .map((o) => {
           const s = parseStart(o.start);
-          if (!s.tid) return { o, s, start: 0, laengde: 0, heldag: true };
-          const start = Number(s.tid.slice(0, 2)) + Number(s.tid.slice(3, 5)) / 60;
-          const laengde = o.duration_min ? o.duration_min / 60 : 0.5;
-          return { o, s, start, laengde, heldag: false };
+          if (!s.time) return { o, s, start: 0, length: 0, allDay: true };
+          const start = Number(s.time.slice(0, 2)) + Number(s.time.slice(3, 5)) / 60;
+          const length = o.duration_min ? o.duration_min / 60 : 0.5;
+          return { o, s, start, length, allDay: false };
         })
     );
   }
 
-  // tidsvindue ud fra opgaver med tidspunkt: tidligste start til seneste slut, afrundet, mindst 08-18
-  let vs = 8;
-  let vu = 18;
-  const medTid = [...raa.values()].flat().filter((b) => !b.heldag);
-  if (medTid.length) {
-    const minStart = Math.min(...medTid.map((b) => b.start));
-    const maxSlut = Math.max(...medTid.map((b) => b.start + b.laengde));
-    vs = Math.min(8, Math.floor(minStart));
-    vu = Math.max(18, Math.ceil(maxSlut));
+  // window from the timed tasks: earliest start to latest end, rounded, at least 08-18
+  let from = 8;
+  let to = 18;
+  const timed = [...raw.values()].flat().filter((b) => !b.allDay);
+  if (timed.length) {
+    const minStart = Math.min(...timed.map((b) => b.start));
+    const maxEnd = Math.max(...timed.map((b) => b.start + b.length));
+    from = Math.min(8, Math.floor(minStart));
+    to = Math.max(18, Math.ceil(maxEnd));
   }
 
-  // heldagsbjælker spænder hele vinduet
-  for (const bjælker of raa.values()) {
-    for (const b of bjælker) if (b.heldag) {
-      b.start = vs;
-      b.laengde = vu - vs;
+  // all-day bars span the whole window
+  for (const bars of raw.values()) {
+    for (const b of bars) if (b.allDay) {
+      b.start = from;
+      b.length = to - from;
     }
   }
 
-  // time-labels på aksen
-  const skridt = vu - vs > 12 ? 3 : vu - vs > 8 ? 2 : 1;
-  const timer = [];
-  for (let t = Math.ceil(vs / skridt) * skridt; t <= vu; t += skridt) timer.push(t);
+  // hour labels on the axis
+  const step = to - from > 12 ? 3 : to - from > 8 ? 2 : 1;
+  const hours = [];
+  for (let h = Math.ceil(from / step) * step; h <= to; h += step) hours.push(h);
 
-  const dagDele = [];
-  for (const dag of raekke) {
-    const bjælker = raa.get(dag)
-      .sort((a, b) => a.start - b.start || b.laengde - a.laengde || a.o.title.localeCompare(b.o.title, 'da'));
-    // spor: første ledige spor hvor bjælken ikke overlapper (start >= sporets slut)
-    const sporSlut = [];
-    for (const b of bjælker) {
-      let spor = sporSlut.findIndex((slut) => slut <= b.start + 1e-9);
-      if (spor === -1) {
-        sporSlut.push(0);
-        spor = sporSlut.length - 1;
+  const dayParts = [];
+  for (const day of days) {
+    const bars = raw.get(day)
+      .sort((a, b) => a.start - b.start || b.length - a.length || a.o.title.localeCompare(b.o.title, t.language));
+    // tracks: the first free track where the bar does not overlap (start >= the track's end)
+    const trackEnd = [];
+    for (const b of bars) {
+      let track = trackEnd.findIndex((end) => end <= b.start + 1e-9);
+      if (track === -1) {
+        trackEnd.push(0);
+        track = trackEnd.length - 1;
       }
-      sporSlut[spor] = b.start + b.laengde;
-      b.spor = spor;
+      trackEnd[track] = b.start + b.length;
+      b.track = track;
     }
-    const sporAntal = Math.max(1, sporSlut.length);
-    const stangDele = [];
-    for (const b of bjælker) {
-      const titel = b.o.title + ' – ' + formaterDatoKort(dag) + (b.s.tid ? ' ' + b.s.tid + (b.o.duration_min ? '–' + slutTid(b.s.tid, b.o.duration_min) : '') : ' (heldag)');
-      const stang =
-        '        <div class="stang' + (b.heldag ? ' stang-heldag' : '') + (b.o.status === 'done' ? ' status-done' : '') + '" style="--start:' + num(b.start) + ';--laengde:' + num(b.laengde) + ';--spor-index:' + b.spor + '" data-id="' + esc(b.o.id) + '" title="' + esc(titel) + '">';
-      // titel ved siden af bjælken, når den ikke kan være i den. Hvor mange
-      // tegn der kan være i en bjælke, afhænger af tidsvinduets bredde: kolonnen
-      // er mindst 34rem, og en time af vinduet (vu - vs) giver en brøkdel af
-      // dem. Falder man bagud i estimatet, klippes titlen af overflow:hidden,
-      // så regn konservativt og vælg i stedet titlen ved siden af.
-      const passerI = b.o.title.length <= (b.laengde * TEGN_PR_DAG) / (vu - vs);
-      if (passerI) {
-        stangDele.push(stang + '<span class="stang-titel">' + esc(b.o.title) + '</span></div>');
+    const tracks = Math.max(1, trackEnd.length);
+    const lines = [];
+    for (const b of bars) {
+      const title = b.o.title + ' – ' + formatDateShort(t, day) + (b.s.time ? ' ' + b.s.time + (b.o.duration_min ? '–' + endTime(b.s.time, b.o.duration_min) : '') : ' (' + t.allDay + ')');
+      const pos = '--start:' + num(b.start) + ';--length:' + num(b.length) + ';--track:' + b.track;
+      const bar =
+        '        <div class="bar' + (b.allDay ? ' bar-all-day' : '') + (b.o.status === 'done' ? ' status-done' : '') + '" style="' + pos + '" data-id="' + esc(b.o.id) + '" title="' + esc(title) + '">';
+      // The title goes beside the bar when it cannot fit inside it. A bar's pixel width shrinks with the
+      // window (to - from); at the column's minimum width (34rem) about 64 characters fit across a whole-day
+      // bar. Estimate conservatively: a title behind the estimate would be clipped by overflow:hidden.
+      const fitsIn = b.o.title.length <= (b.length * CHARS_PER_DAY) / (to - from);
+      if (fitsIn) {
+        lines.push(bar + '<span class="bar-title">' + esc(b.o.title) + '</span></div>');
       } else {
-        stangDele.push(stang + '</div>');
-        stangDele.push(
-          '        <span class="stang-label" style="--start:' + num(b.start) + ';--laengde:' + num(b.laengde) + ';--spor-index:' + b.spor + '" data-id="' + esc(b.o.id) + '" title="' + esc(titel) + '">' + esc(b.o.title) + '</span>'
-        );
+        lines.push(bar + '</div>');
+        lines.push('        <span class="bar-label" style="' + pos + '" data-id="' + esc(b.o.id) + '" title="' + esc(title) + '">' + esc(b.o.title) + '</span>');
       }
     }
-    const fristDele = plan.tasks
-      .filter((o) => o.deadline && o.deadline.slice(0, 10) === dag)
-      .map((o) => {
-        const f = parseStart(o.deadline);
-        const start = f.tid ? Number(f.tid.slice(0, 2)) + Number(f.tid.slice(3, 5)) / 60 : vu;
-        const iVindue = !!f.tid && start < vu;
-        return '        <div class="frist-maerke' + (iVindue ? '' : ' frist-maerke-heldag') + '" style="--start:' + num(Math.min(start, vu)) + '" data-id="' + esc(o.id) + '" title="frist: ' + esc(formaterFrist(o.deadline)) + ' – ' + esc(o.title) + '"></div>';
-      });
-    dagDele.push(
-      '    <section class="gantt-dag' + (dag === iDag ? ' i-dag' : '') + '" data-dato="' + dag + '">\n' +
-      '      <h3 class="gantt-dato"><time datetime="' + dag + '">' + esc(formaterDatoKort(dag)) + '</time></h3>\n' +
-      '      <div class="spor" style="--spor:' + sporAntal + '">\n' +
-      [...stangDele, ...fristDele].join('\n') + '\n' +
+    for (const o of plan.tasks) {
+      if (!o.deadline || o.deadline.slice(0, 10) !== day) continue;
+      const f = parseStart(o.deadline);
+      const start = f.time ? Number(f.time.slice(0, 2)) + Number(f.time.slice(3, 5)) / 60 : to;
+      const inWindow = !!f.time && start < to;
+      const title = fill(t.deadlineTitle, { date: formatDeadline(t, o.deadline), title: o.title });
+      lines.push('        <div class="deadline-mark' + (inWindow ? '' : ' deadline-mark-edge') + '" style="--start:' + num(Math.min(start, to)) + '" data-id="' + esc(o.id) + '" title="' + esc(title) + '"></div>');
+    }
+    dayParts.push(
+      '    <section class="gantt-day' + (day === today ? ' today' : '') + '" data-date="' + day + '">\n' +
+      '      <h3 class="gantt-date"><time datetime="' + day + '">' + esc(formatDateShort(t, day)) + '</time></h3>\n' +
+      '      <div class="tracks" style="--tracks:' + tracks + '">\n' +
+      lines.join('\n') + '\n' +
       '      </div>\n' +
       '    </section>'
     );
   }
   return (
-    '  <section id="tidslinje" class="view" aria-label="Tidslinje">\n' +
-    '    <h2>Tidslinje</h2>\n' +
-    '    <p class="beskrivelse">Gantt over alle datoer med opgaver eller frister – vindue ' + vs + '–' + vu + ', overlap ligger i hver sit spor.</p>\n' +
-    '    <div class="gantt" style="--vs:' + vs + ';--vu:' + vu + '">\n' +
-    '      <div class="gantt-hoved" aria-hidden="true">\n' +
-    '        <div class="gantt-dato gantt-dato-tom"></div>\n' +
-    '        <div class="gantt-timer">' + timer.map((t) => '<span style="--t:' + t + '">' + t + '</span>').join('') + '</div>\n' +
+    '  <section id="timeline" class="' + viewClass('timeline', active) + '" aria-label="' + esc(t.timeline) + '">\n' +
+    '    <h2>' + esc(t.timeline) + '</h2>\n' +
+    '    <p class="description">' + esc(fill(t.timelineDescription, { from, to })) + '</p>\n' +
+    '    <div class="gantt" style="--from:' + from + ';--to:' + to + '">\n' +
+    '      <div class="gantt-head" aria-hidden="true">\n' +
+    '        <div class="gantt-date gantt-date-empty"></div>\n' +
+    '        <div class="gantt-hours">' + hours.map((h) => '<span style="--hour:' + h + '">' + h + '</span>').join('') + '</div>\n' +
     '      </div>\n' +
-    '      <div class="gantt-raekker">\n' +
-    dagDele.join('\n') + '\n' +
+    '      <div class="gantt-rows">\n' +
+    dayParts.join('\n') + '\n' +
     '      </div>\n' +
     '    </div>\n' +
     '  </section>'
   );
 }
 
-function renderMain(plan, iDag) {
-  return [renderOverblik(plan, iDag), renderListeDato(plan), renderListeProjekt(plan), renderTidslinje(plan, iDag)].join('\n');
+// `active` (one of VIEWS, or empty) gets the class "active"; serve sets it from ?view=.
+function renderMain(plan, today, t, active) {
+  const view = VIEWS.includes(active) ? active : '';
+  return [
+    renderOverview(plan, today, t, view),
+    renderListByDate(plan, t, view),
+    renderListByProject(plan, t, view),
+    renderTimeline(plan, today, t, view),
+  ].join('\n');
 }
 
-function renderMeta(plan) {
+function renderNav(t) {
   return (
-    'Eksporteret <time datetime="' + esc(plan.exported) + '">' + esc(formaterTidsstempel(plan.exported)) + '</time>' +
-    ' <span class="prik">·</span> <span class="tidszone">' + esc(plan.timezone) + '</span>' +
-    ' <span class="prik">·</span> <span class="sprog">' + esc(plan.language) + '</span>'
+    '  <nav class="views" aria-label="' + esc(t.views) + '">\n' +
+    '    <a href="#overview">' + esc(t.overview) + '</a>\n' +
+    '    <a href="#list">' + esc(t.list) + '</a>\n' +
+    '    <a href="#timeline">' + esc(t.timeline) + '</a>\n' +
+    '  </nav>'
   );
 }
 
-function renderSide(plan, iDag) {
+function renderMeta(plan, t) {
+  return (
+    esc(t.exported) + ' <time datetime="' + esc(plan.exported) + '">' + esc(formatTimestamp(t, plan.exported)) + '</time>' +
+    ' <span class="dot">·</span> <span class="timezone">' + esc(plan.timezone) + '</span>'
+  );
+}
+
+function renderFooter(t) {
+  return '  <p>' + esc(t.footer) + ' · <a href="plan.json">plan.json</a></p>';
+}
+
+function renderPage(plan, today, t, active) {
   return (
     '<!doctype html>\n' +
-    '<html lang="' + esc(plan.language || 'da') + '">\n' +
+    '<html lang="' + esc(t.language) + '">\n' +
     '<head>\n' +
     '<meta charset="utf-8">\n' +
     '<meta name="viewport" content="width=device-width, initial-scale=1">\n' +
-    '<title>Omaplan – læseudgave</title>\n' +
+    '<title>' + esc(t.title) + '</title>\n' +
     '<link rel="stylesheet" href="style.css">\n' +
     '</head>\n' +
     '<body>\n' +
     '<header class="top">\n' +
     '  <h1>Omaplan</h1>\n' +
-    '  <nav class="visninger" aria-label="Visninger">\n' +
-    '    <a href="#overblik">Overblik</a>\n' +
-    '    <a href="#liste">Liste</a>\n' +
-    '    <a href="#tidslinje">Tidslinje</a>\n' +
-    '  </nav>\n' +
-    '  <p class="meta">' + renderMeta(plan) + '</p>\n' +
+    renderNav(t) + '\n' +
+    '  <p class="meta">' + renderMeta(plan, t) + '</p>\n' +
     '</header>\n' +
-    '<main id="plan" class="plan" data-idag="' + iDag + '">\n' +
-    renderMain(plan, iDag) + '\n' +
+    '<main id="plan" class="plan" data-today="' + today + '">\n' +
+    renderMain(plan, today, t, active) + '\n' +
     '</main>\n' +
-    '<footer class="sidefod">\n' +
-    '  <p>Læseudgave (kun læsning) · <a href="plan.json">plan.json</a></p>\n' +
+    '<footer class="footer">\n' +
+    renderFooter(t) + '\n' +
     '</footer>\n' +
     '<script src="app.js"></script>\n' +
     '</body>\n' +
@@ -460,9 +478,9 @@ function renderSide(plan, iDag) {
   );
 }
 
-// ---------- tema (valgfrit fra plan.json) ----------
+// ---------- theme (optional, from plan.json) ----------
 
-const TEMA_TIL_CSS = {
+const THEME_TO_CSS = {
   accent: '--accent',
   accent_fg: '--accent-fg',
   bg: '--bg',
@@ -474,63 +492,80 @@ const TEMA_TIL_CSS = {
   ok: '--ok',
 };
 
-function anvendTema(tema, root) {
-  if (!tema) return;
-  for (const [noegle, variabel] of Object.entries(TEMA_TIL_CSS)) {
-    if (tema[noegle]) root.style.setProperty(variabel, tema[noegle]);
+function applyTheme(theme, root) {
+  if (!theme) return;
+  for (const [key, variable] of Object.entries(THEME_TO_CSS)) {
+    if (theme[key]) root.style.setProperty(variable, theme[key]);
   }
 }
 
-// ---------- browser-bootstrap (valgfri; siden virker uden JS) ----------
+// ---------- browser bootstrap (optional; the page works without JS) ----------
 
-// Efter JS har erstattet main.innerHTML mister nogle browsere :target på det nye element,
-// så sæt også klassen .aktiv (CSS uden JS bruger kun :target).
-function sætAktivVisning() {
-  // Anker først; ellers ?visning=… som serve også forstår uden JS.
-  const målId = window.location.hash.replace(/^#/, '') || new URLSearchParams(window.location.search).get('visning') || '';
-  const mål = målId ? document.getElementById(målId) : null;
+// After JS has replaced main.innerHTML some browsers lose :target on the new element, so also set the
+// class .active (CSS without JS relies on :target only).
+function setActiveView() {
+  // The anchor first; otherwise ?view=..., which serve understands without JS too.
+  const id = window.location.hash.replace(/^#/, '') || new URLSearchParams(window.location.search).get('view') || '';
+  const target = id ? document.getElementById(id) : null;
   for (const v of document.querySelectorAll('#plan .view')) {
-    v.classList.toggle('aktiv', v === mål);
+    v.classList.toggle('active', v === target);
   }
+}
+
+async function fetchJson(url) {
+  const res = await fetch(url, { cache: 'no-store' });
+  if (!res.ok) throw new Error(url + ': ' + res.status);
+  return res.json();
 }
 
 async function boot() {
-  const main = document.getElementById('plan');
-  // plan.json fra samme oprindelse først; eksempel-mappen som fallback når siden åbnes statisk.
+  let t;
+  try {
+    t = await fetchJson('i18n/' + pickLanguage(navigator.language) + '.json');
+  } catch (e) {
+    return; // no dictionary: keep the server-rendered markup
+  }
+  // plan.json from the same origin first; the example folder as a fallback when the page is opened statically.
   for (const url of ['plan.json', 'example/plan.json']) {
+    let plan;
     try {
-      const res = await fetch(url, { cache: 'no-store' });
-      if (!res.ok) continue;
-      const plan = await res.json();
-      if (!plan || plan.format !== 'omaplan-plan') continue;
-      anvendTema(plan.theme, document.documentElement);
-      document.documentElement.lang = plan.language || 'da';
-      const iDag = iDagStr();
-      main.setAttribute('data-idag', iDag);
-      main.innerHTML = renderMain(plan, iDag);
-      sætAktivVisning();
-      const meta = document.querySelector('header .meta');
-      if (meta) meta.innerHTML = renderMeta(plan);
-      main.dataset.js = 'ja'; // markør til test: JS har renderet siden
-      return;
+      plan = await fetchJson(url);
     } catch (e) {
-      // prøv næste url; ved file:// eller fetch-fejl beholdes server-renderet markup
+      continue; // try the next url; on file:// or a failed fetch the server-rendered markup stays
     }
+    if (!plan || plan.format !== 'omaplan-plan') continue;
+    const root = document.documentElement;
+    applyTheme(plan.theme, root);
+    root.lang = t.language;
+    document.title = t.title;
+    const today = todayStr();
+    const main = document.getElementById('plan');
+    main.setAttribute('data-today', today);
+    main.innerHTML = renderMain(plan, today, t, '');
+    setActiveView();
+    const nav = document.querySelector('header .views');
+    if (nav) nav.outerHTML = renderNav(t).trim();
+    const meta = document.querySelector('header .meta');
+    if (meta) meta.innerHTML = renderMeta(plan, t);
+    const footer = document.querySelector('footer.footer');
+    if (footer) footer.innerHTML = '\n' + renderFooter(t) + '\n';
+    main.dataset.js = 'yes'; // marker for tests: JS has rendered the page
+    return;
   }
 }
 
 if (typeof document !== 'undefined') {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
-  window.addEventListener('hashchange', sætAktivVisning);
+  window.addEventListener('hashchange', setActiveView);
 }
 
-// Eksport til test i node (uden DOM).
+// Exports for tests in node (no DOM).
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    parseStart, iDagStr, tilfoejDage, formaterDatoLang, formaterDatoKort, formaterFrist,
-    formaterVarighed, formaterTidsstempel, slutTid, erForfalden, sorterOpgaver,
-    renderOpgave, renderOverblik, renderListeDato, renderListeProjekt, renderTidslinje,
-    renderMain, renderMeta, renderSide, anvendTema,
+    VIEWS, LANGUAGES, fill, pickLanguage, parseStart, todayStr, addDays, formatDateLong, formatDateShort,
+    formatDeadline, formatDuration, formatTimestamp, endTime, isOverdue, sortTasks, renderTask, renderOverview,
+    renderListByDate, renderListByProject, renderTimeline, renderMain, renderNav, renderMeta, renderFooter,
+    renderPage, applyTheme,
   };
 }
