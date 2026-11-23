@@ -26,7 +26,7 @@ struct Task {
     QDateTime created;
     QDateTime modified;
 
-    // Field names allowed in `guesses`, matching docs/ai-skema.json.
+    // Field names allowed in `guesses` (JSON: `guessed`), matching docs/ai-schema.json.
     static const QStringList guessableFields();
 
     static QString newId();

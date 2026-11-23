@@ -4,7 +4,7 @@
 `~/.local/share/omaplan/plan.json` after every change. `omaplan serve` reads only this file, never the database,
 and serves it as the read-only edition together with `/plan.json` (see SPEC.md and ADR 0003).
 
-Machine-readable schema: `docs/export-schema.json` (JSON Schema draft 2020-12, same style as `docs/ai-skema.json`).
+Machine-readable schema: `docs/export-schema.json` (JSON Schema draft 2020-12, same style as `docs/ai-schema.json`).
 An invented example lives in `web/example/plan.json`; `web/test.mjs` validates it against the schema.
 
 ## Top level

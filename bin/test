@@ -23,3 +23,9 @@ cd "$ROOT/build/ai-tests"
 qmake6 "$ROOT/tests/unit/unit.pro"
 make -j"$(nproc)"
 QT_QPA_PLATFORM=offscreen ./ai-unit-tests
+
+# The read-only page's JavaScript against the same reference pages, when
+# Node is installed (it is not a build dependency).
+if command -v node >/dev/null 2>&1; then
+    node "$ROOT/web/test.mjs"
+fi

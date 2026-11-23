@@ -11,7 +11,7 @@
 
 // One generic local engine (id "local") that speaks both Ollama's
 // /api/chat and an OpenAI-compatible /v1/chat/completions (llama-server,
-// LM Studio, m.fl.). Endpoint, model and protocol are the user's choice
+// LM Studio and others). Endpoint, model and protocol are the user's choice
 // (config.toml [engine.local] or CLI flags --endpoint/--model); nothing is
 // hardcoded and no model is bundled. The schema is sent as grammar (Ollama
 // "format", OpenAI response_format json_schema) so small models stay valid.

@@ -52,7 +52,7 @@ QString Task::validate() const {
     return {};
 }
 
-// JSON dates follow docs/ai-skema.json: YYYY-MM-DD, or YYYY-MM-DDTHH:MM with
+// JSON dates follow docs/ai-schema.json: YYYY-MM-DD, or YYYY-MM-DDTHH:MM with
 // a time — never milliseconds. Date-only values keep hasTime false so the two
 // never collapse into each other.
 static QString toIso(const QDateTime &dateTime, bool hasTime) {

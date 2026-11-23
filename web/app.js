@@ -27,9 +27,10 @@ function fill(template, vars) {
   return template.replace(/\{(\w+)\}/g, (m, key) => (Object.prototype.hasOwnProperty.call(vars, key) ? String(vars[key]) : m));
 }
 
-// The supported language for a BCP 47 tag: da* -> da, everything else en.
+// The supported language for a BCP 47 tag ("da-DK" -> "da"), else 'en'.
 function pickLanguage(tag) {
-  return String(tag || '').toLowerCase().startsWith('da') ? 'da' : 'en';
+  const primary = String(tag || '').toLowerCase().split(/[-_]/)[0];
+  return LANGUAGES.includes(primary) ? primary : 'en';
 }
 
 // "YYYY-MM-DD" or "YYYY-MM-DDTHH:MM" -> { date, time }; null/absent -> { date: null, time: null } (not scheduled)
