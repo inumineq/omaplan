@@ -63,6 +63,7 @@ public:
     Q_INVOKABLE QJsonObject guiRemove(const QString &id);
     Q_INVOKABLE QJsonObject guiUndo();
     Q_INVOKABLE QJsonObject guiRedo();
+    Q_INVOKABLE QJsonObject guiProjects();
 
 signals:
     // Emitted after every mutation, so models and views can reload.

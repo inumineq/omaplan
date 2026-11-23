@@ -157,6 +157,21 @@ bool CalendarModel::lessThan(const QModelIndex &left, const QModelIndex &right) 
 PlanListModel::PlanListModel(QObject *parent) : SortProxy(parent) {
 }
 
+void PlanListModel::setProjectFilter(const QString &filter) {
+    if (m_projectFilter == filter)
+        return;
+    m_projectFilter = filter;
+    emit projectFilterChanged();
+    invalidateFilter();
+}
+
+bool PlanListModel::filterAcceptsRow(int sourceRow, const QModelIndex &sourceParent) const {
+    if (m_projectFilter.isEmpty())
+        return true;
+    const Task task = taskOf(sourceModel(), sourceModel()->index(sourceRow, 0, sourceParent));
+    return task.project == m_projectFilter;
+}
+
 bool PlanListModel::lessThan(const QModelIndex &left, const QModelIndex &right) const {
     const Task a = taskOf(sourceModel(), left);
     const Task b = taskOf(sourceModel(), right);

@@ -1,6 +1,11 @@
 <RCC>
     <qresource prefix="/">
         <file alias="Main.qml">Main.qml</file>
+        <file alias="OverviewView.qml">OverviewView.qml</file>
+        <file alias="PlanCalendar.qml">PlanCalendar.qml</file>
+        <file alias="PlanList.qml">PlanList.qml</file>
+        <file alias="GanttView.qml">GanttView.qml</file>
+        <file alias="HelpOverlay.qml">HelpOverlay.qml</file>
         <file alias="i18n/en.json">i18n/en.json</file>
         <file alias="i18n/da.json">i18n/da.json</file>
     </qresource>

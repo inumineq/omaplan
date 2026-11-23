@@ -101,14 +101,27 @@ private:
     QDate m_from, m_to;
 };
 
-// Liste: all tasks; undone first, then by effective date.
+// Liste: all tasks (optionally filtered to one project); undone first, then
+// by effective date.
 class PlanListModel : public SortProxy {
     Q_OBJECT
+    Q_PROPERTY(QString projectFilter READ projectFilter WRITE setProjectFilter NOTIFY projectFilterChanged)
+
 public:
     explicit PlanListModel(QObject *parent = nullptr);
 
+    QString projectFilter() const { return m_projectFilter; }
+    void setProjectFilter(const QString &filter);
+
+signals:
+    void projectFilterChanged();
+
 protected:
+    bool filterAcceptsRow(int sourceRow, const QModelIndex &sourceParent) const override;
     bool lessThan(const QModelIndex &left, const QModelIndex &right) const override;
+
+private:
+    QString m_projectFilter;
 };
 
 // Tidslinje: only scheduled tasks (a bar needs a start), sorted by start.

@@ -240,6 +240,10 @@ QJsonObject Actions::guiRedo() {
     return wrapResult(redo(QStringLiteral("gui")));
 }
 
+QJsonObject Actions::guiProjects() {
+    return wrapResult(projects());
+}
+
 ActionResult Actions::list(const ListFilter &filter) {
     QString error;
     const QList<Task> all = m_store->tasks(&error);
