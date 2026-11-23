@@ -10,6 +10,7 @@
 
 #include "actions.h"
 #include "cli.h"
+#include "planmodel.h"
 #include "store.h"
 #include "task.h"
 
@@ -749,6 +750,80 @@ private slots:
         QVERIFY(!actions.redo(QStringLiteral("gui")).ok); // nothing left to redo
         QVERIFY(actions.undo(QStringLiteral("gui")).ok); // undo the redo
         QCOMPARE(actions.show(id).payload["task"].toObject()["title"].toString(), QStringLiteral("Titel"));
+    }
+
+    void planModelAndProxies()
+    {
+        QTemporaryDir dir;
+        Store store(dir.filePath("test.db"));
+        QString error;
+        QVERIFY(store.open(&error));
+        Actions actions(&store);
+        PlanModel model(&store);
+        OverviewModel overview;
+        CalendarModel calendar;
+        PlanListModel list;
+        GanttModel gantt;
+        overview.setSourceModel(&model);
+        calendar.setSourceModel(&model);
+        list.setSourceModel(&model);
+        gantt.setSourceModel(&model);
+
+        const QDate today = QDateTime::currentDateTime().date();
+        Task overdue;
+        overdue.title = QStringLiteral("Forfalden");
+        overdue.deadline = QDateTime(today.addDays(-2), QTime(0, 0));
+        overdue.status = Task::Status::Todo;
+        Task todayTask;
+        todayTask.title = QStringLiteral("I dag");
+        todayTask.start = QDateTime(today, QTime(9, 0));
+        todayTask.startHasTime = true;
+        todayTask.durationMinutes = 60;
+        Task later;
+        later.title = QStringLiteral("Om 10 dage");
+        later.start = QDateTime(today.addDays(10), QTime(0, 0));
+        Task unscheduled;
+        unscheduled.title = QStringLiteral("Uden dato");
+        overdue.id = actions.create(overdue, QStringLiteral("cli")).payload["task"].toObject()["id"].toString();
+        QVERIFY(actions.create(todayTask, QStringLiteral("cli")).ok);
+        QVERIFY(actions.create(later, QStringLiteral("cli")).ok);
+        QVERIFY(actions.create(unscheduled, QStringLiteral("cli")).ok);
+        QVERIFY(!overdue.id.isEmpty());
+
+        model.reload();
+        QCOMPARE(model.rowCount(), 4);
+        QCOMPARE(model.data(model.index(0, 0), PlanModel::TitleRole).toString().isEmpty(), false);
+        QVERIFY(model.data(model.index(0, 0), PlanModel::IdRole).toString().length() > 0);
+
+        // Overview: overdue first, then today..+7d; the task 10 days out is excluded.
+        QCOMPARE(overview.rowCount(), 3);
+        QCOMPARE(overview.data(overview.index(0, 0), PlanModel::TitleRole).toString(), QStringLiteral("Forfalden"));
+
+        // Calendar range filters by effective date.
+        calendar.setRange(today, today.addDays(7));
+        QCOMPARE(calendar.rowCount(), 2); // overdue (deadline yesterday) + today
+        calendar.setRange(today.addDays(8), today.addDays(12));
+        QCOMPARE(calendar.rowCount(), 1);
+        QCOMPARE(calendar.data(calendar.index(0, 0), PlanModel::TitleRole).toString(), QStringLiteral("Om 10 dage"));
+
+        // List has everything, undone first.
+        QCOMPARE(list.rowCount(), 4);
+        QCOMPARE(list.data(list.index(0, 0), PlanModel::StatusRole).toString(), QStringLiteral("todo"));
+
+        // Gantt only scheduled tasks, sorted by start.
+        QCOMPARE(gantt.rowCount(), 2);
+        QVERIFY(gantt.data(gantt.index(0, 0), PlanModel::StartRole).toDateTime()
+                < gantt.data(gantt.index(1, 0), PlanModel::StartRole).toDateTime());
+
+        // Mutating through actions emits planChanged and a reload sees it.
+        QSignalSpy spy(&actions, &Actions::planChanged);
+        QVERIFY(actions.setDone(overdue.id, true, QStringLiteral("gui")).ok);
+        QCOMPARE(spy.count(), 1);
+        model.reload();
+        // The done task still shows (its deadline is within the window) but is
+        // no longer sorted as overdue.
+        QCOMPARE(overview.rowCount(), 3);
+        QCOMPARE(overview.data(overview.index(0, 0), PlanModel::TitleRole).toString(), QStringLiteral("I dag"));
     }
 };
 

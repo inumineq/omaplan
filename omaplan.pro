@@ -10,7 +10,8 @@ HEADERS += \
     src/task.h \
     src/store.h \
     src/actions.h \
-    src/cli.h
+    src/cli.h \
+    src/planmodel.h
 
 SOURCES += \
     src/main.cpp \
@@ -19,6 +20,7 @@ SOURCES += \
     src/task.cpp \
     src/store.cpp \
     src/actions.cpp \
-    src/cli.cpp
+    src/cli.cpp \
+    src/planmodel.cpp
 
 RESOURCES += src/resources.qrc
