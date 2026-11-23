@@ -58,7 +58,7 @@ Rectangle {
 
     Rectangle {
         anchors.centerIn: parent
-        width: Math.min(820, parent.width - 48)
+        width: Math.min(900, parent.width - 48)
         height: Math.min(content.implicitHeight + 48, parent.height - 48)
         radius: Math.min(8, theme.radius)
         color: theme.surface
@@ -82,38 +82,53 @@ Rectangle {
                     font.pixelSize: 18
                     color: theme.foreground
                 }
-                Repeater {
-                    model: overlay.groups
-                    delegate: ColumnLayout {
-                        required property var modelData
-                        Layout.fillWidth: true
-                        Layout.topMargin: 8
-                        spacing: 3
-                        Text {
-                            text: parent.modelData[0]
-                            color: theme.accent
-                            font.bold: true
-                            font.pixelSize: 13
-                        }
-                        Repeater {
-                            model: parent.modelData[1]
-                            delegate: RowLayout {
-                                required property var modelData
-                                Layout.fillWidth: true
-                                spacing: 16
-                                Text {
-                                    Layout.preferredWidth: 210
-                                    text: parent.modelData[0]
-                                    color: theme.foreground
-                                    font.family: "monospace"
-                                    font.pixelSize: 12
-                                }
-                                Text {
+                // The groups lie in two columns so every key stays on one
+                // screen; the Flickable still takes over on shorter windows.
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 28
+                    Repeater {
+                        model: [overlay.groups.slice(0, 3), overlay.groups.slice(3)]
+                        delegate: ColumnLayout {
+                            required property var modelData
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: 1
+                            spacing: 2
+                            Repeater {
+                                model: parent.modelData
+                                delegate: ColumnLayout {
+                                    required property var modelData
                                     Layout.fillWidth: true
-                                    text: parent.modelData[1]
-                                    color: theme.muted
-                                    font.pixelSize: 13
-                                    wrapMode: Text.Wrap
+                                    Layout.topMargin: 8
+                                    spacing: 3
+                                    Text {
+                                        text: parent.modelData[0]
+                                        color: theme.accent
+                                        font.bold: true
+                                        font.pixelSize: 13
+                                    }
+                                    Repeater {
+                                        model: parent.modelData[1]
+                                        delegate: RowLayout {
+                                            required property var modelData
+                                            Layout.fillWidth: true
+                                            spacing: 12
+                                            Text {
+                                                Layout.preferredWidth: 160
+                                                text: parent.modelData[0]
+                                                color: theme.foreground
+                                                font.family: "monospace"
+                                                font.pixelSize: 12
+                                            }
+                                            Text {
+                                                Layout.fillWidth: true
+                                                text: parent.modelData[1]
+                                                color: theme.muted
+                                                font.pixelSize: 12
+                                                wrapMode: Text.Wrap
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
