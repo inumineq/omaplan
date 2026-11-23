@@ -3,6 +3,7 @@
 #include <QFile>
 #include <QJsonDocument>
 #include <QProcess>
+#include <QTcpSocket>
 #include <QRegularExpression>
 #include <QJsonObject>
 #include <QSqlDatabase>
@@ -16,6 +17,9 @@
 #include "config.h"
 #include "dateannotate.h"
 #include "planmodel.h"
+#include "render.h"
+#include "server.h"
+#include "snapshot.h"
 #include "skill.h"
 #include "store.h"
 #include "task.h"
@@ -35,10 +39,413 @@ static QJsonObject cliJson(Store &store, const QStringList &args, QString *err, 
     return QJsonDocument::fromJson(out.toUtf8()).object();
 }
 
+
+// The subset of JSON Schema that docs/eksport-skema.json uses (as web/test.mjs).
+static void validateSchema(const QJsonValue &node, const QJsonObject &schema, const QString &at, QStringList *errors) {
+    if (schema.contains("const") && node != schema.value("const"))
+        *errors << at + ": const";
+    if (schema.contains("enum") && !schema.value("enum").toArray().contains(node))
+        *errors << at + ": enum";
+    if (schema.contains("type")) {
+        QJsonArray types = schema.value("type").isArray() ? schema.value("type").toArray() : QJsonArray{schema.value("type")};
+        bool ok = false;
+        for (const QJsonValue &t : types) {
+            const QString type = t.toString();
+            ok = ok || (type == "string" && node.isString()) || (type == "null" && node.isNull())
+                 || (type == "object" && node.isObject()) || (type == "array" && node.isArray())
+                 || (type == "integer" && node.isDouble() && node.toDouble() == std::floor(node.toDouble()));
+        }
+        if (!ok)
+            *errors << at + ": type";
+    }
+    if (node.isString()) {
+        const QString text = node.toString();
+        if (schema.contains("minLength") && text.size() < schema.value("minLength").toInt())
+            *errors << at + ": minLength";
+        if (schema.contains("maxLength") && text.size() > schema.value("maxLength").toInt())
+            *errors << at + ": maxLength";
+        if (schema.contains("pattern") && !QRegularExpression(schema.value("pattern").toString()).match(text).hasMatch())
+            *errors << at + ": pattern " + text;
+    }
+    if (node.isDouble()) {
+        if (schema.contains("minimum") && node.toDouble() < schema.value("minimum").toDouble())
+            *errors << at + ": minimum";
+        if (schema.contains("maximum") && node.toDouble() > schema.value("maximum").toDouble())
+            *errors << at + ": maximum";
+    }
+    if (node.isObject()) {
+        const QJsonObject object = node.toObject();
+        for (const QJsonValue &key : schema.value("required").toArray())
+            if (!object.contains(key.toString()))
+                *errors << at + ": missing " + key.toString();
+        const QJsonObject properties = schema.value("properties").toObject();
+        for (auto it = object.begin(); it != object.end(); ++it) {
+            if (properties.contains(it.key()))
+                validateSchema(it.value(), properties.value(it.key()).toObject(), at + "." + it.key(), errors);
+            else if (schema.value("additionalProperties") == QJsonValue(false))
+                *errors << at + ": extra " + it.key();
+        }
+    }
+    if (node.isArray() && schema.contains("items")) {
+        const QJsonArray array = node.toArray();
+        for (int i = 0; i < array.size(); ++i)
+            validateSchema(array[i], schema.value("items").toObject(), at + "[" + QString::number(i) + "]", errors);
+    }
+}
+
+static QJsonObject readJsonFile(const QString &path) {
+    QFile file(path);
+    file.open(QIODevice::ReadOnly);
+    return QJsonDocument::fromJson(file.readAll()).object();
+}
+
+static QString repoFile(const QString &relative) {
+    return QDir(QStringLiteral(OMAPLAN_SRC "/..")).filePath(relative);
+}
+
+struct HttpReply {
+    int status = 0;
+    QMap<QByteArray, QByteArray> headers; // lower-case names
+    QByteArray body;
+};
+
+// One raw request over loopback. The server lives on this thread, so wait
+// with an event loop instead of the blocking waitFor* calls.
+static HttpReply http(quint16 port, const QByteArray &request) {
+    QTcpSocket socket;
+    QByteArray data;
+    QEventLoop loop;
+    QObject::connect(&socket, &QTcpSocket::connected, [&] { socket.write(request); });
+    QObject::connect(&socket, &QTcpSocket::readyRead, [&] { data += socket.readAll(); });
+    QObject::connect(&socket, &QTcpSocket::disconnected, &loop, &QEventLoop::quit);
+    QObject::connect(&socket, &QTcpSocket::errorOccurred, &loop, &QEventLoop::quit);
+    QTimer::singleShot(5000, &loop, &QEventLoop::quit);
+    socket.connectToHost(QHostAddress::LocalHost, port);
+    loop.exec();
+    data += socket.readAll();
+    HttpReply reply;
+    const int split = data.indexOf("\r\n\r\n");
+    const QList<QByteArray> lines = data.left(split).split('\n');
+    if (lines.isEmpty() || split < 0)
+        return reply;
+    reply.status = lines.first().split(' ').value(1).toInt();
+    for (int i = 1; i < lines.size(); ++i) {
+        const int colon = lines[i].indexOf(':');
+        if (colon > 0)
+            reply.headers.insert(lines[i].left(colon).trimmed().toLower(), lines[i].mid(colon + 1).trimmed());
+    }
+    reply.body = data.mid(split + 4);
+    return reply;
+}
+
+static HttpReply httpGet(quint16 port, const QByteArray &target, const QByteArray &method = "GET") {
+    return http(port, method + " " + target + " HTTP/1.1\r\nHost: localhost\r\n\r\n");
+}
+
 class OmaplanTests : public QObject {
     Q_OBJECT
 
+private:
+    QTemporaryDir m_scratch;
+
 private slots:
+
+    // Nothing a test run writes may land in the user's real plan.json: the
+    // default path follows the database, but config.toml or the user's
+    // environment could point elsewhere.
+    void initTestCase() {
+        QVERIFY(m_scratch.isValid());
+        qputenv("OMAPLAN_SNAPSHOT", m_scratch.filePath(QStringLiteral("plan.json")).toLocal8Bit());
+    }
+
+    void snapshotPathPrecedence() {
+        QTemporaryDir dir;
+        const QString db = dir.filePath(QStringLiteral("omaplan.db"));
+        const QByteArray saved = qgetenv("OMAPLAN_SNAPSHOT");
+        qputenv("OMAPLAN_SNAPSHOT", "");
+        qputenv("OMAPLAN_CONFIG", dir.filePath(QStringLiteral("none.toml")).toLocal8Bit());
+        QCOMPARE(Snapshot::path(db), dir.filePath(QStringLiteral("plan.json"))); // beside the database
+        QCOMPARE(Snapshot::path(QStringLiteral(":memory:")), QString());
+        {
+            QFile cfg(dir.filePath(QStringLiteral("c.toml")));
+            QVERIFY(cfg.open(QIODevice::WriteOnly));
+            cfg.write("[snapshot]\npath = \"~/x/plan.json\"  # kommentar\n");
+        }
+        qputenv("OMAPLAN_CONFIG", dir.filePath(QStringLiteral("c.toml")).toLocal8Bit());
+        QCOMPARE(Snapshot::path(db), QDir::homePath() + QStringLiteral("/x/plan.json"));
+        qputenv("OMAPLAN_SNAPSHOT", "/elsewhere/plan.json");
+        QCOMPARE(Snapshot::path(db), QStringLiteral("/elsewhere/plan.json"));
+        qputenv("OMAPLAN_CONFIG", "");
+        qputenv("OMAPLAN_SNAPSHOT", saved);
+    }
+
+    // Every change rewrites plan.json, valid against docs/eksport-skema.json.
+    void snapshotFollowsSchemaAfterEveryChange() {
+        QTemporaryDir dir;
+        Store store(dir.filePath(QStringLiteral("t.db")));
+        QVERIFY(store.open());
+        Actions actions(&store);
+        const QString path = dir.filePath(QStringLiteral("ud/plan.json")); // the directory is created
+        Snapshotter snapshotter(&store, path);
+        QVERIFY(!QFile::exists(path));
+
+        Task timed;
+        timed.id = Task::newId();
+        timed.title = QStringLiteral("Møde med Kunde A <kl. 9>");
+        timed.project = QStringLiteral("Kunde A");
+        timed.priority = 1;
+        timed.start = QDateTime(QDate(2026, 11, 24), QTime(9, 0));
+        timed.startHasTime = true;
+        timed.durationMinutes = 90;
+        timed.deadline = QDateTime(QDate(2026, 11, 27), QTime(12, 0));
+        timed.deadlineHasTime = true;
+        timed.guesses = {QStringLiteral("duration_minutes"), QStringLiteral("deadline")};
+        QVERIFY(actions.create(timed, QStringLiteral("cli")).ok);
+        QVERIFY(QFile::exists(path));
+
+        Task undated;
+        undated.id = Task::newId();
+        undated.title = QStringLiteral("Ryd op i noter");
+        undated.notes = QStringLiteral("Når der er tid");
+        QVERIFY(actions.create(undated, QStringLiteral("cli")).ok);
+        Task allDay;
+        allDay.id = Task::newId();
+        allDay.title = QStringLiteral("Blog");
+        allDay.start = QDateTime(QDate(2026, 11, 25), QTime(0, 0));
+        QVERIFY(actions.create(allDay, QStringLiteral("cli")).ok);
+        QVERIFY(actions.setDone(allDay.id, true, QStringLiteral("cli")).ok);
+
+        const QJsonObject plan = readJsonFile(path);
+        QStringList errors;
+        validateSchema(plan, readJsonFile(repoFile(QStringLiteral("docs/eksport-skema.json"))), QStringLiteral("$"), &errors);
+        QVERIFY2(errors.isEmpty(), qPrintable(errors.join('\n')));
+        QCOMPARE(plan.value("opgaver").toArray().size(), 3);
+        QHash<QString, QJsonObject> byId;
+        for (const QJsonValue &v : plan.value("opgaver").toArray())
+            byId.insert(v.toObject().value("id").toString(), v.toObject());
+        const QJsonObject t = byId.value(timed.id);
+        QCOMPARE(t.value("start").toString(), QStringLiteral("2026-11-24T09:00"));
+        QCOMPARE(t.value("frist").toString(), QStringLiteral("2026-11-27T12:00"));
+        QCOMPARE(t.value("varighed_min").toInt(), 90);
+        QCOMPARE(t.value("gaet").toArray(), (QJsonArray{QStringLiteral("varighed_min"), QStringLiteral("frist")}));
+        QVERIFY(byId.value(undated.id).value("start").isNull());
+        QCOMPARE(byId.value(undated.id).value("noter").toString(), QStringLiteral("Når der er tid"));
+        QCOMPARE(byId.value(allDay.id).value("start").toString(), QStringLiteral("2026-11-25"));
+        QCOMPARE(byId.value(allDay.id).value("status").toString(), QStringLiteral("done"));
+
+        // Undo is a change too.
+        QVERIFY(actions.undo(QStringLiteral("cli")).ok);
+        bool stillDone = false;
+        for (const QJsonValue &v : readJsonFile(path).value("opgaver").toArray())
+            stillDone = stillDone || (v.toObject().value("id") == allDay.id && v.toObject().value("status") == "done");
+        QVERIFY(!stillDone);
+    }
+
+    // One write per change, however many rows the change touches.
+    void snapshotOncePerCommit() {
+        QTemporaryDir dir;
+        Store store(dir.filePath(QStringLiteral("t.db")));
+        QVERIFY(store.open());
+        QSignalSpy spy(&store, &Store::committed);
+        QVERIFY(store.begin());
+        for (int i = 0; i < 3; ++i) {
+            Task task;
+            task.id = Task::newId();
+            task.title = QStringLiteral("Opgave %1").arg(i);
+            QVERIFY(!store.createTask(task, QStringLiteral("cli")).isEmpty()); // nested transactions
+        }
+        QCOMPARE(spy.count(), 0);
+        QVERIFY(store.commit());
+        QCOMPARE(spy.count(), 1);
+        QVERIFY(store.begin());
+        store.rollback();
+        QCOMPARE(spy.count(), 1);
+    }
+
+    // Atomic: the old file stays whole when a write fails, and nothing is
+    // left beside it after a successful one.
+    void snapshotWriteIsAtomic() {
+        QTemporaryDir dir;
+        Store store(dir.filePath(QStringLiteral("t.db")));
+        QVERIFY(store.open());
+        const QString path = dir.filePath(QStringLiteral("snap/plan.json"));
+        QVERIFY(Snapshot::write(&store, path));
+        Task task;
+        task.id = Task::newId();
+        task.title = QStringLiteral("Første");
+        QVERIFY(!store.createTask(task, QStringLiteral("cli")).isEmpty());
+        QVERIFY(Snapshot::write(&store, path));
+        QCOMPARE(QDir(dir.filePath(QStringLiteral("snap"))).entryList(QDir::Files | QDir::Hidden),
+                 QStringList{QStringLiteral("plan.json")});
+        QFile before(path);
+        QVERIFY(before.open(QIODevice::ReadOnly));
+        const QByteArray old = before.readAll();
+        before.close();
+
+        // A read-only directory: QSaveFile cannot create its temporary file.
+        QFile::setPermissions(dir.filePath(QStringLiteral("snap")), QFileDevice::ReadOwner | QFileDevice::ExeOwner);
+        task.id = Task::newId();
+        task.title = QStringLiteral("Anden");
+        QVERIFY(!store.createTask(task, QStringLiteral("cli")).isEmpty());
+        QString error;
+        QVERIFY(!Snapshot::write(&store, path, &error));
+        QVERIFY(!error.isEmpty());
+        QFile after(path);
+        QVERIFY(after.open(QIODevice::ReadOnly));
+        QCOMPARE(after.readAll(), old);
+        QFile::setPermissions(dir.filePath(QStringLiteral("snap")), QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner);
+
+        // The CLI command writes to a given path and says where.
+        QString out, err;
+        const QString other = dir.filePath(QStringLiteral("anden.json"));
+        QCOMPARE(cli(store, {QStringLiteral("snapshot"), other, QStringLiteral("--json")}, &out, &err), 0);
+        QCOMPARE(QJsonDocument::fromJson(out.toUtf8()).object().value("path").toString(), other);
+        QCOMPARE(readJsonFile(other).value("opgaver").toArray().size(), 2);
+    }
+
+    void snapshotThemeAsCssVariables() {
+        QTemporaryDir dir;
+        QVERIFY(Snapshot::omarchyTheme(dir.path()).isEmpty()); // no Omarchy: no tema
+        QDir(dir.path()).mkpath(QStringLiteral("theme"));
+        QFile colors(dir.filePath(QStringLiteral("theme/colors.toml")));
+        QVERIFY(colors.open(QIODevice::WriteOnly));
+        colors.write("accent = \"#7aa2f7\"\nbackground = \"#1a1b26\"\nforeground = \"#c0caf5\"\n");
+        colors.close();
+        const QJsonObject tema = Snapshot::omarchyTheme(dir.path());
+        QCOMPARE(tema.value("accent").toString(), QStringLiteral("#7aa2f7"));
+        QCOMPARE(tema.value("bg").toString(), QStringLiteral("#1a1b26"));
+        QCOMPARE(tema.size(), 9);
+        const QString style = Snapshot::themeStyle(tema);
+        QVERIFY(style.contains(QStringLiteral("--accent:#7aa2f7")));
+        QVERIFY(style.contains(QStringLiteral("--bg:#1a1b26")));
+        // Anything but #rrggbb stays out of the style attribute.
+        QCOMPARE(Snapshot::themeStyle(QJsonObject{{"bg", "red;}</style>"}, {"fg", "#FFFFFF"}}), QStringLiteral("--fg:#ffffff"));
+    }
+
+    // The C++ rendering is the JS reference rendering, byte for byte.
+    void renderMatchesWebReference() {
+        const QJsonObject plan = readJsonFile(repoFile(QStringLiteral("web/eksempel/plan.json")));
+        QVERIFY(!plan.isEmpty());
+        QFile reference(repoFile(QStringLiteral("web/index.html")));
+        QVERIFY(reference.open(QIODevice::ReadOnly));
+        const QString expected = QString::fromUtf8(reference.readAll());
+        const QString actual = Render::page(plan, QDate(2026, 11, 23));
+        if (actual != expected) {
+            const QStringList a = actual.split('\n'), e = expected.split('\n');
+            for (int i = 0; i < std::max(a.size(), e.size()); ++i)
+                if (a.value(i) != e.value(i))
+                    QFAIL(qPrintable(QStringLiteral("line %1:\n  C++: %2\n  JS:  %3").arg(i + 1).arg(a.value(i), e.value(i))));
+        }
+        QCOMPARE(actual, expected);
+    }
+
+    void serveOverLoopback() {
+        QTemporaryDir dir;
+        const QString snapshot = dir.filePath(QStringLiteral("plan.json"));
+        PlanServer::Options options;
+        options.snapshotPath = snapshot;
+        options.port = 0; // any free port
+        options.themeDirectory = dir.filePath(QStringLiteral("intet-tema"));
+        options.today = [] { return QDate(2026, 11, 23); };
+        PlanServer server(options);
+        QVERIFY(server.listen());
+        const quint16 port = server.port();
+
+        // No snapshot yet: a friendly page, not an error.
+        HttpReply r = httpGet(port, "/");
+        QCOMPARE(r.status, 200);
+        QVERIFY(r.body.contains("Ingen plan endnu"));
+        QCOMPARE(httpGet(port, "/plan.json").status, 404);
+
+        QVERIFY(QFile::copy(repoFile(QStringLiteral("web/eksempel/plan.json")), snapshot));
+        r = httpGet(port, "/");
+        QCOMPARE(r.status, 200);
+        QCOMPARE(r.headers.value("content-type"), QByteArray("text/html; charset=utf-8"));
+        QCOMPARE(r.headers.value("cache-control"), QByteArray("no-cache"));
+        QCOMPARE(r.headers.value("content-length").toInt(), r.body.size());
+        // Theme from plan.json when this machine has none.
+        QVERIFY(r.body.contains("<html lang=\"da\" style=\"--bg:#0e0e10;"));
+        const QByteArray expectedElements[] = {
+            "<main id=\"plan\" class=\"plan\" data-idag=\"2026-11-23\">",
+            // Overblik: overdue first, today, empty days
+            "<section id=\"overblik\" class=\"view\" aria-label=\"Overblik\">",
+            "<section class=\"dag forfalden\" data-dato=\"2026-11-18\">",
+            "<span class=\"badge badge-forfalden\">forfalden</span>",
+            "<section class=\"dag i-dag\" data-dato=\"2026-11-23\">",
+            "<span class=\"badge badge-i-dag\">i dag</span>",
+            "<li class=\"opgave status-todo\"",
+            "<span class=\"tid tid-heldag\">heldag</span>",
+            // Liste efter dato, Uden dato last
+            "<section id=\"liste\" class=\"view\" aria-label=\"Liste efter dato\">",
+            "data-gruppe=\"dato:2026-11-18\"",
+            "<section class=\"gruppe\" data-gruppe=\"uden-dato\">",
+            "<span class=\"tid tid-ingen\">ingen dato</span>",
+            // Liste efter projekt
+            "<section id=\"liste-projekt\" class=\"view\" aria-label=\"Liste efter projekt\">",
+            "data-gruppe=\"projekt:Blog\"",
+            "<span class=\"gruppe-titel\">Ingen projekt</span>",
+            // Tidslinje
+            "<section id=\"tidslinje\" class=\"view\" aria-label=\"Tidslinje\">",
+            "<div class=\"gantt\" style=\"--vs:8;--vu:18\">",
+            "<section class=\"gantt-dag i-dag\" data-dato=\"2026-11-23\">",
+            "<div class=\"stang stang-heldag\"",
+            "class=\"stang-label\"",
+            "class=\"frist-maerke\"",
+            "<a href=\"#tidslinje\">Tidslinje</a>",
+        };
+        for (const QByteArray &element : expectedElements)
+            QVERIFY2(r.body.contains(element), element.constData());
+        const QByteArray body = r.body;
+        QVERIFY(body.indexOf("data-gruppe=\"uden-dato\"") > body.lastIndexOf("data-gruppe=\"dato:"));
+        QVERIFY(body.indexOf("dag forfalden") < body.indexOf("dag i-dag"));
+
+        // A view chosen by link without JavaScript.
+        r = httpGet(port, "/?visning=tidslinje");
+        QVERIFY(r.body.contains("<section id=\"tidslinje\" class=\"view aktiv\""));
+        QVERIFY(r.body.contains("<section id=\"overblik\" class=\"view\""));
+        QVERIFY(!httpGet(port, "/?visning=<x>").body.contains("aktiv\""));
+
+        r = httpGet(port, "/plan.json");
+        QCOMPARE(r.status, 200);
+        QCOMPARE(r.headers.value("content-type"), QByteArray("application/json; charset=utf-8"));
+        QCOMPARE(QJsonDocument::fromJson(r.body).object().value("format").toString(), QStringLiteral("omaplan-plan"));
+        r = httpGet(port, "/style.css");
+        QCOMPARE(r.status, 200);
+        QCOMPARE(r.headers.value("content-type"), QByteArray("text/css; charset=utf-8"));
+        QVERIFY(r.body.contains(".gantt"));
+        r = httpGet(port, "/app.js");
+        QCOMPARE(r.headers.value("content-type"), QByteArray("text/javascript; charset=utf-8"));
+        QVERIFY(r.body.contains("renderSide"));
+
+        // HEAD: headers only.
+        r = httpGet(port, "/", "HEAD");
+        QCOMPARE(r.status, 200);
+        QVERIFY(r.body.isEmpty());
+        QVERIFY(r.headers.value("content-length").toInt() > 1000);
+
+        // Read-only: everything but GET/HEAD is 405.
+        for (const QByteArray method : {QByteArray("POST"), QByteArray("PUT"), QByteArray("DELETE")}) {
+            r = httpGet(port, "/", method);
+            QCOMPARE(r.status, 405);
+            QCOMPARE(r.headers.value("allow"), QByteArray("GET, HEAD"));
+        }
+        // No way out of the routes.
+        QCOMPARE(httpGet(port, "/../plan.json").status, 400);
+        QCOMPARE(httpGet(port, "/%2e%2e/%2e%2e/etc/passwd").status, 400);
+        QCOMPARE(httpGet(port, "/eksempel/plan.json").status, 404);
+        QCOMPARE(httpGet(port, "/nope").status, 404);
+        QCOMPARE(http(port, "GARBAGE\r\n\r\n").status, 400);
+        QCOMPARE(http(port, "GET / HTTP/1.1\r\nX: " + QByteArray(PlanServer::kMaxRequestBytes + 10, 'a') + "\r\n\r\n").status, 431);
+
+        // A broken snapshot gives a page that says so.
+        QFile broken(snapshot);
+        QVERIFY(broken.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        broken.write("{ikke json");
+        broken.close();
+        r = httpGet(port, "/");
+        QCOMPARE(r.status, 500);
+        QVERIFY(r.body.contains("Planen kunne ikke"));
+    }
     void taskValidationRejectsBadInput()
     {
         Task task;
@@ -700,12 +1107,9 @@ private slots:
         QCOMPARE(cli(store, {QStringLiteral("frobnicate")}, &out, &err), 1);
         QCOMPARE(cli(store, {QStringLiteral("new"), QStringLiteral("--titel"), QStringLiteral("X"), QStringLiteral("--start"), QStringLiteral("bogus")}, &out, &err), 1);
 
-        // Later-phase commands answer "not implemented yet" with exit 1.
-        for (const char *cmd : {"snapshot", "serve"}) {
-            err.clear();
-            QCOMPARE(cli(store, {QString::fromLatin1(cmd), QStringLiteral("x")}, &out, &err), 1);
-            QVERIFY2(err.contains(QStringLiteral("Not implemented yet")), qPrintable(err));
-        }
+        // serve rejects bad arguments before it listens.
+        QCOMPARE(cli(store, {QStringLiteral("serve"), QStringLiteral("--port"), QStringLiteral("abc")}, &out, &err), 1);
+        QCOMPARE(cli(store, {QStringLiteral("serve"), QStringLiteral("--bind"), QStringLiteral("ikke-en-adresse")}, &out, &err), 1);
     }
 
     void cliAddWithFakeCommandEngine()

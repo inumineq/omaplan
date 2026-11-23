@@ -15,6 +15,9 @@
 //   api = "ollama"             # ollama | openai (OpenAI-kompatibelt endpoint)
 //   endpoint = "http://127.0.0.1:11434"
 //   model = "..."              # brugerens valg -- intet er hårdkodet
+//
+//   [snapshot]
+//   path = "~/Sync/omaplan/plan.json"  # plan.json til læseudgaven (standard: ved siden af databasen)
 struct AppConfig {
     QString engine = QStringLiteral("vibe"); // standardmotor
     QString command;                          // [motor] command
@@ -22,6 +25,7 @@ struct AppConfig {
     QString localApi = QStringLiteral("ollama");
     QString localEndpoint;
     QString localModel;
+    QString snapshotPath;                     // [snapshot] path, ~ expanded; empty = default
 
     // Empty path = default location; OMAPLAN_CONFIG overrides it (tests).
     static QString defaultPath();

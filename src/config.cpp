@@ -53,6 +53,9 @@ AppConfig AppConfig::load(const QString &path) {
                 if (ids.size() == 2)
                     config.compare = {ids.at(0).trimmed(), ids.at(1).trimmed()};
             }
+        } else if (section == QLatin1String("snapshot")) {
+            if (key == QLatin1String("path"))
+                config.snapshotPath = value.startsWith(QLatin1String("~/")) ? QDir::homePath() + value.mid(1) : value;
         } else if (section == QLatin1String("motor.lokal")) {
             if (key == QLatin1String("api"))
                 config.localApi = value.toLower();

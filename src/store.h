@@ -116,6 +116,12 @@ private:
     bool selectChanges(const QString &sql, const QVariantList &binds, QList<Change> *out,
                        QString *error) const;
 
+signals:
+    // After every outermost COMMIT, i.e. once per change however many rows
+    // it touched. The snapshot (plan.json) hangs off this.
+    void committed();
+
+private:
     QString m_path;
     QString m_connectionName;
     QSqlDatabase m_db;

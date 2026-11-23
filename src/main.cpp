@@ -12,6 +12,7 @@
 #include "actions.h"
 #include "cli.h"
 #include "planmodel.h"
+#include "snapshot.h"
 #include "store.h"
 #include "theme.h"
 #include "translator.h"
@@ -66,6 +67,11 @@ int main(int argc, char *argv[]) {
         qWarning() << "omaplan:" << storeError;
 
     Actions actions(&store);
+    // plan.json for the read-only edition: written now, so it exists from the
+    // first start, and again after every change made in the window.
+    Snapshotter snapshotter(&store, Snapshot::path(store.path()));
+    if (storeOpen)
+        snapshotter.write();
     PlanModel planModel(&store);
     // The window still opens, and says why the plan is missing.
     if (!storeOpen)

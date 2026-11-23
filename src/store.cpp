@@ -336,6 +336,7 @@ bool Store::commit(QString *error) {
         QSqlQuery(m_db).exec(QStringLiteral("ROLLBACK"));
         return false;
     }
+    emit committed();
     return true;
 }
 

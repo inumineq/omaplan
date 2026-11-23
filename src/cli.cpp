@@ -1,5 +1,6 @@
 #include "cli.h"
 
+#include <QCoreApplication>
 #include <QDate>
 #include <QDir>
 #include <QFile>
@@ -11,6 +12,8 @@
 
 #include "actions.h"
 #include "mcp.h"
+#include "server.h"
+#include "snapshot.h"
 #include "skill.h"
 #include "store.h"
 #include "task.h"
@@ -38,7 +41,8 @@ static void printHelp(QTextStream &out) {
         "  add <text> [--motor ...] [--ja] [--model M] [--endpoint URL]   AI proposal; --ja stores it\n"
         "  skill install|uninstall   install/remove the bundled agent skill\n"
         "  mcp                   MCP server over stdio (claude mcp add omaplan -- omaplan mcp)\n"
-        "  snapshot | serve ...  (not implemented yet)\n"
+        "  snapshot [path]       write plan.json for the read-only edition (also automatic after every change)\n"
+        "  serve [--port N] [--bind ADDR] [--snapshot PATH]   read-only web page (default 127.0.0.1:8787)\n"
         "\n"
         "Dates accept ISO (2026-12-01, 2026-12-01 14:30) and Danish/English expressions\n"
         "(\"i morgen\", \"fredag 12\", \"tomorrow\", \"next monday\", optional \"kl. 14:30\").\n"
@@ -152,10 +156,44 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
         return 1;
     }
 
-    // Later phases; they answer "not implemented yet" with exit 1.
-    if (command == QLatin1String("snapshot") || command == QLatin1String("serve")) {
-        err << QObject::tr("Not implemented yet: %1").arg(command) << "\n";
-        return 1;
+    // The read-only edition's web server reads plan.json only, never the
+    // database, so it starts without opening the store.
+    if (command == QLatin1String("serve")) {
+        QStringList positional;
+        const auto flags = parseFlags(rest, &positional);
+        PlanServer::Options options;
+        options.snapshotPath = flags.contains(QStringLiteral("snapshot")) ? flags.value(QStringLiteral("snapshot"))
+                                                                          : Snapshot::path(store->path());
+        if (flags.contains(QStringLiteral("port"))) {
+            bool ok = false;
+            const uint port = flags.value(QStringLiteral("port")).toUInt(&ok);
+            if (!ok || port > 65535) {
+                err << QObject::tr("Invalid port: %1").arg(flags.value(QStringLiteral("port"))) << "\n";
+                return 1;
+            }
+            options.port = quint16(port);
+        }
+        if (flags.contains(QStringLiteral("bind")) && !options.address.setAddress(flags.value(QStringLiteral("bind")))) {
+            err << QObject::tr("Invalid address: %1").arg(flags.value(QStringLiteral("bind"))) << "\n";
+            return 1;
+        }
+        if (options.snapshotPath.isEmpty()) {
+            err << QObject::tr("No snapshot path; use --snapshot") << "\n";
+            return 1;
+        }
+        PlanServer server(options);
+        QString error;
+        if (!server.listen(&error)) {
+            err << error << "\n";
+            return 1;
+        }
+        const QString host = options.address.protocol() == QAbstractSocket::IPv6Protocol
+                                 ? QLatin1Char('[') + options.address.toString() + QLatin1Char(']')
+                                 : options.address.toString();
+        out << QObject::tr("Serving http://%1:%2/ from %3").arg(host).arg(server.port()).arg(options.snapshotPath)
+            << "\n";
+        out.flush();
+        return QCoreApplication::exec();
     }
 
     QString error;
@@ -165,6 +203,31 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
     }
     Actions actions(store);
     const QString source = QStringLiteral("cli");
+    // plan.json follows every change made here (CLI and MCP alike).
+    Snapshotter snapshotter(store, Snapshot::path(store->path()));
+
+    if (command == QLatin1String("snapshot")) {
+        QStringList positional;
+        parseFlags(rest, &positional);
+        const QString path = positional.isEmpty() ? snapshotter.path() : positional.first();
+        if (path.isEmpty()) {
+            err << QObject::tr("No snapshot path") << "\n";
+            return 1;
+        }
+        if (!Snapshot::write(store, path, &error)) {
+            err << error << "\n";
+            return 1;
+        }
+        if (json) {
+            QJsonObject obj;
+            obj.insert(QStringLiteral("ok"), true);
+            obj.insert(QStringLiteral("path"), path);
+            printJson(out, obj);
+        } else {
+            out << QObject::tr("Snapshot written to %1").arg(path) << "\n";
+        }
+        return 0;
+    }
 
     if (command == QLatin1String("mcp")) {
         // stdout carries the protocol only; anything else goes to stderr.

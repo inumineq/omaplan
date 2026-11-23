@@ -18,7 +18,10 @@ HEADERS += \
     src/engine.h \
     src/prompt.h \
     src/proposal.h \
-    src/mcp.h
+    src/mcp.h \
+    src/render.h \
+    src/snapshot.h \
+    src/server.h
 
 SOURCES += \
     src/main.cpp \
@@ -39,6 +42,9 @@ SOURCES += \
     src/engine_command.cpp \
     src/prompt.cpp \
     src/proposal.cpp \
-    src/mcp.cpp
+    src/mcp.cpp \
+    src/render.cpp \
+    src/snapshot.cpp \
+    src/server.cpp
 
-RESOURCES += src/resources.qrc src/ai-skema.qrc src/skill.qrc
+RESOURCES += src/resources.qrc src/ai-skema.qrc src/skill.qrc src/web.qrc
