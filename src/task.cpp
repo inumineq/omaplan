@@ -5,10 +5,7 @@
 #include <QUuid>
 
 // Validation messages are user-facing (the CLI prints them), so they go through
-// the translator like everything else.
-static QString tr(const char *text) {
-    return QCoreApplication::translate("Task", text);
-}
+// Qt's translators like everything else.
 
 const QStringList Task::guessableFields() {
     return {"start", "duration_minutes", "deadline", "project", "priority"};
@@ -36,22 +33,22 @@ Task::Status Task::statusFromString(const QString &text, bool *ok) {
 QString Task::validate() const {
     const QUuid uuid(id);
     if (uuid.isNull())
-        return tr("id is not a UUID: %1").arg(id);
+        return QCoreApplication::translate("Task", "id is not a UUID: %1").arg(id);
     if (title.trimmed().isEmpty())
-        return tr("title is empty");
+        return QCoreApplication::translate("Task", "title is empty");
     if (title.size() > 200)
-        return tr("title is longer than 200 characters");
+        return QCoreApplication::translate("Task", "title is longer than 200 characters");
     if (priority < 1 || priority > 3)
-        return tr("priority must be 1..3, got %1").arg(priority);
+        return QCoreApplication::translate("Task", "priority must be 1..3, got %1").arg(priority);
     if (durationMinutes < 0)
-        return tr("duration must not be negative, got %1").arg(durationMinutes);
+        return QCoreApplication::translate("Task", "duration must not be negative, got %1").arg(durationMinutes);
     if (start.isValid() && startHasTime && !start.time().isValid())
-        return tr("start has a time flag but no valid time");
+        return QCoreApplication::translate("Task", "start has a time flag but no valid time");
     for (const QString &guess : guesses)
         if (!guessableFields().contains(guess))
-            return tr("unknown guessed field: %1").arg(guess);
+            return QCoreApplication::translate("Task", "unknown guessed field: %1").arg(guess);
     if (!captureId.isEmpty() && QUuid(captureId).isNull())
-        return tr("capture id is not a UUID: %1").arg(captureId);
+        return QCoreApplication::translate("Task", "capture id is not a UUID: %1").arg(captureId);
     return {};
 }
 

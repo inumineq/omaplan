@@ -120,8 +120,8 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
     for (int i = 0; i < args.size(); ++i) {
         if (args[i] == QLatin1String("--json"))
             json = true;
-        else if (args[i] == QLatin1String("--db"))
-            ++i; // the store was already built from this by the caller
+        else if (args[i] == QLatin1String("--db") || args[i] == QLatin1String("--lang"))
+            ++i; // handled by the caller: the store and the language are already set
         else
             rest.append(args[i]);
     }

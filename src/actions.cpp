@@ -15,7 +15,7 @@
 #include "engine.h"
 #include "prompt.h"
 #include "proposal.h"
-#include "translator.h"
+#include "uilanguage.h"
 
 
 static QJsonObject changeToJson(const Store::Change &change) {
@@ -358,7 +358,7 @@ ActionResult Actions::runEngine(const QString &rawText, const QString &engineCho
 
     PromptContext context;
     context.today = today;
-    context.language = Translator::readLanguage(QDir::homePath() + QStringLiteral("/.config/omarchy/language"));
+    context.language = UiLanguage::current();
     context.existingTasks = existingTaskLines(m_store);
 
     m_engine = std::move(engine);
@@ -515,7 +515,7 @@ std::unique_ptr<AiEngine> Actions::startGuiEngine(const QString &engineChoice, c
     const QString annotated = annotateDates(text, today);
     PromptContext context;
     context.today = today;
-    context.language = Translator::readLanguage(QDir::homePath() + QStringLiteral("/.config/omarchy/language"));
+    context.language = UiLanguage::current();
     context.existingTasks = existingTaskLines(m_store);
 
     const QString engineId = engine->id();

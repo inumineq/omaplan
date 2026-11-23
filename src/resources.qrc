@@ -18,7 +18,5 @@
         <file alias="ProposalTask.qml">ProposalTask.qml</file>
         <file alias="TaskEditor.qml">TaskEditor.qml</file>
         <file alias="Fmt.qml">Fmt.qml</file>
-        <file alias="i18n/en.json">i18n/en.json</file>
-        <file alias="i18n/da.json">i18n/da.json</file>
     </qresource>
 </RCC>

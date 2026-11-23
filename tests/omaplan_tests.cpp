@@ -24,6 +24,7 @@
 #include "store.h"
 #include "task.h"
 #include "theme.h"
+#include "uilanguage.h"
 
 // Runs the CLI in-process against an already-constructed store, capturing
 // stdout and stderr.
@@ -1964,28 +1965,130 @@ private slots:
 
     // Every string the window or the CLI shows has a Danish translation: a
     // missing key shows English in the middle of the Danish window.
-    void everyUserStringHasADanishTranslation() {
-        const QDir src(QStringLiteral(OMAPLAN_SRC));
-        QFile daFile(src.filePath(QStringLiteral("i18n/da.json")));
-        QVERIFY(daFile.open(QIODevice::ReadOnly));
-        const QJsonObject da = QJsonDocument::fromJson(daFile.readAll()).object();
-        QVERIFY(!da.isEmpty());
+    void languagePrecedence() {
+        const QStringList available{QStringLiteral("en"), QStringLiteral("da")};
+        using S = UiLanguage::Sources;
+        const QStringList danishSystem{QStringLiteral("da-DK"), QStringLiteral("en-GB")};
+        // --lang > config > Omarchy > system > English.
+        QCOMPARE(UiLanguage::resolve(S{QStringLiteral("en"), QStringLiteral("da"), QStringLiteral("da"), danishSystem},
+                                     available), QStringLiteral("en"));
+        QCOMPARE(UiLanguage::resolve(S{{}, QStringLiteral("da"), QStringLiteral("en"), {}}, available),
+                 QStringLiteral("da"));
+        QCOMPARE(UiLanguage::resolve(S{{}, {}, QStringLiteral("da"), {QStringLiteral("en-US")}}, available),
+                 QStringLiteral("da"));
+        QCOMPARE(UiLanguage::resolve(S{{}, {}, {}, danishSystem}, available), QStringLiteral("da"));
+        QCOMPARE(UiLanguage::resolve(S{{}, {}, {}, {}}, available), QStringLiteral("en"));
+        // A language without a translation passes to the next source.
+        QCOMPARE(UiLanguage::resolve(S{QStringLiteral("fr"), {}, QStringLiteral("pt-BR"), danishSystem}, available),
+                 QStringLiteral("da"));
+        QCOMPARE(UiLanguage::resolve(S{QStringLiteral("fr"), {}, {}, {QStringLiteral("de-DE")}}, available),
+                 QStringLiteral("en"));
+        // Locale spellings name their language.
+        QCOMPARE(UiLanguage::normalize(QStringLiteral("da_DK.UTF-8")), QStringLiteral("da"));
+        QCOMPARE(UiLanguage::normalize(QStringLiteral("DA")), QStringLiteral("da"));
+        QCOMPARE(UiLanguage::normalize(QStringLiteral("not a language")), QString());
+    }
 
-        // qsTr("...") with escaped quotes allowed inside.
-        const QRegularExpression qml(QStringLiteral("qsTr\\(\\s*\"((?:[^\"\\\\]|\\\\.)*)\""));
-        QStringList missing;
-        for (const QString &name : src.entryList({QStringLiteral("*.qml")})) {
-            QFile f(src.filePath(name));
-            QVERIFY(f.open(QIODevice::ReadOnly));
-            const QString text = QString::fromUtf8(f.readAll());
-            for (auto it = qml.globalMatch(text); it.hasNext();) {
-                QString key = it.next().captured(1);
-                key.replace(QStringLiteral("\\\""), QStringLiteral("\""));
-                if (!da.contains(key))
-                    missing << name + QStringLiteral(": ") + key;
-            }
+    void danishTranslationIsEmbeddedAndInstalled() {
+        // The .qm files come from i18n/*.ts through lrelease, as resources.
+        QVERIFY(UiLanguage::available().contains(QStringLiteral("da")));
+        QVERIFY(UiLanguage::available().contains(QStringLiteral("en")));
+        QVERIFY(QFile::exists(QStringLiteral(":/i18n/omaplan_da.qm")));
+
+        QTemporaryDir dir;
+        qputenv("OMAPLAN_CONFIG", dir.filePath(QStringLiteral("none.toml")).toLocal8Bit());
+        const QString omarchy = dir.filePath(QStringLiteral("language"));
+        {
+            UiLanguage language(QCoreApplication::instance(), QStringLiteral("da"), false, omarchy);
+            QCOMPARE(language.language(), QStringLiteral("da"));
+            QCOMPARE(UiLanguage::current(), QStringLiteral("da"));
+            QCOMPARE(QCoreApplication::translate("Actions", "%n tasks", nullptr, 1), QStringLiteral("1 opgave"));
+            QCOMPARE(QCoreApplication::translate("Actions", "%n tasks", nullptr, 3), QStringLiteral("3 opgaver"));
+            QCOMPARE(QLocale().language(), QLocale::Danish);
         }
-        QVERIFY2(missing.isEmpty(), qPrintable(missing.join(QLatin1Char('\n'))));
+        {
+            // English has its plural forms too.
+            UiLanguage language(QCoreApplication::instance(), QStringLiteral("en"), false, omarchy);
+            QCOMPARE(QCoreApplication::translate("Actions", "%n tasks", nullptr, 1), QStringLiteral("1 task"));
+            QCOMPARE(QCoreApplication::translate("Actions", "%n tasks", nullptr, 3), QStringLiteral("3 tasks"));
+        }
+        // Without a translator, the source text.
+        QCOMPARE(QCoreApplication::translate("Actions", "Nothing to undo"), QStringLiteral("Nothing to undo"));
+        qunsetenv("OMAPLAN_CONFIG");
+        QLocale::setDefault(QLocale::c());
+    }
+
+    void everyStringHasADanishTranslation() {
+        // bin/test also runs lupdate against the sources (bin/i18n-check), so
+        // a new qsTr/tr string without a translation fails there; this checks
+        // the committed file.
+        QFile ts(QStringLiteral(OMAPLAN_I18N "/omaplan_da.ts"));
+        QVERIFY(ts.open(QIODevice::ReadOnly));
+        const QString text = QString::fromUtf8(ts.readAll());
+        QVERIFY(text.count(QStringLiteral("<message")) > 200);
+        QCOMPARE(text.count(QStringLiteral("type=\"unfinished\"")), 0);
+        QCOMPARE(text.count(QStringLiteral("type=\"vanished\"")), 0);
+    }
+
+    // Runs the real binary with a private database and config.
+    static QString runOmaplan(const QString &db, const QStringList &args, int *code = nullptr) {
+        QProcess process;
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        env.insert(QStringLiteral("OMAPLAN_DB"), db);
+        env.insert(QStringLiteral("OMAPLAN_CONFIG"), QFileInfo(db).absolutePath() + QStringLiteral("/config.toml"));
+        env.insert(QStringLiteral("OMAPLAN_SNAPSHOT"), QFileInfo(db).absolutePath() + QStringLiteral("/plan.json"));
+        env.insert(QStringLiteral("HOME"), QFileInfo(db).absolutePath());
+        env.insert(QStringLiteral("LANG"), QStringLiteral("C.UTF-8"));
+        env.remove(QStringLiteral("LANGUAGE"));
+        env.remove(QStringLiteral("LC_ALL"));
+        process.setProcessEnvironment(env);
+        process.start(QCoreApplication::applicationDirPath() + QStringLiteral("/../omaplan"), args);
+        process.waitForFinished(20000);
+        if (code)
+            *code = process.exitCode();
+        return QString::fromUtf8(process.readAllStandardOutput() + process.readAllStandardError());
+    }
+
+    void cliSpeaksTheChosenLanguageButJsonStaysEnglish() {
+        QTemporaryDir dir;
+        const QString db = dir.filePath(QStringLiteral("lang.db"));
+        int code = 0;
+        runOmaplan(db, {QStringLiteral("new"), QStringLiteral("--title"), QStringLiteral("Write"), QStringLiteral("--project"),
+                        QStringLiteral("Blog"), QStringLiteral("--start"), QStringLiteral("2026-12-01")}, &code);
+        QCOMPARE(code, 0);
+
+        QCOMPARE(runOmaplan(db, {QStringLiteral("--lang"), QStringLiteral("da"), QStringLiteral("projects")}),
+                 QStringLiteral("Blog (1 opgave)\n"));
+        QCOMPARE(runOmaplan(db, {QStringLiteral("projects"), QStringLiteral("--lang"), QStringLiteral("en")}),
+                 QStringLiteral("Blog (1 task)\n"));
+        // Without --lang (no config, no Omarchy file, C locale): English.
+        QCOMPARE(runOmaplan(db, {QStringLiteral("projects")}), QStringLiteral("Blog (1 task)\n"));
+        // config.toml's language, overridden by --lang.
+        QFile config(dir.filePath(QStringLiteral("config.toml")));
+        QVERIFY(config.open(QIODevice::WriteOnly));
+        config.write("language = \"da\"\n");
+        config.close();
+        QCOMPARE(runOmaplan(db, {QStringLiteral("projects")}), QStringLiteral("Blog (1 opgave)\n"));
+        QCOMPARE(runOmaplan(db, {QStringLiteral("--lang"), QStringLiteral("en"), QStringLiteral("projects")}),
+                 QStringLiteral("Blog (1 task)\n"));
+        // Error messages too.
+        QVERIFY(runOmaplan(db, {QStringLiteral("--lang"), QStringLiteral("da"), QStringLiteral("new")}, &code)
+                    .contains(QStringLiteral("Mangler --title")));
+        QCOMPARE(code, 1);
+        QVERIFY(runOmaplan(db, {QStringLiteral("--lang"), QStringLiteral("da"), QStringLiteral("--help")})
+                    .startsWith(QStringLiteral("Brug: omaplan")));
+
+        // --json is the same, field for field, in every language.
+        const QString jsonDa = runOmaplan(db, {QStringLiteral("--lang"), QStringLiteral("da"), QStringLiteral("list"),
+                                               QStringLiteral("--json")});
+        const QString jsonEn = runOmaplan(db, {QStringLiteral("--lang"), QStringLiteral("en"), QStringLiteral("list"),
+                                               QStringLiteral("--json")});
+        QCOMPARE(jsonDa, jsonEn);
+        QVERIFY(jsonDa.contains(QStringLiteral("\"title\":\"Write\"")));
+        QCOMPARE(runOmaplan(db, {QStringLiteral("--lang"), QStringLiteral("da"), QStringLiteral("summary"),
+                                 QStringLiteral("--month"), QStringLiteral("--json")}),
+                 runOmaplan(db, {QStringLiteral("--lang"), QStringLiteral("en"), QStringLiteral("summary"),
+                                 QStringLiteral("--month"), QStringLiteral("--json")}));
     }
 
     void themeReadsOmarchyColorsWithFallbacks()

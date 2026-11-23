@@ -5,7 +5,7 @@ pkgdesc='Plan your tasks with AI: write them in plain text and see the plan as o
 arch=('x86_64' 'aarch64')
 license=('MIT')
 depends=('qt6-base' 'qt6-declarative' 'qt6-wayland' 'xdg-desktop-portal')
-makedepends=('gcc' 'make')
+makedepends=('gcc' 'make' 'qt6-tools')
 source=()
 sha256sums=()
 

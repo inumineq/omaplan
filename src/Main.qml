@@ -218,7 +218,7 @@ ApplicationWindow {
         }
     }
 
-    // Right-to-left languages mirror the window; the Translator sets the
+    // Right-to-left languages mirror the window; main.cpp sets the
     // application's layout direction.
     Item {
         id: keySink

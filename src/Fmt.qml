@@ -1,11 +1,11 @@
 pragma Singleton
 import QtQuick
 
-// Dates, times and durations in the Omarchy language. Every binding that
+// Dates, times and durations in the interface language. Every binding that
 // calls these reads `lang`, so it re-renders on a language switch.
 // Danish: "mandag 24. november", the week starts on Monday.
 QtObject {
-    readonly property string lang: translator.language
+    readonly property string lang: uiLanguage.language
     readonly property bool danish: lang.indexOf("da") === 0
     readonly property var locale: Qt.locale(danish ? "da_DK" : "en_GB")
 
