@@ -90,6 +90,10 @@ body:has(#tidslinje.aktiv) .visninger a[href="#tidslinje"], … {
 
 (`#liste-projekt` tæller som fanen "Liste".)
 
+`serve` forstår også `?visning=liste` (og de andre id'er): den valgte visning får klassen `aktiv` i den
+server-renderede markup, så et link kan pege på en visning helt uden JS og uden anker. `app.js` læser samme
+parameter, når der ikke er et anker.
+
 `liste` og `liste-projekt` er samme visning med forskellig gruppering; hver af dem har i sin beskrivelse et
 link til den anden (`<a href="#liste-projekt">Gruppér efter projekt</a>` / `<a href="#liste">Gruppér efter
 dato</a>`).

@@ -54,6 +54,8 @@ omaplan move <id> "tirsdag kl. 14:00"  ·  omaplan done <id>  ·  omaplan rm <id
 omaplan projects  ·  omaplan summary --uge --json
 omaplan undo --json
 omaplan skill install        # bundtet agent-skill i ~/.claude/skills, ~/.codex/skills, ~/.vibe/skills, ...
+omaplan snapshot             # skriv plan.json til læseudgaven nu
+omaplan serve                # læseudgaven på http://127.0.0.1:8787/
 ```
 
 ## Live
@@ -76,6 +78,46 @@ claude mcp add omaplan -- omaplan mcp
 
 `propose` gemmer intet: vis forslaget for brugeren, og gem det med `approve` (med `capture_id` fra svaret). `add`
 gemmer med det samme og er kun til, når brugeren har bedt om det.
+
+## Læseudgave (telefon og andre maskiner)
+
+Efter hver ændring (fra vinduet, CLI'en eller MCP) skriver Omaplan et øjebliksbillede, `plan.json`, atomisk ved
+siden af databasen: `~/.local/share/omaplan/plan.json`. Formatet står i `docs/eksport.md`. Vil du have det et andet
+sted, så sæt det i `config.toml` eller med `OMAPLAN_SNAPSHOT`:
+
+```toml
+[snapshot]
+path = "~/Sync/omaplan/plan.json"
+```
+
+`omaplan snapshot [sti]` skriver det med det samme (fx første gang, eller til en anden sti).
+
+`omaplan serve [--port N] [--bind ADR] [--snapshot STI]` viser øjebliksbilledet som en lille, server-renderet side
+med overblik, liste og tidslinje, plus `/plan.json`. Den læser kun `plan.json` (aldrig databasen), kan ikke skrive,
+og siden virker uden JavaScript. Den binder til `127.0.0.1:8787`; del den på dit tailnet med `tailscale serve`, så
+adgang til siden er lig med adgang til tailnettet:
+
+```sh
+omaplan serve &                  # http://127.0.0.1:8787/
+tailscale serve --bg 8787        # https://<maskinen>.<dit-tailnet>.ts.net/ på tailnettet
+```
+
+Kører `serve` på en anden maskine (her kaldet `server`), så flyt øjebliksbilledet derhen, fx med rsync over
+Tailscale (eller Syncthing, hvis du allerede bruger det):
+
+```sh
+# på maskinen med Omaplan: send plan.json, hver gang den ændres
+while inotifywait -qq -e close_write,moved_to ~/.local/share/omaplan/; do
+  rsync -az ~/.local/share/omaplan/plan.json server:~/omaplan/plan.json
+done
+
+# på server
+omaplan serve --snapshot ~/omaplan/plan.json
+tailscale serve --bg 8787
+```
+
+Siden vælger visning med ankre (`#liste`, `#tidslinje`) eller et link som `/?visning=tidslinje`. Farverne følger
+Omarchy-temaet på maskinen, der kører `serve`, og ellers temaet, som det var, da øjebliksbilledet blev skrevet.
 
 ## Agent-skill
 

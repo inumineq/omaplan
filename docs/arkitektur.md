@@ -23,8 +23,9 @@ til projektform, tema, sprog og konventioner. Dette dokument beskriver kun det, 
 | `engine_command.cpp` | vilkårlig kommando: prompt på stdin, JSON på stdout |
 | `proposal.{h,cpp}` | parser og validerer motorens JSON mod `docs/ai-skema.json`; markerer gættede felter |
 | `prompt.{h,cpp}` | bygger prompten: i dag, tidszone, sprog, eksisterende opgaver i perioden, skemaet |
-| `snapshot.{h,cpp}` | skriver `plan.json` atomisk efter hver ændring |
-| `server.{h,cpp}` | `serve`: QHttpServer (`qt6-httpserver`), kun GET, server-renderet HTML + `/plan.json` |
+| `snapshot.{h,cpp}` | skriver `plan.json` atomisk (QSaveFile) én gang efter hver ændring (`Store::committed`), fra GUI, CLI og MCP |
+| `render.{h,cpp}` | læseudgavens HTML fra `plan.json`; port af `renderSide` i `web/app.js`, byte-identisk med `web/index.html` (test) |
+| `server.{h,cpp}` | `serve`: lille HTTP-server over `QTcpServer`, kun GET/HEAD, server-renderet HTML + `/plan.json`, `/style.css`, `/app.js` (Qt-ressourcer fra `web/`) |
 | `theme.{h,cpp}`, `translator.{h,cpp}` | fra skill'ens skabeloner, uændret i ånden |
 | `Main.qml` + komponenter | vindue, taster, de fire visninger, indtastning, forslag, sammenlign |
 
@@ -34,7 +35,8 @@ er påkrævet. Manglende værktøj (fx `vibe` ikke installeret) vises i vinduet 
 ## Data
 
 - `~/.local/share/omaplan/omaplan.db` (SQLite, WAL). `~/.config/omaplan/config.toml` til motorvalg og modeller.
-- `~/.local/share/omaplan/plan.json` til læseudgaven.
+- `~/.local/share/omaplan/plan.json` til læseudgaven (ved siden af databasen; `[snapshot] path` i `config.toml` eller
+  `OMAPLAN_SNAPSHOT` flytter den).
 - Rå indtastninger gemmes (tabellen `captures`) med motor og model, så et forslag kan spores.
 - Fortryd via en ændringslog i databasen (tabellen `changes` med før/efter og kilde gui/cli/mcp), så `undo` virker på tværs af processer.
 - GUI'en opdager ændringer fra andre processer via `PRAGMA data_version` (poll hvert 500 ms) og genindlæser modellen.
@@ -52,4 +54,4 @@ Ingen test kalder en rigtig AI. En separat `bin/smoke-ai` kalder de rigtige moto
 
 ## Afhængigheder
 
-Omarchys standard Qt-moduler plus `qt6-httpserver` (kun til `serve`). Intet andet uden en ADR.
+Omarchys standard Qt-moduler. `serve` bruger `QTcpServer` fra Qt Network, så der er ingen ekstra afhængighed. Intet andet uden en ADR.

@@ -484,7 +484,8 @@ function anvendTema(tema, root) {
 // Efter JS har erstattet main.innerHTML mister nogle browsere :target på det nye element,
 // så sæt også klassen .aktiv (CSS uden JS bruger kun :target).
 function sætAktivVisning() {
-  const målId = window.location.hash.replace(/^#/, '');
+  // Anker først; ellers ?visning=… som serve også forstår uden JS.
+  const målId = window.location.hash.replace(/^#/, '') || new URLSearchParams(window.location.search).get('visning') || '';
   const mål = målId ? document.getElementById(målId) : null;
   for (const v of document.querySelectorAll('#plan .view')) {
     v.classList.toggle('aktiv', v === mål);
