@@ -1,0 +1,149 @@
+#include "datewords.h"
+
+#include <QRegularExpression>
+#include <algorithm>
+
+static DateWords danish() {
+    DateWords w;
+    w.code = QStringLiteral("da");
+    w.today = {QStringLiteral("i dag")};
+    w.tomorrow = {QStringLiteral("i morgen")};
+    w.dayAfterTomorrow = {QStringLiteral("i overmorgen")};
+    w.nextWeek = {QStringLiteral("næste uge")};
+    w.weekend = {QStringLiteral("i weekenden")};
+    w.nextPrefixes = {QStringLiteral("næste")};
+    w.inDaysPattern = QStringLiteral("^om (\\d{1,3}) dag(?:e)?$");
+    w.timePrefixes = {QStringLiteral("kl\\.?")};
+    w.dayArticles = {QStringLiteral("den")};
+    w.weekdays = {{QStringLiteral("mandag"), 1}, {QStringLiteral("tirsdag"), 2}, {QStringLiteral("onsdag"), 3},
+                  {QStringLiteral("torsdag"), 4}, {QStringLiteral("fredag"), 5}, {QStringLiteral("lørdag"), 6},
+                  {QStringLiteral("søndag"), 7}};
+    w.months = {{QStringLiteral("januar"), 1}, {QStringLiteral("februar"), 2}, {QStringLiteral("marts"), 3},
+                {QStringLiteral("april"), 4},  {QStringLiteral("maj"), 5},      {QStringLiteral("juni"), 6},
+                {QStringLiteral("juli"), 7},   {QStringLiteral("august"), 8},   {QStringLiteral("september"), 9},
+                {QStringLiteral("oktober"), 10}, {QStringLiteral("november"), 11}, {QStringLiteral("december"), 12}};
+    w.numberWords = {{QStringLiteral("en"), 1},    {QStringLiteral("et"), 1},     {QStringLiteral("to"), 2},
+                     {QStringLiteral("tre"), 3},   {QStringLiteral("fire"), 4},   {QStringLiteral("fem"), 5},
+                     {QStringLiteral("seks"), 6},  {QStringLiteral("syv"), 7},    {QStringLiteral("otte"), 8},
+                     {QStringLiteral("ni"), 9},    {QStringLiteral("ti"), 10},    {QStringLiteral("elleve"), 11},
+                     {QStringLiteral("tolv"), 12}};
+    w.clockPhrases = {{QStringLiteral("halv"), -30}, {QStringLiteral("kvart i"), -15},
+                      {QStringLiteral("kvart over"), 15}};
+    return w;
+}
+
+static DateWords english() {
+    DateWords w;
+    w.code = QStringLiteral("en");
+    w.today = {QStringLiteral("today")};
+    w.tomorrow = {QStringLiteral("tomorrow")};
+    w.dayAfterTomorrow = {QStringLiteral("day after tomorrow"), QStringLiteral("the day after tomorrow")};
+    w.nextWeek = {QStringLiteral("next week")};
+    w.weekend = {QStringLiteral("weekend"), QStringLiteral("this weekend"), QStringLiteral("at the weekend"),
+                 QStringLiteral("on the weekend")};
+    w.nextPrefixes = {QStringLiteral("next")};
+    w.inDaysPattern = QStringLiteral("^in (\\d{1,3}) days?$");
+    w.timePrefixes = {QStringLiteral("at")};
+    w.dayArticles = {QStringLiteral("the")};
+    w.weekdays = {{QStringLiteral("monday"), 1}, {QStringLiteral("tuesday"), 2}, {QStringLiteral("wednesday"), 3},
+                  {QStringLiteral("thursday"), 4}, {QStringLiteral("friday"), 5}, {QStringLiteral("saturday"), 6},
+                  {QStringLiteral("sunday"), 7}};
+    w.months = {{QStringLiteral("january"), 1}, {QStringLiteral("february"), 2}, {QStringLiteral("march"), 3},
+                {QStringLiteral("april"), 4},   {QStringLiteral("may"), 5},      {QStringLiteral("june"), 6},
+                {QStringLiteral("july"), 7},    {QStringLiteral("august"), 8},   {QStringLiteral("september"), 9},
+                {QStringLiteral("october"), 10}, {QStringLiteral("november"), 11}, {QStringLiteral("december"), 12}};
+    w.numberWords = {{QStringLiteral("one"), 1},   {QStringLiteral("two"), 2},    {QStringLiteral("three"), 3},
+                     {QStringLiteral("four"), 4},  {QStringLiteral("five"), 5},   {QStringLiteral("six"), 6},
+                     {QStringLiteral("seven"), 7}, {QStringLiteral("eight"), 8},  {QStringLiteral("nine"), 9},
+                     {QStringLiteral("ten"), 10},  {QStringLiteral("eleven"), 11}, {QStringLiteral("twelve"), 12}};
+    w.clockPhrases = {{QStringLiteral("quarter to"), -15}, {QStringLiteral("quarter past"), 15},
+                      {QStringLiteral("half past"), 30}};
+    return w;
+}
+
+const QList<DateWords> &dateLanguages() {
+    static const QList<DateWords> languages = {danish(), english()};
+    return languages;
+}
+
+namespace DateVocabulary {
+
+template <typename Pick>
+static bool anyContains(const QString &phrase, Pick pick) {
+    for (const DateWords &w : dateLanguages())
+        if (pick(w).contains(phrase))
+            return true;
+    return false;
+}
+
+template <typename Pick>
+static int anyValue(const QString &word, Pick pick) {
+    for (const DateWords &w : dateLanguages())
+        if (const int value = pick(w).value(word, 0))
+            return value;
+    return 0;
+}
+
+bool isToday(const QString &phrase) { return anyContains(phrase, [](const DateWords &w) { return w.today; }); }
+bool isTomorrow(const QString &phrase) { return anyContains(phrase, [](const DateWords &w) { return w.tomorrow; }); }
+bool isDayAfterTomorrow(const QString &phrase) {
+    return anyContains(phrase, [](const DateWords &w) { return w.dayAfterTomorrow; });
+}
+bool isNextWeek(const QString &phrase) { return anyContains(phrase, [](const DateWords &w) { return w.nextWeek; }); }
+bool isWeekend(const QString &phrase) { return anyContains(phrase, [](const DateWords &w) { return w.weekend; }); }
+bool isDayArticle(const QString &word) { return anyContains(word, [](const DateWords &w) { return w.dayArticles; }); }
+
+int weekday(const QString &word) { return anyValue(word, [](const DateWords &w) { return w.weekdays; }); }
+int month(const QString &word) { return anyValue(word, [](const DateWords &w) { return w.months; }); }
+int numberWord(const QString &word) { return anyValue(word, [](const DateWords &w) { return w.numberWords; }); }
+
+bool stripNextPrefix(QString *phrase) {
+    for (const DateWords &w : dateLanguages())
+        for (const QString &prefix : w.nextPrefixes)
+            if (phrase->startsWith(prefix + QLatin1Char(' '))) {
+                *phrase = phrase->mid(prefix.size() + 1).trimmed();
+                return true;
+            }
+    return false;
+}
+
+int inDays(const QString &phrase) {
+    for (const DateWords &w : dateLanguages())
+        if (const auto m = QRegularExpression(w.inDaysPattern).match(phrase); m.hasMatch())
+            return m.captured(1).toInt();
+    return -1;
+}
+
+QString timePrefixPattern() {
+    QStringList parts;
+    for (const DateWords &w : dateLanguages())
+        parts << w.timePrefixes;
+    return parts.join(QLatin1Char('|'));
+}
+
+QStringList todayPhrases() {
+    QStringList phrases;
+    for (const DateWords &w : dateLanguages())
+        phrases << w.today;
+    return phrases;
+}
+
+QString clockPhrasePattern() {
+    QStringList phrases;
+    for (const DateWords &w : dateLanguages())
+        phrases << w.clockPhrases.keys();
+    // Longest first, so "kvart over" is tried before "kvart".
+    std::sort(phrases.begin(), phrases.end(), [](const QString &a, const QString &b) { return a.size() > b.size(); });
+    for (QString &p : phrases)
+        p = QRegularExpression::escape(p);
+    return phrases.join(QLatin1Char('|'));
+}
+
+int clockPhraseOffset(const QString &phrase) {
+    for (const DateWords &w : dateLanguages())
+        if (w.clockPhrases.contains(phrase))
+            return w.clockPhrases.value(phrase);
+    return 0;
+}
+
+} // namespace DateVocabulary

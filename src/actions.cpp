@@ -6,10 +6,12 @@
 #include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QLocale>
 #include <QRegularExpression>
 
 #include "config.h"
 #include "dateannotate.h"
+#include "datewords.h"
 #include "engine.h"
 #include "prompt.h"
 #include "proposal.h"
@@ -852,18 +854,6 @@ bool Actions::patchFromFields(const Fields &given, QJsonObject *patch, QString *
 // ---------------------------------------------------------------------------
 // Date parsing
 
-static const QHash<QString, int> &weekdays() {
-    static const QHash<QString, int> map = {
-        {QStringLiteral("mandag"), 1}, {QStringLiteral("tirsdag"), 2}, {QStringLiteral("onsdag"), 3},
-        {QStringLiteral("torsdag"), 4}, {QStringLiteral("fredag"), 5}, {QStringLiteral("lørdag"), 6},
-        {QStringLiteral("søndag"), 7},
-        {QStringLiteral("monday"), 1}, {QStringLiteral("tuesday"), 2}, {QStringLiteral("wednesday"), 3},
-        {QStringLiteral("thursday"), 4}, {QStringLiteral("friday"), 5}, {QStringLiteral("saturday"), 6},
-        {QStringLiteral("sunday"), 7},
-    };
-    return map;
-}
-
 // First occurrence of `day` (1-31) in `base`'s month or a later one, never
 // before `base`. A day the current month lacks rolls into a later month
 // instead of being clamped into it ("30" in February = March 30).
@@ -881,20 +871,6 @@ static bool dayOfMonthDate(const QDate &base, int day, QDate *out) {
         }
     }
     return false;
-}
-
-static const QHash<QString, int> &monthNames() {
-    static const QHash<QString, int> map = {
-        {QStringLiteral("januar"), 1}, {QStringLiteral("februar"), 2}, {QStringLiteral("marts"), 3},
-        {QStringLiteral("april"), 4}, {QStringLiteral("maj"), 5}, {QStringLiteral("juni"), 6},
-        {QStringLiteral("juli"), 7}, {QStringLiteral("august"), 8}, {QStringLiteral("september"), 9},
-        {QStringLiteral("oktober"), 10}, {QStringLiteral("november"), 11}, {QStringLiteral("december"), 12},
-        {QStringLiteral("january"), 1}, {QStringLiteral("february"), 2}, {QStringLiteral("march"), 3},
-        {QStringLiteral("april"), 4}, {QStringLiteral("may"), 5}, {QStringLiteral("june"), 6},
-        {QStringLiteral("july"), 7}, {QStringLiteral("august"), 8}, {QStringLiteral("september"), 9},
-        {QStringLiteral("october"), 10}, {QStringLiteral("november"), 11}, {QStringLiteral("december"), 12},
-    };
-    return map;
 }
 
 bool Actions::parseDateTime(const QString &text, const QDate &today, QDateTime *out, bool *hasTime,
@@ -936,11 +912,12 @@ bool Actions::parseDateTime(const QString &text, const QDate &today, QDateTime *
     QString rest = trimmed.toLower();
 
     // Optional trailing time: "kl. 14:30", "kl 9", "at 14:30", "14:30",
-    // "fredag 12" (weekday + 0-23 = hour), "i morgen 10". A trailing number
+    // "friday 12" (weekday + 0-23 = hour), "tomorrow 10". A trailing number
     // above 23 without minutes is not a time; it stays for the date part
-    // ("25" = the 25th).
+    // ("25" = the 25th). The prefixes come from every language in datewords.
     static const QRegularExpression timeRe(
-        QStringLiteral("(?:^|\\s)(?:\\bkl\\.?|\\bat\\b)?\\s*(\\d{1,2})(?:[:.](\\d{2}))?\\s*$"));
+        QStringLiteral("(?:^|\\s)(?:\\b(?:%1)(?=\\s|\\d|$))?\\s*(\\d{1,2})(?:[:.](\\d{2}))?\\s*$")
+            .arg(DateVocabulary::timePrefixPattern()));
     QTime time(0, 0);
     bool withTime = false;
     const auto timeMatch = timeRe.match(rest);
@@ -961,58 +938,53 @@ bool Actions::parseDateTime(const QString &text, const QDate &today, QDateTime *
         }
     }
 
+    using namespace DateVocabulary;
     QDate date;
-    if (rest.isEmpty() || rest == QLatin1String("i dag") || rest == QLatin1String("today")) {
+    if (rest.isEmpty() || isToday(rest)) {
         date = today;
-    } else if (rest == QLatin1String("i morgen") || rest == QLatin1String("tomorrow")) {
+    } else if (isTomorrow(rest)) {
         date = today.addDays(1);
-    } else if (rest == QLatin1String("i overmorgen") || rest == QLatin1String("day after tomorrow")) {
+    } else if (isDayAfterTomorrow(rest)) {
         date = today.addDays(2);
-    } else if (rest == QStringLiteral("næste uge") || rest == QLatin1String("next week")) {
+    } else if (isNextWeek(rest)) {
         date = today.addDays(8 - today.dayOfWeek()); // Monday of next week
-    } else if (rest == QLatin1String("i weekenden") || rest == QLatin1String("weekend")
-               || rest == QLatin1String("this weekend")) {
+    } else if (isWeekend(rest)) {
         date = today.addDays((6 - today.dayOfWeek() + 7) % 7); // Saturday
-    } else if (auto m = QRegularExpression(QStringLiteral("^(?:om|in) (\\d{1,3}) (?:dag(?:e)?|days?)$")).match(rest);
-               m.hasMatch()) {
-        date = today.addDays(m.captured(1).toInt());
+    } else if (const int days = inDays(rest); days >= 0) {
+        date = today.addDays(days);
     } else {
-        bool strictlyNext = false;
-        if (rest.startsWith(QStringLiteral("næste "))) {
-            strictlyNext = true;
-            rest = rest.mid(QStringLiteral("næste ").size()).trimmed();
-        } else if (rest.startsWith(QLatin1String("next "))) {
-            strictlyNext = true;
-            rest = rest.mid(5).trimmed();
-        }
+        const bool strictlyNext = stripNextPrefix(&rest);
 
-        // "mandag i dag" means today; remember that and drop the phrase
+        // "monday today" means today; remember that and drop the phrase
         // before tokenizing (a bare weekday alone means NEXT week when the
         // weekday is today — see below).
-        const bool todayMentioned = rest.contains(QStringLiteral("i dag"))
-                                    || rest.contains(QLatin1String("today"));
-        if (todayMentioned)
-            rest = QString(rest).remove(QStringLiteral("i dag")).remove(QLatin1String("today")).trimmed();
+        bool todayMentioned = false;
+        for (const QString &phrase : todayPhrases())
+            if (rest.contains(phrase)) {
+                todayMentioned = true;
+                rest = QString(rest).remove(phrase).trimmed();
+            }
 
-        // Tokens: weekday, "den 12.", "12.", "12/12", "12. december", bare "25".
+        // Tokens: weekday, "den 12.", "12.", "12th", "12/12", "12. december",
+        // bare "25".
         int weekday = 0, day = 0, month = 0;
         bool hasDen = false, bad = false;
-        static const QRegularExpression dayDot(QStringLiteral("^(\\d{1,2})\\.$"));
+        static const QRegularExpression dayDot(QStringLiteral("^(\\d{1,2})(?:\\.|st|nd|rd|th)$"));
         static const QRegularExpression daySlash(QStringLiteral("^(\\d{1,2})/(\\d{1,2})$"));
         static const QRegularExpression bareNumber(QStringLiteral("^\\d{1,2}$"));
         const QStringList parts = rest.split(QLatin1Char(' '), Qt::SkipEmptyParts);
         for (const QString &part : parts) {
-            if (weekdays().contains(part)) {
-                weekday = weekdays().value(part);
-            } else if (part == QLatin1String("den")) {
+            if (DateVocabulary::weekday(part)) {
+                weekday = DateVocabulary::weekday(part);
+            } else if (isDayArticle(part)) {
                 hasDen = true;
             } else if (auto m = dayDot.match(part); m.hasMatch()) {
                 day = m.captured(1).toInt();
             } else if (auto m = daySlash.match(part); m.hasMatch()) {
                 day = m.captured(1).toInt();
                 month = m.captured(2).toInt();
-            } else if (monthNames().contains(part)) {
-                month = monthNames().value(part);
+            } else if (DateVocabulary::month(part)) {
+                month = DateVocabulary::month(part);
             } else if (bareNumber.match(part).hasMatch()) {
                 day = part.toInt();
             } else {
@@ -1043,7 +1015,7 @@ bool Actions::parseDateTime(const QString &text, const QDate &today, QDateTime *
             date = candidate;
             if (weekday != 0 && date.dayOfWeek() != weekday) {
                 if (error) *error = QCoreApplication::translate("Actions", "%1 is not a %2")
-                                        .arg(date.toString(Qt::ISODate), weekdays().key(weekday));
+                                        .arg(date.toString(Qt::ISODate), QLocale().dayName(weekday, QLocale::LongFormat).toLower());
                 return false;
             }
         } else if (day != 0) {
@@ -1061,7 +1033,7 @@ bool Actions::parseDateTime(const QString &text, const QDate &today, QDateTime *
                 }
                 if (date.dayOfWeek() != weekday) {
                     if (error) *error = QCoreApplication::translate("Actions", "%1 is not a %2")
-                                            .arg(date.toString(Qt::ISODate), weekdays().key(weekday));
+                                            .arg(date.toString(Qt::ISODate), QLocale().dayName(weekday, QLocale::LongFormat).toLower());
                     return false;
                 }
             }

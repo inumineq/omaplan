@@ -9,15 +9,16 @@
 // layer never includes core headers.
 struct PromptContext {
     QDate today = QDate::currentDate();
-    QString language = QStringLiteral("da"); // Omarchy UI language
+    QString language = QStringLiteral("en"); // the app's UI language
     QStringList existingTasks;                // one line per task, for context
 };
 
-// The system prompt: today's date and weekday (so "på tirsdag" can be
+// The system prompt: today's date and weekday (so "on Tuesday" can be
 // resolved), the timezone, the UI language, the response schema and the rules.
 // It depends only on the date, so it is identical all day (prompt caching);
 // existing tasks go into the user prompt instead. Written in English; it
-// instructs the engine to understand Danish date expressions.
+// instructs the engine to understand date expressions in the user's language
+// and to keep titles and notes in that language.
 QString buildSystemPrompt(const PromptContext &context);
 
 // The user prompt: the raw, unedited input text, plus the existing tasks as

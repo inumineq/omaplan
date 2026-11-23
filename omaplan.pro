@@ -14,6 +14,7 @@ HEADERS += \
     src/planmodel.h \
     src/config.h \
     src/dateannotate.h \
+    src/datewords.h \
     src/skill.h \
     src/engine.h \
     src/prompt.h \
@@ -34,6 +35,7 @@ SOURCES += \
     src/planmodel.cpp \
     src/config.cpp \
     src/dateannotate.cpp \
+    src/datewords.cpp \
     src/skill.cpp \
     src/engine.cpp \
     src/engine_vibe.cpp \

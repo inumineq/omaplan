@@ -1073,11 +1073,12 @@ private slots:
         QCOMPARE(QDate(2026, 11, 23).dayOfWeek(), 1); // Monday
     }
 
-    void allTwentyCasesHaveValidExpectedJson()
+    void allCasesHaveValidExpectedJson()
     {
+        // 01-20 are Danish input, 21-25 English.
         QDir dir(fixturesDir() + QStringLiteral("/cases"));
         const QStringList inputs = dir.entryList({QStringLiteral("*.txt")}, QDir::Files, QDir::Name);
-        QCOMPARE(inputs.size(), 20);
+        QCOMPARE(inputs.size(), 25);
         for (const QString &name : inputs) {
             const QString base = name.left(name.size() - 4);
             const QString input = readFixture(QStringLiteral("cases/") + name);

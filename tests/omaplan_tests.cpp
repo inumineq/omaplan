@@ -1147,7 +1147,10 @@ private slots:
         const auto captures = store.captures(&error);
         QCOMPARE(captures.size(), 1);
         QCOMPARE(captures[0].rawText, QStringLiteral("køb mælk i morgen"));
-        QVERIFY(captures[0].annotatedText.contains(QStringLiteral("i morgen [tirsdag 2026-11-24]")));
+        const QDate tomorrow = QDate::currentDate().addDays(1);
+        QVERIFY(captures[0].annotatedText.contains(
+            QStringLiteral("i morgen [%1 %2]")
+                .arg(QLocale(QLocale::English).dayName(tomorrow.dayOfWeek()), tomorrow.toString(Qt::ISODate))));
         QCOMPARE(captures[0].engine, QStringLiteral("command"));
 
         // With --yes the tasks are stored and linked to the capture.
@@ -1171,33 +1174,62 @@ private slots:
     void dateAnnotation()
     {
         const QDate today(2026, 11, 23); // Monday
-        // Ugedage, nøgleord, tal+måned, tider, halv/kvart.
+        // Danish input: weekdays, key words, day + month, times, halv/kvart.
         QCOMPARE(annotateDates(QStringLiteral("podcast-klip til linkedin tirsdag"), today),
-                 QStringLiteral("podcast-klip til linkedin tirsdag [tirsdag 2026-11-24]"));
-        // Ugedag == i dag (mandag) betyder næste mandag.
+                 QStringLiteral("podcast-klip til linkedin tirsdag [Tuesday 2026-11-24]"));
+        // A weekday that is today (Monday) means next Monday.
         QCOMPARE(annotateDates(QStringLiteral("til mandag"), today),
-                 QStringLiteral("til mandag [mandag 2026-11-30]"));
+                 QStringLiteral("til mandag [Monday 2026-11-30]"));
         // Longest phrase wins: "i morgen kl. 14:30" is annotated as one unit.
         QCOMPARE(annotateDates(QStringLiteral("møde i morgen kl. 14:30"), today),
-                 QStringLiteral("møde i morgen kl. 14:30 [tirsdag 2026-11-24 kl. 14:30]"));
+                 QStringLiteral("møde i morgen kl. 14:30 [Tuesday 2026-11-24 14:30]"));
         QCOMPARE(annotateDates(QStringLiteral("frist fredag 12"), today),
-                 QStringLiteral("frist fredag 12 [fredag 2026-11-27 kl. 12:00]"));
+                 QStringLiteral("frist fredag 12 [Friday 2026-11-27 12:00]"));
         QCOMPARE(annotateDates(QStringLiteral("deadline den 12. december"), today),
-                 QStringLiteral("deadline den 12. december [lørdag 2026-12-12]"));
+                 QStringLiteral("deadline den 12. december [Saturday 2026-12-12]"));
         QCOMPARE(annotateDates(QStringLiteral("næste uge"), today),
-                 QStringLiteral("næste uge [mandag 2026-11-30]"));
+                 QStringLiteral("næste uge [Monday 2026-11-30]"));
         QCOMPARE(annotateDates(QStringLiteral("om 3 dage"), today),
-                 QStringLiteral("om 3 dage [torsdag 2026-11-26]"));
+                 QStringLiteral("om 3 dage [Thursday 2026-11-26]"));
+        // "halv tre" is half an hour before three: 14:30.
         QCOMPARE(annotateDates(QStringLiteral("halv tre"), today),
-                 QStringLiteral("halv tre [kl. 14:30]"));
+                 QStringLiteral("halv tre [14:30]"));
         QCOMPARE(annotateDates(QStringLiteral("kvart over fire"), today),
-                 QStringLiteral("kvart over fire [kl. 15:15]"));
-        // Bare tal (varighed) annoteres ikke.
+                 QStringLiteral("kvart over fire [16:15]"));
+        QCOMPARE(annotateDates(QStringLiteral("kvart i tre"), today),
+                 QStringLiteral("kvart i tre [14:45]"));
+        // Bare numbers (durations) are not annotated.
         QCOMPARE(annotateDates(QStringLiteral("research 3 timer onsdag"), today),
-                 QStringLiteral("research 3 timer onsdag [onsdag 2026-11-25]"));
-        // Tekst uden datoer står urørt.
+                 QStringLiteral("research 3 timer onsdag [Wednesday 2026-11-25]"));
+        // Text without dates is left alone.
         QCOMPARE(annotateDates(QStringLiteral("skriv noget"), today),
                  QStringLiteral("skriv noget"));
+    }
+
+    void dateAnnotationInEnglish()
+    {
+        const QDate today(2026, 11, 23); // Monday
+        QCOMPARE(annotateDates(QStringLiteral("buy milk today"), today),
+                 QStringLiteral("buy milk today [Monday 2026-11-23]"));
+        QCOMPARE(annotateDates(QStringLiteral("call the client tomorrow at 14"), today),
+                 QStringLiteral("call the client tomorrow at 14 [Tuesday 2026-11-24 14:00]"));
+        QCOMPARE(annotateDates(QStringLiteral("blog post on Friday"), today),
+                 QStringLiteral("blog post on Friday [Friday 2026-11-27]"));
+        QCOMPARE(annotateDates(QStringLiteral("review next Monday 9:30"), today),
+                 QStringLiteral("review next Monday 9:30 [Monday 2026-11-30 09:30]"));
+        QCOMPARE(annotateDates(QStringLiteral("plan the trip next week"), today),
+                 QStringLiteral("plan the trip next week [Monday 2026-11-30]"));
+        QCOMPARE(annotateDates(QStringLiteral("send the report in 3 days"), today),
+                 QStringLiteral("send the report in 3 days [Thursday 2026-11-26]"));
+        QCOMPARE(annotateDates(QStringLiteral("dentist the day after tomorrow"), today),
+                 QStringLiteral("dentist the day after tomorrow [Wednesday 2026-11-25]"));
+        // "half past three" is 15:30 -- not the Danish "halv tre".
+        QCOMPARE(annotateDates(QStringLiteral("meet half past three"), today),
+                 QStringLiteral("meet half past three [15:30]"));
+        QCOMPARE(annotateDates(QStringLiteral("quarter to five"), today),
+                 QStringLiteral("quarter to five [16:45]"));
+        QCOMPARE(annotateDates(QStringLiteral("write for 2 hours"), today),
+                 QStringLiteral("write for 2 hours"));
     }
 
     void parseDateTimeWeekendAndWeek()
@@ -1216,6 +1248,16 @@ private slots:
         QCOMPARE(out.date(), QDate(2026, 11, 28));
         QVERIFY(Actions::parseDateTime(QStringLiteral("in 10 days"), today, &out, &hasTime, &error));
         QCOMPARE(out.date(), QDate(2026, 12, 3));
+        QVERIFY(Actions::parseDateTime(QStringLiteral("this weekend"), today, &out, &hasTime, &error));
+        QCOMPARE(out.date(), QDate(2026, 11, 28));
+        QVERIFY(Actions::parseDateTime(QStringLiteral("the day after tomorrow"), today, &out, &hasTime, &error));
+        QCOMPARE(out.date(), QDate(2026, 11, 25));
+        QVERIFY(Actions::parseDateTime(QStringLiteral("12th"), today, &out, &hasTime, &error));
+        QCOMPARE(out.date(), QDate(2026, 12, 12));
+        QVERIFY(Actions::parseDateTime(QStringLiteral("friday the 27th at 10:15"), today, &out, &hasTime, &error));
+        QCOMPARE(out, QDateTime(QDate(2026, 11, 27), QTime(10, 15)));
+        QVERIFY(hasTime);
+        QVERIFY(!Actions::parseDateTime(QStringLiteral("friday the 28th"), today, &out, &hasTime, &error));
     }
 
     void jsonDatesHaveNoMilliseconds()
