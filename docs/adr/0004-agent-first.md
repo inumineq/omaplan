@@ -1,14 +1,14 @@
-# 0004 – Agenter er førsteklasses brugere
+# 0004 – Agents are first-class users
 
-Status: besluttet 2026-11-23
+Status: decided 2026-11-23
 
-Omaplan skal fungere sømløst med alle AI-grænseflader på en Omarchy-maskine. Derfor:
+Omaplan must work seamlessly with every AI interface on an Omarchy machine. Therefore:
 
-- Kommandolinjen dækker alt, GUI'en kan (opret, ret, flyt, afslut, slet, fortryd, list, opsummér), med `--json`
-  og stabile id'er. GUI'en er én klient blandt flere oven på samme lager.
-- `omaplan mcp` udstiller de samme handlinger som MCP-værktøjer over stdio, for agenter der foretrækker MCP.
-- `omaplan skill install` lægger en bundtet skill i de agent-mapper, der findes, så agenter ved, hvornår og hvordan
-  de bruger Omaplan.
-- Ændringer fra agenter ses live i GUI'en og kan fortrydes derfra.
+- The command line covers everything the GUI can do (create, edit, move, finish, delete, undo, list, summarize),
+  with `--json` and stable ids. The GUI is one client among several on top of the same store.
+- `omaplan mcp` exposes the same actions as MCP tools over stdio, for agents that prefer MCP.
+- `omaplan skill install` puts a bundled skill in the agent directories that exist, so agents know when and how to
+  use Omaplan.
+- Changes from agents are seen live in the GUI and can be undone from there.
 
-Al logik bor i C++ under både CLI, MCP og QML, så de tre aldrig kan opføre sig forskelligt.
+All logic lives in C++ under CLI, MCP and QML alike, so the three can never behave differently.

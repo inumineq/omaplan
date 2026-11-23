@@ -1,10 +1,10 @@
-# 0003 – Læseudgave via øjebliksbillede og tailnet
+# 0003 – Read-only edition through a snapshot and the tailnet
 
-Status: besluttet 2026-11-23
+Status: decided 2026-11-23
 
-Planen kan læses fra andre enheder via `omaplan serve`, der viser et øjebliksbillede (`plan.json`), som appen skriver
-atomisk efter hver ændring. Serveren læser aldrig databasen og kan ikke skrive.
+The plan can be read from other devices through `omaplan serve`, which shows a snapshot (`plan.json`) that the app
+writes atomically after every change. The server never reads the database and cannot write.
 
-Den binder til 127.0.0.1 og deles med `tailscale serve`; adgang er lig med adgang til tailnettet. Transport af
-øjebliksbilledet til en servermaskine er brugerens valg (samme maskine, Syncthing eller rsync over Tailscale).
-Det holder appen fri for synk-logik og login.
+It binds to 127.0.0.1 and is shared with `tailscale serve`; access equals access to the tailnet. Moving the snapshot
+to a server machine is the user's choice (same machine, Syncthing or rsync over Tailscale).
+That keeps the app free of sync logic and login.

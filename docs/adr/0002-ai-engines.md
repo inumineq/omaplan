@@ -1,12 +1,12 @@
-# 0002 – Udskiftelige AI-motorer bag én grænseflade
+# 0002 – Interchangeable AI engines behind one interface
 
-Status: besluttet 2026-11-23
+Status: decided 2026-11-23
 
-Omaplan har ingen fast AI. En abstrakt `AiEngine` har implementeringer for Mistral (via `vibe -p`, så det går på
-brugerens Mistral Pro-kvote), Claude (`claude -p`, brugerens abonnement), Ollama (lokalt) og en vilkårlig kommando.
-Alle får samme prompt og skal svare efter `docs/ai-skema.json`; appen validerer.
+Omaplan has no fixed AI. An abstract `AiEngine` has implementations for Mistral (via `vibe -p`, so it runs on the
+user's Mistral Pro quota), Claude (`claude -p`, the user's subscription), Ollama (local) and an arbitrary command.
+All get the same prompt and must answer according to `docs/ai-schema.json`; the app validates.
 
-Ingen API-nøgler i appen, konfigurationen eller repoet: de eksisterende CLI'er har allerede brugerens login.
-Mistral er standard i første version. Sammenlign-tilstanden kører to motorer på samme tekst.
+No API keys in the app, the configuration or the repo: the existing CLIs already hold the user's login.
+Mistral is the default in the first version. Compare mode runs two engines on the same text.
 
-Konsekvens: appen afhænger af CLI'ernes headless-flag. Ændrer de sig, rammer det kun én `engine_*.cpp`.
+Consequence: the app depends on the CLIs' headless flags. If they change, only one `engine_*.cpp` is affected.

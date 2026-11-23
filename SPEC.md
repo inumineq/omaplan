@@ -1,139 +1,157 @@
 # Omaplan – spec
 
-Omaplan er en planlægningsapp til Omarchy-skrivebordet. Du skriver eller dikterer dine opgaver i almindelig tekst,
-en AI rydder op og lægger dem på datoer og tidspunkter, og du ser planen som overblik, kalender, liste eller tidslinje.
+Omaplan is a planning app for the Omarchy desktop. You write or dictate your tasks in plain text, an AI tidies them
+up and puts them on dates and times, and you see the plan as an overview, calendar, list or timeline.
 
-Primær brug: indholdsproduktion og opgaver over en uge, en måned eller en periode.
+Main use: content production and tasks over a week, a month or a period.
 
-## Den ene ting appen gør
+## The one thing the app does
 
-Fra rodet tekst til en plan, du kan se og flytte rundt på.
+From messy text to a plan you can see and move around.
 
-## Brugsforløb
+## User flow
 
-1. Appen åbner på **Overblik**: i dag og de kommende dage som en agenda.
-2. `n` (eller Space) åbner **indtastning**: et stort tekstfelt. Man skriver frit eller dikterer med Omarchys
-   diktering (Superwhisper skriver i det felt, der har fokus; appen bygger ikke sin egen).
-   Eksempel: "podcast-klip til linkedin tirsdag, artikel om budgettet skal være klar fredag 12, research 3 timer
-   onsdag formiddag, nyhedsbrev hver torsdag i november".
-3. `Ctrl+Enter` sender teksten til den valgte AI-motor.
-4. **Forslag**: AI'ens opgaver vises som en redigerbar liste, før noget gemmes. Felter, AI'en har gættet
-   (fx "engang næste uge"), er markeret tydeligt som gæt. Man kan rette, slette og tilføje.
-   `Ctrl+Enter` godkender, Esc kasserer.
-5. Godkendte opgaver ligger i planen og kan ses i alle visninger.
+1. The app opens on **Overview**: today and the coming days as an agenda.
+2. `n` (or Space) opens **input**: a large text field. You write freely or dictate with Omarchy's dictation
+   (Superwhisper types into the focused field; the app does not build its own).
+   Example: "podcast clip for linkedin tuesday, article on the budget must be ready friday 12, research 3 hours
+   wednesday morning, newsletter every thursday in november".
+3. `Ctrl+Enter` sends the text to the chosen AI engine.
+4. **Proposal**: the AI's tasks are shown as an editable list before anything is stored. Fields the AI has guessed
+   (e.g. "sometime next week") are clearly marked as guesses. You can correct, delete and add.
+   `Ctrl+Enter` approves, Esc discards.
+5. Approved tasks are in the plan and can be seen in every view.
 
-Første version tilføjer kun nyt. "Planlæg min uge om" er næste version.
+The first version only adds. "Replan my week" is the next version.
 
-## Sammenlign-tilstand
+## Compare mode
 
-I indtastningen kan man vælge **Sammenlign**: samme tekst sendes til to motorer samtidig (standard: Mistral og
-Claude), og forslagene vises side om side. Man godkender det ene. Det er både nyttigt og en måde at se, hvad
-motorerne kan.
+In the input you can choose **Compare**: the same text goes to two engines at once (default: Mistral and Claude),
+and the proposals are shown side by side. You approve one. It is useful in itself and a way to see what the engines
+can do.
 
-## Visninger (taster 1–4)
+## Views (keys 1–4)
 
-1. **Overblik** (start): agenda for i dag og de næste 7 dage, forfaldne øverst.
-2. **Kalender**: uge og måned (`w`/`m` skifter). Opgaver kan trækkes til ny dag/tid.
-3. **Liste**: alle opgaver med afkrydsning; gruppér efter dato eller projekt; filtrér på projekt og status.
-4. **Tidslinje**: Gantt-stil med varighed og overlap; opgaver kan trækkes og deres længde ændres.
+1. **Overview** (start): agenda for today and the next 7 days, overdue first.
+2. **Calendar**: week and month (`w`/`m` switches). Tasks can be dragged to a new day/time.
+3. **List**: all tasks with checkboxes; group by date or project; filter by project and status.
+4. **Timeline**: Gantt style with duration and overlap; tasks can be dragged and their length changed.
 
-Visningerne er forskellige blik på de samme data. Ingen visning har egen tilstand ud over zoom/filter.
+The views are different looks at the same data. No view has state of its own beyond zoom/filter.
 
-## Opgavemodel
+## Task model
 
-| Felt | Type | Note |
+| Field | Type | Note |
 |---|---|---|
 | id | UUID | |
-| titel | tekst | kort, imperativ eller substantiv |
-| noter | tekst | valgfri |
-| projekt | tekst | valgfri, fx "Blog", "Kunde A" |
-| prioritet | 1–3 | 1 = høj |
+| title | text | short, imperative or noun |
+| notes | text | optional |
+| project | text | optional, e.g. "Blog", "Client A" |
+| priority | 1–3 | 1 = high |
 | status | `todo` / `done` | |
-| start | dato eller dato+tid | lokal tid (Europe/Copenhagen) |
-| varighed | minutter | valgfri; heldagsopgave hvis tom og ingen tid |
-| frist | dato eller dato+tid | valgfri, adskilt fra start |
-| gæt | liste af feltnavne | hvilke felter AI'en har gættet |
-| kilde | id på indtastningen | sporbarhed tilbage til den rå tekst |
-| oprettet, ændret | tidsstempler | |
+| start | date or date+time | local time (e.g. Europe/Copenhagen) |
+| duration | minutes | optional; an all-day task if empty and no time |
+| deadline | date or date+time | optional, separate from start |
+| guessed | list of field names | which fields the AI has guessed |
+| source | id of the capture | traceability back to the raw text |
+| created, modified | timestamps | |
 
-Gentagelse ("hver torsdag i november") udfoldes af AI'en til enkeltopgaver i første version. Ægte gentagelsesregler
-er næste version.
+In JSON (AI proposals, `--json`, `plan.json`) the duration is `duration_min`.
 
-## AI-motorer
+Recurrence ("every thursday in november") is expanded by the AI into single tasks in the first version. Real
+recurrence rules are the next version.
 
-En fælles grænseflade med flere udbydere, valgt i indstillinger og pr. indtastning:
+## AI engines
 
-- **Mistral** (standard i første version)
-- **Claude** via `claude -p` (brugerens abonnement)
-- **Ollama** lokalt, hvis installeret
-- **Kommando**: valgfri kommandolinje, der læser prompt på stdin og skriver JSON på stdout
+One shared interface with several providers, chosen in the settings and per input:
 
-Alle motorer får samme prompt og skal returnere JSON efter samme skema (`docs/ai-skema.json`).
-Appen validerer svaret; ugyldigt svar vises som fejl i vinduet med motorens råsvar, aldrig som tavst tab.
-Ingen API-nøgler i appen eller i repoet. Se ADR 0002.
+- **Mistral** via the Vibe CLI (default in the first version)
+- **Claude** via `claude -p` (the user's subscription)
+- **Local**: a local model via Ollama or an OpenAI-compatible endpoint
+- **Command**: any command line that reads the prompt on stdin and writes JSON on stdout
 
-## AI-integration (bærende krav)
+All engines get the same prompt and must return JSON following the same schema (`docs/ai-schema.json`).
+The app validates the answer; an invalid answer is shown as an error in the window with the engine's raw answer,
+never as silent loss. No API keys in the app or in the repo. See ADR 0002.
 
-Omaplan skal kunne betjenes fuldt af enhver AI-agent på en Omarchy-maskine (Claude Code, Codex, Mistral Vibe,
-OpenCode m.fl.), lige så godt som af brugeren. Alt, man kan i GUI'en, kan man fra kommandolinjen. Se ADR 0004.
+## AI integration (core requirement)
 
-### Kommandolinje
+Omaplan must be fully operable by any AI agent on an Omarchy machine (Claude Code, Codex, Mistral Vibe,
+OpenCode and others), as well as by the user. Everything you can do in the GUI you can do from the command line.
+See ADR 0004.
 
-Som Hype: hver kommando tager `--json`, exit 0/1, fejl på stderr, `QT_QPA_PLATFORM=offscreen`, stabile id'er,
-og `--help` med eksempler. Datoer accepterer ISO og danske/engelske udtryk ("i morgen", "fredag 12").
+### Command line
 
-- `omaplan open` – GUI (standard uden argumenter)
-- `omaplan add "<fri tekst>" [--motor …] [--ja]` – AI-forslag; uden `--ja` udskrives forslaget, med gemmes det
-- `omaplan new --titel T [--start …] [--varighed …] [--frist …] [--projekt …] [--prioritet …]` – opret direkte, uden AI
-- `omaplan list [--fra] [--til] [--projekt] [--status] [--json]`, `omaplan show <id>`
-- `omaplan edit <id> [felter]`, `omaplan move <id> <tid>`, `omaplan done <id>`, `omaplan undone <id>`, `omaplan rm <id>`
-- `omaplan projects`, `omaplan summary [--uge|--maaned]` – kort tekst/JSON-oversigt til at give en agent kontekst
-- `omaplan undo` – fortryd seneste ændring, uanset om den kom fra GUI eller CLI
-- `omaplan snapshot <sti>`, `omaplan serve …` (læseudgave, fase 3)
-- `omaplan mcp` – MCP-server over stdio med de samme handlinger som værktøjer
-- `omaplan skill install` – installér den bundtede agent-skill i alle agent-mapper, der findes
-  (`~/.claude/skills`, `~/.codex`, `~/.vibe`, `~/.config/opencode` m.fl.); `omaplan skill uninstall` fjerner igen
+Like Hype: every command takes `--json`, exit 0/1, errors on stderr, `QT_QPA_PLATFORM=offscreen`, stable ids,
+and `--help` with examples. Dates accept ISO and expressions in English or Danish ("tomorrow", "friday 12",
+"i morgen").
+
+- `omaplan open` – GUI (default without arguments)
+- `omaplan add "<free text>" [--engine …] [--yes]` – AI proposal; without `--yes` the proposal is printed, with it
+  it is stored
+- `omaplan new --title T [--start …] [--duration …] [--deadline …] [--project …] [--priority …]` – create directly,
+  without AI
+- `omaplan list [--from] [--to] [--project] [--status] [--json]`, `omaplan show <id>`
+- `omaplan edit <id> [fields]`, `omaplan move <id> <when>`, `omaplan done <id>`, `omaplan undone <id>`, `omaplan rm <id>`
+- `omaplan projects`, `omaplan summary [--week|--month]` – short text/JSON summary to give an agent context
+- `omaplan undo` – undo the latest change, whether it came from the GUI or the CLI
+- `omaplan snapshot <path>`, `omaplan serve …` (read-only edition, phase 3)
+- `omaplan mcp` – MCP server over stdio with the same actions as tools
+- `omaplan skill install` – install the bundled agent skill in every agent directory that exists
+  (`~/.claude/skills`, `~/.codex`, `~/.vibe`, `~/.config/opencode` and others); `omaplan skill uninstall` removes it
+
+Global options: `--db <path>` and `--lang da|en` (interface language, see below).
 
 ### Live
 
-GUI og CLI deler databasen. Ændringer fra en agent vises i et åbent vindue med det samme (GUI'en lytter på
-databasens ændringer), markeret kort med hvilken kilde der ændrede ("fra CLI"). Samtidige skrivninger er sikre
-(SQLite-transaktioner, WAL, busy-timeout).
+GUI and CLI share the database. Changes from an agent show up in an open window at once (the GUI watches the
+database for changes), briefly marked with the source of the change ("from CLI"). Concurrent writes are safe
+(SQLite transactions, WAL, busy timeout).
 
-### Agent-skill
+### Agent skill
 
-En kort skill bundtet i binæren: hvad Omaplan er, hvornår agenten skal bruge den ("læg det i min plan",
-"hvad har jeg i denne uge"), de vigtigste kommandoer med eksempler, og reglen om at vise forslag før `--ja`,
-medmindre brugeren har bedt om at gemme direkte.
+A short skill bundled in the binary: what Omaplan is, when the agent should use it ("put it in my plan",
+"what do I have this week"), the most important commands with examples, and the rule to show proposals before
+`--yes`, unless the user has asked to store directly.
 
-## Læseudgave på tailnettet (tilføjelse, fase 3)
+## Read-only edition on the tailnet (addition, phase 3)
 
-Planen skal kunne læses fra telefon eller anden maskine på brugerens Tailscale-net, kun læse.
+The plan can be read from a phone or another machine on the user's Tailscale network, read-only.
 
-- Appen skriver efter hver ændring et øjebliksbillede, `plan.json`, atomisk (skriv ved siden af, omdøb).
-- `omaplan serve` kører på en maskine, der kan være server, og viser øjebliksbilledet som en lille,
-  server-renderet HTML-side (agenda og uge, mobilvenlig, Omarchy-mørk) plus `/plan.json`. Ingen skrivning,
-  ingen JavaScript nødvendig.
-- Binder til `127.0.0.1` som standard; deles på tailnettet med `tailscale serve`. Ingen egen login: adgang = tailnet.
-- Hvordan øjebliksbilledet kommer til servermaskinen, er brugerens valg (Syncthing, rsync over Tailscale, eller
-  serveren er samme maskine). README viser rsync-eksemplet.
+- After every change the app writes a snapshot, `plan.json`, atomically (write beside, rename). Format:
+  `docs/export.md`.
+- `omaplan serve` runs on a machine that can act as server and shows the snapshot as a small, server-rendered
+  HTML page (overview, list and timeline, mobile friendly, Omarchy dark) plus `/plan.json`. No writing, no
+  JavaScript required. The page is in English or Danish, following the browser's language.
+- Binds to `127.0.0.1` by default; shared on the tailnet with `tailscale serve`. No login of its own: access =
+  tailnet.
+- How the snapshot gets to the server machine is the user's choice (Syncthing, rsync over Tailscale, or the
+  server is the same machine). The README shows the rsync example.
 
-## Omarchy-konventioner (fra omarchy-app-skill'en)
+## Omarchy conventions (from the omarchy-app skill)
 
-Følger temaet live, følger Omarchys sprog live (dansk og engelsk i første version, alle strenge via `qsTr`),
-hjørner fra Hyprland, tastatur først (`?` viser genveje, `q` lukker, Space er hovedhandlingen, Ctrl+Z/Ctrl+Shift+Z),
-atomisk gemning, fejl vises i vinduet. Installeres med `bin/install` (makepkg), så den findes i app-launcheren.
+Follows the theme live, follows Omarchy's language live (all strings through `qsTr`/`tr`, translations in
+`i18n/omaplan_<lang>.ts`; English and Danish in the first version, see `docs/translating.md`), corners from
+Hyprland, keyboard first (`?` shows the keys, `q` quits, Space is the main action, Ctrl+Z/Ctrl+Shift+Z), atomic
+saving, errors shown in the window. Installed with `bin/install` (makepkg), so it is in the app launcher.
 
-## Uden for første version
+## Interface language
 
-Planlæg om, ægte gentagelser, import fra/eksport til kalender (.ics), Google Kalender, synk mellem maskiner,
-skrivning via læseudgaven, notifikationer.
+The interface language is the first of: `--lang`, `language` in `config.toml`, Omarchy's language file, the system
+locale, English. A language without a translation passes to the next source. The GUI, the CLI's human-readable
+output, error messages and date formats are translated. `--json`, JSON field names, MCP tool names and
+descriptions, code and documentation are always English. User input may be in any language.
 
-## Faser
+## Outside the first version
 
-1. **Kerne** (Mistral bygger): datamodel og lager, AI-motorer med Mistral og Claude, indtastning og forslag,
-   de fire visninger, hele kommandolinjen undtagen `serve`, live-opdatering fra CLI, agent-skill, tests.
-2. **Andet pas** (Claude): gennemgang og forbedring af fase 1, `omaplan mcp`, sammenlign-tilstand,
-   polering af visningerne, oversættelse til dansk.
-3. **Læseudgave**: `snapshot` og `serve`.
-4. **Uafhængig gennemgang** (Codex) før installation.
+Replanning, real recurrence, import from/export to calendar (.ics), Google Calendar, sync between machines,
+writing through the read-only edition, notifications.
+
+## Phases
+
+1. **Core** (Mistral builds): data model and store, AI engines with Mistral and Claude, input and proposal,
+   the four views, the whole command line except `serve`, live updates from the CLI, agent skill, tests.
+2. **Second pass** (Claude): review and improvement of phase 1, `omaplan mcp`, compare mode,
+   polishing the views, Danish translation.
+3. **Read-only edition**: `snapshot` and `serve`.
+4. **Independent review** (Codex) before installation.

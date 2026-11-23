@@ -1,11 +1,12 @@
-# 0001 – C++ og Qt Quick frem for Rust
+# 0001 – C++ and Qt Quick rather than Rust
 
-Status: besluttet 2026-11-23
+Status: decided 2026-11-23
 
-Omaplan bygges i C++ og Qt Quick efter omarchy-app-skill'en.
+Omaplan is built in C++ and Qt Quick following the omarchy-app skill.
 
-Rust blev overvejet for fart og størrelse. Det giver ikke noget her: Qt er allerede installeret på Omarchy, så
-binæren bliver få hundrede kB, mens en Rust-GUI typisk pakker sin værktøjskasse ind (5–20 MB). Qt Quick tegner på
-GPU'en og har modne byggeklodser til kalender, tidslinje og træk-og-slip. Skill'en har en færdig, afprøvet måde at
-følge Omarchys tema og sprog live, som skulle bygges forfra i Rust. Læseudgaven (`serve`) holdes i samme binær med
-en lille HTTP-server over `QTcpServer` (Qt Network), så projektet har ét sprog og ingen ekstra afhængighed.
+Rust was considered for speed and size. It gains nothing here: Qt is already installed on Omarchy, so the binary
+ends up a few hundred kB, while a Rust GUI typically bundles its toolkit (5–20 MB). Qt Quick draws on the GPU and
+has mature building blocks for calendar, timeline and drag and drop. The skill has a finished, tested way to follow
+Omarchy's theme and language live, which would have to be built from scratch in Rust. The read-only edition
+(`serve`) is kept in the same binary with a small HTTP server over `QTcpServer` (Qt Network), so the project has one
+language and no extra dependency.

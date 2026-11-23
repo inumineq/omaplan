@@ -1,57 +1,82 @@
-# Omaplan – arkitektur
+# Omaplan – architecture
 
-Bygget efter omarchy-app-skill'en (C++ og Qt Quick, qmake6, én binær, Arch-pakke). Skill'en ligger på
-byggemaskinen i `~/.claude/skills/omarchy-app/` (`SKILL.md` og `templates.md`) og er den bindende kilde
-til projektform, tema, sprog og konventioner. Dette dokument beskriver kun det, der er særligt for Omaplan.
+Built after the omarchy-app skill (C++ and Qt Quick, qmake6, one binary, Arch package). The skill lives on the build
+machine in `~/.claude/skills/omarchy-app/` (`SKILL.md` and `templates.md`) and is the binding source for project
+shape, theme, language and conventions. This document only describes what is particular to Omaplan.
 
-## Moduler (flad `src/`)
+## Modules (flat `src/`)
 
-| Fil | Ansvar |
+| File | Responsibility |
 |---|---|
-| `main.cpp` | opsætning; vælger CLI eller GUI (`open`); giver C++-objekter til QML |
-| `actions.{h,cpp}` | alle handlinger (opret, ret, flyt, afslut, slet, fortryd, list, opsummér) ét sted; CLI, MCP og QML kalder kun herigennem |
-| `cli.{h,cpp}` | kommandolinjen over `actions`, som Hypes `cli.cpp` |
-| `mcp.{h,cpp}` | `omaplan mcp`: MCP over stdio (JSON-RPC), værktøjer = `actions` |
-| `skill.{h,cpp}` + `skill/SKILL.md` | bundtet agent-skill og `skill install/uninstall` |
-| `task.{h,cpp}` | værditypen `Task` og dens validering; dato/tid som `QDate`/`QDateTime` i lokal tid |
-| `store.{h,cpp}` | SQLite via Qt SQL (`QSQLITE`), skema-version og migrering, transaktioner; eneste sted der skriver data |
-| `planmodel.{h,cpp}` | `QAbstractListModel` over opgaverne med roller; filtrering/gruppering via proxy-modeller pr. visning |
-| `engine.{h,cpp}` | abstrakt `AiEngine` (asynkron `propose(text, kontekst)` → forslag eller fejl) |
-| `engine_vibe.cpp` | Mistral via `vibe -p --output json --max-turns 1 --system-prompt-file …` (Pro-kvoten; ingen nøgle i appen) |
+| `main.cpp` | setup; chooses CLI or GUI (`open`); global `--db` and `--lang`; gives C++ objects to QML |
+| `actions.{h,cpp}` | every action (create, edit, move, finish, delete, undo, list, summarize) in one place; CLI, MCP and QML only call through here; also the date parser (`parseDateTime`) |
+| `cli.{h,cpp}` | the command line over `actions`, like Hype's `cli.cpp`; English flags, the Danish ones from before 0.1 as hidden aliases |
+| `mcp.{h,cpp}` | `omaplan mcp`: MCP over stdio (JSON-RPC), tools = `actions` |
+| `skill.{h,cpp}` + `skill/SKILL.md` | bundled agent skill and `skill install/uninstall` |
+| `config.{h,cpp}` | `~/.config/omaplan/config.toml`, parsed by hand (no TOML dependency); old Danish section names as aliases |
+| `task.{h,cpp}` | the value type `Task` and its validation; date/time as `QDate`/`QDateTime` in local time |
+| `store.{h,cpp}` | SQLite via Qt SQL (`QSQLITE`), schema version and migration, transactions; the only place that writes data |
+| `planmodel.{h,cpp}` | `QAbstractListModel` over the tasks with roles; filtering/grouping via proxy models per view |
+| `engine.{h,cpp}` | abstract `AiEngine` (asynchronous `propose(text, context)` → proposal or error), timeout and cancel |
+| `engine_vibe.cpp` | Mistral via `vibe -p --output json --max-turns 1 --system-prompt-file …` (the Pro quota; no key in the app) |
 | `engine_claude.cpp` | Claude via `claude -p --output-format json` |
-| `engine_ollama.cpp` | Ollama via HTTP på `127.0.0.1:11434`, `format: json` |
-| `engine_command.cpp` | vilkårlig kommando: prompt på stdin, JSON på stdout |
-| `proposal.{h,cpp}` | parser og validerer motorens JSON mod `docs/ai-skema.json`; markerer gættede felter |
-| `prompt.{h,cpp}` | bygger prompten: i dag, tidszone, sprog, eksisterende opgaver i perioden, skemaet |
-| `snapshot.{h,cpp}` | skriver `plan.json` atomisk (QSaveFile) én gang efter hver ændring (`Store::committed`), fra GUI, CLI og MCP |
-| `render.{h,cpp}` | læseudgavens HTML fra `plan.json`; port af `renderSide` i `web/app.js`, byte-identisk med `web/index.html` (test) |
-| `server.{h,cpp}` | `serve`: lille HTTP-server over `QTcpServer`, kun GET/HEAD, server-renderet HTML + `/plan.json`, `/style.css`, `/app.js` (Qt-ressourcer fra `web/`) |
-| `theme.{h,cpp}`, `translator.{h,cpp}` | fra skill'ens skabeloner, uændret i ånden |
-| `Main.qml` + komponenter | vindue, taster, de fire visninger, indtastning, forslag, sammenlign |
+| `engine_local.cpp` | a local model over HTTP: Ollama's `/api/chat` or an OpenAI-compatible `/v1/chat/completions` |
+| `engine_command.cpp` | any command: prompt on stdin, JSON on stdout |
+| `proposal.{h,cpp}` | parses and validates the engine's JSON against `docs/ai-schema.json`; marks guessed fields; also accepts the old Danish keys from a model and always emits English |
+| `prompt.{h,cpp}` | builds the prompt (in English): today, time zone, interface language, existing tasks in the period, the schema; tells the model to keep titles and notes in the user's language |
+| `dateannotate.{h,cpp}` | before the AI call, resolves date expressions in the text and writes them in brackets (`tomorrow at 14:30 [Tuesday 2026-11-24 14:30]`), so small models only copy the ISO date |
+| `datewords.{h,cpp}` | the words the date parser and the annotation understand: one `DateWords` entry per language (Danish and English); every language is understood at once |
+| `snapshot.{h,cpp}` | writes `plan.json` atomically (QSaveFile) once after every change (`Store::committed`), from GUI, CLI and MCP |
+| `render.{h,cpp}` | the read-only edition's HTML from `plan.json`; port of `renderPage` in `web/app.js`, byte-identical with `web/index.html` and `web/index.da.html` (test) |
+| `server.{h,cpp}` | `serve`: small HTTP server over `QTcpServer`, GET/HEAD only, server-rendered HTML in the language of `Accept-Language`, plus `/plan.json`, `/style.css`, `/app.js`, `/i18n/<lang>.json` (Qt resources from `web/`) |
+| `theme.{h,cpp}` | Omarchy's theme, followed live; from the skill's templates |
+| `uilanguage.{h,cpp}` | the interface language and its Qt translators (see Language below) |
+| `Main.qml` + components | window, keys, the four views, input, proposal, compare |
 
-Motorerne kører som `QProcess`/netværk asynkront; GUI'en fryser aldrig. Timeout (standard 90 s) og afbryd (Esc)
-er påkrævet. Manglende værktøj (fx `vibe` ikke installeret) vises i vinduet med hvad der mangler.
+The engines run as `QProcess`/network asynchronously; the GUI never freezes. Timeout (default 90 s) and cancel (Esc)
+are required. A missing tool (e.g. `vibe` not installed) is shown in the window with what is missing.
 
 ## Data
 
-- `~/.local/share/omaplan/omaplan.db` (SQLite, WAL). `~/.config/omaplan/config.toml` til motorvalg og modeller.
-- `~/.local/share/omaplan/plan.json` til læseudgaven (ved siden af databasen; `[snapshot] path` i `config.toml` eller
-  `OMAPLAN_SNAPSHOT` flytter den).
-- Rå indtastninger gemmes (tabellen `captures`) med motor og model, så et forslag kan spores.
-- Fortryd via en ændringslog i databasen (tabellen `changes` med før/efter og kilde gui/cli/mcp), så `undo` virker på tværs af processer.
-- GUI'en opdager ændringer fra andre processer via `PRAGMA data_version` (poll hvert 500 ms) og genindlæser modellen.
+- `~/.local/share/omaplan/omaplan.db` (SQLite, WAL; `--db` or `OMAPLAN_DB` moves it). `~/.config/omaplan/config.toml`
+  for language, engine choice and models (`OMAPLAN_CONFIG` moves it).
+- `~/.local/share/omaplan/plan.json` for the read-only edition (next to the database; `[snapshot] path` in
+  `config.toml` or `OMAPLAN_SNAPSHOT` moves it). Format: `docs/export.md`.
+- Raw inputs are stored (the table `captures`) with engine and model, so a proposal can be traced.
+- Undo through a change log in the database (the table `changes` with before/after and source gui/cli/mcp), so `undo`
+  works across processes.
+- The GUI notices changes from other processes through `PRAGMA data_version` (polled every 500 ms) and reloads the
+  model.
 
-## Tid
+## Time
 
-Alt lagres som lokal tid med tidszone-id; visning via `Qt.locale()` og `translator.language`.
-Ugen starter mandag for dansk. Prompten får "i dag" og ugedag eksplicit, så "på tirsdag" kan opløses.
+Everything is stored as local time with a time zone id; shown through `QLocale` in the interface language. The week
+starts on Monday. The prompt gets "today" and the weekday explicitly, and the date annotation has already resolved
+expressions like "on Tuesday".
+
+## Language
+
+`UiLanguage` picks the interface language: `--lang` > `language` in `config.toml` > Omarchy's language file
+(`~/.config/omarchy/language`) > the system locale > English. A source naming a language without a translation
+passes to the next. The window switches live when the Omarchy language file changes.
+
+Translated: the GUI, the CLI's human-readable output, error messages and date formats (`QLocale`). Not translated
+(always English): `--json` output, JSON field names, MCP tool names and descriptions, code and documentation.
+
+UI strings are English source strings in `qsTr()`/`tr()`. Translations are Qt Linguist files
+`i18n/omaplan_<lang>.ts`; `lrelease` runs in the build (`CONFIG += lrelease embed_translations`), so the `.qm` files
+are embedded in the binary. `omaplan_en.ts` only carries the English plural forms. The read-only web page has its
+own small dictionaries, `web/i18n/<lang>.json`. See `docs/translating.md`.
 
 ## Test
 
-`bin/test` (Qt Test, offscreen): lager og migrering, `proposal`-validering med gode og dårlige svar (fixtures
-fra hver motor), prompt-bygning, snapshot-atomicitet, CLI-exitkoder, og at hver motor kan erstattes af en falsk.
-Ingen test kalder en rigtig AI. En separat `bin/smoke-ai` kalder de rigtige motorer manuelt.
+`bin/test` (Qt Test, offscreen): store and migration, `proposal` validation with good and bad answers (fixtures
+from each engine), prompt building, date parsing and annotation, snapshot atomicity, CLI exit codes, the rendered
+page against `web/index.html`/`web/index.da.html`, and that each engine can be replaced by a fake. It also runs
+`bin/i18n-check`, which fails on a missing translation. No test calls a real AI. A separate `bin/smoke-ai` calls the
+real engines by hand.
 
-## Afhængigheder
+## Dependencies
 
-Omarchys standard Qt-moduler. `serve` bruger `QTcpServer` fra Qt Network, så der er ingen ekstra afhængighed. Intet andet uden en ADR.
+Omarchy's standard Qt modules. `serve` uses `QTcpServer` from Qt Network, so there is no extra dependency. `qt6-tools`
+(lupdate, lrelease) is a build dependency only. Nothing else without an ADR.
