@@ -1378,6 +1378,76 @@ private slots:
         QCOMPARE(r[2]["result"].toObject()["structuredContent"].toObject()["tasks"].toArray().size(), 2);
     }
 
+    void compareSendsTheSameTextToTwoEnginesAndKeepsBothCaptures()
+    {
+        // Fake engines only: "command" runs `cat <fixture>`, and "lokal"
+        // without a model fails at once with a clear message.
+        QTemporaryDir dir;
+        Store store(dir.filePath("t.db"));
+        QString error;
+        QVERIFY(store.open(&error));
+        Actions actions(&store);
+        const QString fixture = QDir(QCoreApplication::applicationDirPath())
+                                    .filePath(QStringLiteral("../../tests/ai-fixtures/envelopes/command-valid.json"));
+        const QString cfgPath = dir.filePath("config.toml");
+        const auto writeConfig = [&](const QByteArray &compare) {
+            QFile f(cfgPath);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write("[motor]\nengine = \"command\"\ncommand = \"cat " + fixture.toUtf8() + "\"\ncompare = \"" + compare + "\"\n");
+        };
+        qputenv("OMAPLAN_CONFIG", cfgPath.toLocal8Bit());
+
+        writeConfig("command, command");
+        QCOMPARE(actions.guiEngineNames()["compare"].toArray().size(), 2);
+        QSignalSpy ready(&actions, &Actions::compareReady);
+        QSignalSpy failed(&actions, &Actions::compareFailed);
+        actions.guiCompare(QStringLiteral("køb mælk i morgen"));
+        QTRY_COMPARE_WITH_TIMEOUT(ready.count(), 2, 10000);
+        QCOMPARE(failed.count(), 0);
+        QSet<int> sides{ready.at(0).at(0).toInt(), ready.at(1).at(0).toInt()};
+        QCOMPARE(sides, (QSet<int>{0, 1}));
+        // Both answers are stored as captures with the same raw text.
+        const auto captures = store.captures(&error);
+        QCOMPARE(captures.size(), 2);
+        QCOMPARE(captures[0].rawText, captures[1].rawText);
+        QVERIFY(ready.at(0).at(2).toString() != ready.at(1).at(2).toString());
+        // Approving one side stores its tasks, linked to its own capture.
+        const QString chosenCapture = ready.at(1).at(2).toString();
+        const QJsonObject approved = actions.guiApprove(ready.at(1).at(1).toJsonObject(), chosenCapture);
+        QVERIFY(approved["ok"].toBool());
+        QCOMPARE(store.tasks(&error).first().captureId, chosenCapture);
+
+        // One side failing does not block the other.
+        writeConfig("command, lokal");
+        ready.clear();
+        failed.clear();
+        actions.guiCompare(QStringLiteral("køb mælk i morgen"));
+        QTRY_COMPARE_WITH_TIMEOUT(ready.count(), 1, 10000);
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(ready.at(0).at(0).toInt(), 0);
+        QCOMPARE(failed.at(0).at(0).toInt(), 1);
+        QVERIFY(!failed.at(0).at(1).toString().isEmpty());
+
+        // Cancelling (Esc) reports nothing as an error.
+        writeConfig("command, command");
+        {
+            QFile f(cfgPath);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write("[motor]\nengine = \"command\"\ncommand = \"sleep 5\"\ncompare = \"command, command\"\n");
+        }
+        ready.clear();
+        failed.clear();
+        QSignalSpy single(&actions, &Actions::proposalFailed);
+        actions.guiCompare(QStringLiteral("x"));
+        actions.guiCancelProposal();
+        actions.guiPropose(QStringLiteral("x"));
+        actions.guiCancelProposal();
+        QTest::qWait(200);
+        QCOMPARE(failed.count(), 0);
+        QCOMPARE(single.count(), 0);
+        qputenv("OMAPLAN_CONFIG", "");
+    }
+
     void dataVersionDetectsOtherConnections()
     {
         // PRAGMA data_version changes only when ANOTHER connection commits,

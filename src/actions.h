@@ -5,6 +5,7 @@
 #include <QHash>
 #include <QJsonObject>
 #include <QObject>
+#include <functional>
 #include <QString>
 
 #include "engine.h"
@@ -89,6 +90,13 @@ public:
     // so the GUI never blocks.
     Q_INVOKABLE void guiPropose(const QString &text, const QString &motorId = QString());
     Q_INVOKABLE void guiCancelProposal();
+    // Sammenlign: the same text to the two engines of `compare` in
+    // config.toml (default vibe and claude) at once. Each side answers with
+    // compareReady/compareFailed (side 0 or 1) and stores its own capture,
+    // so both answers are kept whichever one is approved.
+    Q_INVOKABLE void guiCompare(const QString &text);
+    // Display names for the window: {"default": "...", "compare": ["...", "..."]}.
+    Q_INVOKABLE QJsonObject guiEngineNames() const;
     Q_INVOKABLE QJsonObject guiApprove(const QJsonObject &proposalJson, const QString &captureId);
 
 signals:
@@ -96,11 +104,21 @@ signals:
     void planChanged();
     void proposalReady(const QJsonObject &proposalJson, const QString &captureId);
     void proposalFailed(const QString &message);
+    void compareReady(int side, const QJsonObject &proposalJson, const QString &captureId, const QString &engine);
+    void compareFailed(int side, const QString &message, const QString &engine);
 
 private:
     ActionResult runEngine(const QString &rawText, const QString &motorId, const QString &modelOverride,
                            const QString &endpointOverride, QString *captureIdOut, bool wait);
 
+    // Builds and starts an engine for the GUI; on success `onReady` gets the
+    // proposal and the new capture id, otherwise `onFailed` the message.
+    // Cancelled runs report nothing.
+    std::unique_ptr<AiEngine> startGuiEngine(const QString &motorId, const QString &text,
+                                             std::function<void(const QJsonObject &, const QString &)> onReady,
+                                             std::function<void(const QString &)> onFailed);
+
     Store *m_store;
     std::unique_ptr<AiEngine> m_engine;
+    std::unique_ptr<AiEngine> m_compare[2];
 };

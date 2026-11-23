@@ -461,22 +461,20 @@ ActionResult Actions::approve(const QJsonObject &proposalJson, const QString &ca
     return {true, {}, lines.join(QLatin1Char('\n')), payload};
 }
 
-void Actions::guiPropose(const QString &text, const QString &motorId) {
-    guiCancelProposal();
-    // Reuse runEngine in async mode: it stores the capture and fills the
-    // result via the finished/failed lambdas... but those are local, so for
-    // the GUI path we wire the signals here instead.
+std::unique_ptr<AiEngine> Actions::startGuiEngine(const QString &motorId, const QString &text,
+                                                   std::function<void(const QJsonObject &, const QString &)> onReady,
+                                                   std::function<void(const QString &)> onFailed) {
     QString error;
     const QString motor = motorId.isEmpty() ? AppConfig::load().engine : motorId;
     auto engine = createEngine(motor, QString(), QString(), &error);
     if (!engine) {
-        emit proposalFailed(error);
-        return;
+        onFailed(error);
+        return nullptr;
     }
     QString whyNot;
     if (!engine->available(&whyNot)) {
-        emit proposalFailed(whyNot);
-        return;
+        onFailed(whyNot);
+        return nullptr;
     }
     const QDate today = QDateTime::currentDateTime().date();
     const QString annotated = annotateDates(text, today);
@@ -485,23 +483,64 @@ void Actions::guiPropose(const QString &text, const QString &motorId) {
     context.language = Translator::readLanguage(QDir::homePath() + QStringLiteral("/.config/omarchy/language"));
     context.existingTasks = existingTaskLines(m_store);
 
-    m_engine = std::move(engine);
-    const QString engineId = m_engine->id();
-    const QString model = m_engine->modelInfo().isEmpty() ? m_engine->displayName() : m_engine->modelInfo();
-    connect(m_engine.get(), &AiEngine::finished, this, [this, text, annotated, engineId, model](const Proposal &p, const QString &raw) {
-        QString error;
-        const QString captureId = m_store->addCapture(text, annotated, engineId, model, raw, &error);
-        emit proposalReady(p.toJson(), captureId);
-    });
-    connect(m_engine.get(), &AiEngine::failed, this, [this](const QString &message) {
-        emit proposalFailed(message);
-    });
-    m_engine->propose(annotated, context);
+    const QString engineId = engine->id();
+    const QString model = engine->modelInfo().isEmpty() ? engine->displayName() : engine->modelInfo();
+    connect(engine.get(), &AiEngine::finished, this,
+            [this, text, annotated, engineId, model, onReady](const Proposal &p, const QString &raw) {
+                QString error;
+                const QString captureId = m_store->addCapture(text, annotated, engineId, model, raw, &error);
+                onReady(p.toJson(), captureId);
+            });
+    connect(engine.get(), &AiEngine::failed, this, [onFailed](const QString &message) { onFailed(message); });
+    engine->propose(annotated, context);
+    return engine;
+}
+
+void Actions::guiPropose(const QString &text, const QString &motorId) {
+    guiCancelProposal();
+    m_engine = startGuiEngine(
+        motorId, text, [this](const QJsonObject &proposal, const QString &captureId) { emit proposalReady(proposal, captureId); },
+        [this](const QString &message) { emit proposalFailed(message); });
+}
+
+void Actions::guiCompare(const QString &text) {
+    guiCancelProposal();
+    const QStringList ids = AppConfig::load().compare;
+    for (int side = 0; side < 2; ++side) {
+        const QString id = ids.value(side);
+        QString name = id;
+        QString ignored;
+        if (auto probe = createEngine(id, {}, {}, &ignored))
+            name = probe->displayName();
+        m_compare[side] = startGuiEngine(
+            id, text,
+            [this, side, name](const QJsonObject &proposal, const QString &captureId) {
+                emit compareReady(side, proposal, captureId, name);
+            },
+            [this, side, name](const QString &message) { emit compareFailed(side, message, name); });
+    }
+}
+
+QJsonObject Actions::guiEngineNames() const {
+    const AppConfig config = AppConfig::load();
+    const auto nameOf = [](const QString &id) {
+        QString ignored;
+        auto engine = createEngine(id, {}, {}, &ignored);
+        return engine ? engine->displayName() : id;
+    };
+    return {{QStringLiteral("default"), nameOf(config.engine)},
+            {QStringLiteral("compare"), QJsonArray{nameOf(config.compare.value(0)), nameOf(config.compare.value(1))}}};
 }
 
 void Actions::guiCancelProposal() {
-    if (m_engine && m_engine->isRunning())
-        m_engine->cancel();
+    // Disconnect first: a cancelled run is the user's choice, not an error
+    // to show.
+    for (auto *engine : {m_engine.get(), m_compare[0].get(), m_compare[1].get()}) {
+        if (engine && engine->isRunning()) {
+            engine->disconnect(this);
+            engine->cancel();
+        }
+    }
 }
 
 QJsonObject Actions::guiApprove(const QJsonObject &proposalJson, const QString &captureId) {
