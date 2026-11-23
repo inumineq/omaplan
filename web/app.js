@@ -291,8 +291,9 @@ function renderListeProjekt(plan) {
 // Gantt: én række pr. dag i hele planens spænd (start- og frist-datoer; udaterede opgaver uden frist
 // ligger ikke i tidslinjen). Tidsaksen går kun over et vindue ud fra data: tidligste start til seneste
 // slut afrundet til hele timer, mindst 08–18. Bjælker ligger i spor efter overlap (første ledige spor).
-// Titlen står i bjælken når den kan være der (heuristik: ~7 tegn pr. time), ellers ved siden af.
-const TEGN_PR_TIME = 7; // heuristik for hvor mange tegn der kan være i en bjælke pr. time
+// Titlen står i bjælken når den kan være der (konservativt estimat, se nedenfor),
+// ellers ved siden af — aldrig klippet i en for kort bjælke.
+const TEGN_PR_DAG = 64; // tegn der højst passer i en heldagsbjælke ved kolonnens mindste bredde (34rem)
 
 function renderTidslinje(plan, iDag) {
   const daterede = plan.opgaver.filter((o) => o.start);
@@ -366,18 +367,19 @@ function renderTidslinje(plan, iDag) {
       const titel = b.o.titel + ' – ' + formaterDatoKort(dag) + (b.s.tid ? ' ' + b.s.tid + (b.o.varighed_min ? '–' + slutTid(b.s.tid, b.o.varighed_min) : '') : ' (heldag)');
       const stang =
         '        <div class="stang' + (b.heldag ? ' stang-heldag' : '') + (b.o.status === 'done' ? ' status-done' : '') + '" style="--start:' + num(b.start) + ';--laengde:' + num(b.laengde) + ';--spor-index:' + b.spor + '" data-id="' + esc(b.o.id) + '" title="' + esc(titel) + '">';
-      // titel i bjælken hvis den kan være der, ellers ved siden af (hvis der er plads, ellers i bjælken alligevel)
-      const passerI = b.o.titel.length <= b.laengde * TEGN_PR_TIME;
-      const passerVed = b.start + b.laengde + b.o.titel.length / TEGN_PR_TIME <= vu + 0.5;
+      // titel ved siden af bjælken, når den ikke kan være i den. Hvor mange
+      // tegn der kan være i en bjælke, afhænger af tidsvinduets bredde: kolonnen
+      // er mindst 34rem, og en time af vinduet (vu - vs) giver en brøkdel af
+      // dem. Falder man bagud i estimatet, klippes titlen af overflow:hidden,
+      // så regn konservativt og vælg i stedet titlen ved siden af.
+      const passerI = b.o.titel.length <= (b.laengde * TEGN_PR_DAG) / (vu - vs);
       if (passerI) {
         stangDele.push(stang + '<span class="stang-titel">' + esc(b.o.titel) + '</span></div>');
-      } else if (passerVed) {
+      } else {
         stangDele.push(stang + '</div>');
         stangDele.push(
-          '        <span class="stang-label" style="--start:' + num(b.start) + ';--laengde:' + num(b.laengde) + ';--spor-index:' + b.spor + '" data-id="' + esc(b.o.id) + '">' + esc(b.o.titel) + '</span>'
+          '        <span class="stang-label" style="--start:' + num(b.start) + ';--laengde:' + num(b.laengde) + ';--spor-index:' + b.spor + '" data-id="' + esc(b.o.id) + '" title="' + esc(titel) + '">' + esc(b.o.titel) + '</span>'
         );
-      } else {
-        stangDele.push(stang + '<span class="stang-titel">' + esc(b.o.titel) + '</span></div>');
       }
     }
     const fristDele = plan.opgaver

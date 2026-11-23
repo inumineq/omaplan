@@ -20,7 +20,7 @@ const char *const kWeekdays[] = {"mandag", "tirsdag", "onsdag", "torsdag", "fred
 const char *const kWeekdaysShort[] = {"man", "tir", "ons", "tor", "fre", "lør", "søn"};
 const char *const kMonths[] = {"januar", "februar", "marts", "april", "maj", "juni", "juli",
                                "august", "september", "oktober", "november", "december"};
-const double kCharsPerHour = 7; // TEGN_PR_TIME
+const double kCharsPerDay = 64; // TEGN_PR_DAG: characters across a whole-day bar at the column's minimum width
 
 struct Item {
     QString id, titel, noter, projekt, status, start, frist;
@@ -400,13 +400,17 @@ QString renderTimeline(const QList<Item> &items, const QString &today, const QSt
             const QString bar = "        <div class=\"stang" + QString(b.allDay ? " stang-heldag" : "")
                                 + QString(b.o.status == QLatin1String("done") ? " status-done" : "") + "\" style=\""
                                 + pos + "\" data-id=\"" + esc(b.o.id) + "\" title=\"" + esc(title) + "\">";
+            // The title goes beside the bar when it cannot fit inside it. A
+            // bar's pixel width shrinks with the window (vu - vs); at the
+            // column's minimum width (34rem) about 64 characters fit across a
+            // whole-day bar. Estimate conservatively: a title behind the
+            // estimate would be clipped by overflow:hidden.
             const double len = b.o.titel.size();
-            const bool fitsIn = len <= b.length * kCharsPerHour;
-            const bool fitsBeside = b.start + b.length + len / kCharsPerHour <= vu + 0.5;
-            if (!fitsIn && fitsBeside) {
+            const bool fitsIn = len <= b.length * kCharsPerDay / (vu - vs);
+            if (!fitsIn) {
                 lines << bar + "</div>";
-                lines << "        <span class=\"stang-label\" style=\"" + pos + "\" data-id=\"" + esc(b.o.id) + "\">"
-                             + esc(b.o.titel) + "</span>";
+                lines << "        <span class=\"stang-label\" style=\"" + pos + "\" data-id=\"" + esc(b.o.id)
+                             + "\" title=\"" + esc(title) + "\">" + esc(b.o.titel) + "</span>";
             } else {
                 lines << bar + "<span class=\"stang-titel\">" + esc(b.o.titel) + "</span></div>";
             }
