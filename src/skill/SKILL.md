@@ -3,10 +3,10 @@ name: omaplan
 description: >
   Omaplan is the user's plan on this machine: tasks with dates, projects and
   priorities, shared live between the GUI window and the command line. Use it
-  when the user says "læg det i min plan", "tilføj ... til min plan", "hvad har
-  jeg i denne uge", "hvornår skal jeg ...", or asks you to plan, remind or
-  remember something. Triggers: "put it in my plan", "add to my plan", "what's
-  on my plan this week", "remind me to", "plan ...".
+  when the user says "put it in my plan", "add ... to my plan", "what's on my
+  plan this week", "when do I have to ...", "remind me to", or asks you to
+  plan, remind or remember something. The user may say it in another
+  language, e.g. Danish "læg det i min plan", "hvad har jeg i denne uge".
 ---
 
 # Omaplan
@@ -18,30 +18,34 @@ from.
 
 ## When to use it
 
-- "Læg det i min plan" / "put it in my plan" → `omaplan add "<text>"`.
-- "Hvad har jeg i denne uge?" / "what's on my plan this week?" →
-  `omaplan summary --uge --json` or `omaplan list --fra "i dag" --json`.
-- "Påmind mig om ..." / "remind me to ..." → `omaplan add "<text>"` (dates are
-  parsed from the text, e.g. "i morgen", "fredag 12", "næste uge").
+- "Put it in my plan" → `omaplan add "<text>"`.
+- "What's on my plan this week?" → `omaplan summary --week --json` or
+  `omaplan list --from today --json`.
+- "Remind me to ..." → `omaplan add "<text>"` (dates are parsed from the
+  text, e.g. "tomorrow", "friday 12", "next week", or Danish "i morgen").
+
+Pass the user's words as they are, in their language; titles keep that
+language.
 
 ## Commands
 
-- `omaplan add "skriv blogindlæg fredag kl. 14:30, 30 min, projekt Blog"` —
-  an AI engine proposes tasks from free text. **Show the proposal first; only
-  add `--ja` when the user has explicitly asked you to save directly.**
-- `omaplan new --titel "Køb mælk" --start "i morgen"` — create directly.
-- `omaplan list [--fra D] [--til D] [--projekt P] [--status todo|done] --json`
-- `omaplan show <id>`, `omaplan edit <id> --frist "fredag"`,
-  `omaplan move <id> "tirsdag kl. 14:00"`, `omaplan done <id>`, `omaplan rm <id>`
-- `omaplan projects`, `omaplan summary [--uge|--maaned] --json`
+- `omaplan add "write blog post friday at 14:30, 30 min, project Blog"` — an
+  AI engine proposes tasks from free text. **Show the proposal first; only
+  add `--yes` when the user has explicitly asked you to save directly.**
+- `omaplan new --title "Buy milk" --start tomorrow` — create directly.
+- `omaplan list [--from D] [--to D] [--project P] [--status todo|done] --json`
+- `omaplan show <id>`, `omaplan edit <id> --deadline friday`,
+  `omaplan move <id> "tuesday at 14:00"`, `omaplan done <id>`, `omaplan rm <id>`
+- `omaplan projects`, `omaplan summary [--week|--month] --json`
 - `omaplan undo` — reverts the newest change from GUI, CLI or agent.
 
-Dates accept ISO (`2026-12-01`, `2026-12-01 14:30`) and Danish/English
-expressions ("i morgen", "fredag 12", "tomorrow", "next monday", optional
+Dates accept ISO (`2026-12-01`, `2026-12-01 14:30`) and English or Danish
+expressions ("tomorrow", "friday 12", "next monday", "at 14:30", "i morgen",
 "kl. 14:30"). Every command takes `--json`, exits 0/1 and prints errors on
-stderr, so it is safe to script. Examples use invented names ("Blog",
-"Kunde A") — use the user's own words in real calls.
+stderr, so it is safe to script; `--json` output is always English. Examples
+use invented names ("Blog", "Client A") — use the user's own words in real
+calls.
 
 If your agent has MCP, `omaplan mcp` offers the same actions as tools
 (`claude mcp add omaplan -- omaplan mcp`); `propose` + `approve` there is the
-same "show first, then save" flow as `add` and `add --ja`.
+same "show first, then save" flow as `add` and `add --yes`.

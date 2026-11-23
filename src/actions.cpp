@@ -339,12 +339,12 @@ static QStringList existingTaskLines(Store *store) {
     return lines;
 }
 
-ActionResult Actions::runEngine(const QString &rawText, const QString &motorId,
+ActionResult Actions::runEngine(const QString &rawText, const QString &engineChoice,
                                 const QString &modelOverride, const QString &endpointOverride,
                                 QString *captureIdOut, bool wait) {
     QString error;
-    const QString motor = motorId.isEmpty() ? AppConfig::load().engine : motorId;
-    auto engine = createEngine(motor, modelOverride, endpointOverride, &error);
+    const QString chosen = engineChoice.isEmpty() ? AppConfig::load().engine : engineChoice;
+    auto engine = createEngine(chosen, modelOverride, endpointOverride, &error);
     if (!engine)
         return {false, error, {}, {}};
     QString whyNot;
@@ -414,10 +414,10 @@ ActionResult Actions::runEngine(const QString &rawText, const QString &motorId,
     return {true, {}, lines.join(QLatin1Char('\n')), payload};
 }
 
-ActionResult Actions::propose(const QString &rawText, const QString &motorId,
+ActionResult Actions::propose(const QString &rawText, const QString &engineChoice,
                               const QString &modelOverride, const QString &endpointOverride,
                               QString *captureIdOut) {
-    return runEngine(rawText, motorId, modelOverride, endpointOverride, captureIdOut, true);
+    return runEngine(rawText, engineChoice, modelOverride, endpointOverride, captureIdOut, true);
 }
 
 ActionResult Actions::approve(const QJsonObject &proposalJson, const QString &captureId, const QString &source) {
@@ -496,12 +496,12 @@ ActionResult Actions::approve(const QJsonObject &proposalJson, const QString &ca
     return {true, {}, lines.join(QLatin1Char('\n')), payload};
 }
 
-std::unique_ptr<AiEngine> Actions::startGuiEngine(const QString &motorId, const QString &text,
+std::unique_ptr<AiEngine> Actions::startGuiEngine(const QString &engineChoice, const QString &text,
                                                    std::function<void(const QJsonObject &, const QString &)> onReady,
                                                    std::function<void(const QString &)> onFailed) {
     QString error;
-    const QString motor = motorId.isEmpty() ? AppConfig::load().engine : motorId;
-    auto engine = createEngine(motor, QString(), QString(), &error);
+    const QString chosen = engineChoice.isEmpty() ? AppConfig::load().engine : engineChoice;
+    auto engine = createEngine(chosen, QString(), QString(), &error);
     if (!engine) {
         onFailed(error);
         return nullptr;
@@ -531,10 +531,10 @@ std::unique_ptr<AiEngine> Actions::startGuiEngine(const QString &motorId, const 
     return engine;
 }
 
-void Actions::guiPropose(const QString &text, const QString &motorId) {
+void Actions::guiPropose(const QString &text, const QString &engineChoice) {
     guiCancelProposal();
     m_engine = startGuiEngine(
-        motorId, text, [this](const QJsonObject &proposal, const QString &captureId) { emit proposalReady(proposal, captureId); },
+        engineChoice, text, [this](const QJsonObject &proposal, const QString &captureId) { emit proposalReady(proposal, captureId); },
         [this](const QString &message) { emit proposalFailed(message); });
 }
 
@@ -740,7 +740,7 @@ static bool dateField(const QString &key, const QString &text, QDateTime *when, 
     return true;
 }
 
-// A number field must be a whole number; "1t" or "høj" is an error instead
+// A number field must be a whole number; "1h" or "high" is an error instead
 // of silently becoming 0.
 static bool intField(const Actions::Fields &fields, const QString &key, int *out, QString *error) {
     if (!fields.contains(key))

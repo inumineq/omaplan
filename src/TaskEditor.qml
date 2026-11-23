@@ -5,10 +5,10 @@ import QtQuick.Layouts
 
 import Omaplan
 
-// Ret en opgave (e, Enter eller dobbeltklik) eller opret en selv uden AI (a).
-// Datoer skrives som i CLI'en ("fredag 10", "2026-12-01 14:30") og vises,
-// mens man skriver. Enter eller Ctrl+Enter gemmer, Esc fortryder,
-// Ctrl+Delete sletter.
+// Edit a task (e, Enter or double-click) or create one yourself without AI
+// (a). Dates are written as in the CLI ("friday 10", "2026-12-01 14:30") and
+// shown while typing. Enter or Ctrl+Enter saves, Esc cancels,
+// Ctrl+Delete deletes.
 Rectangle {
     id: editor
     color: Qt.alpha(theme.background, 0.82) // a scrim in the theme's own colour, light or dark

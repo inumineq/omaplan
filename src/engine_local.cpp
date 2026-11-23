@@ -81,7 +81,7 @@ protected:
             body.insert(QStringLiteral("response_format"),
                         QJsonObject{{QStringLiteral("type"), QStringLiteral("json_schema")},
                                     {QStringLiteral("json_schema"),
-                                     QJsonObject{{QStringLiteral("name"), QStringLiteral("omaplan-forslag")},
+                                     QJsonObject{{QStringLiteral("name"), QStringLiteral("omaplan-proposal")},
                                                  {QStringLiteral("strict"), true},
                                                  {QStringLiteral("schema"), schemaObject()}}}});
         }

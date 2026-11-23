@@ -88,10 +88,10 @@ public:
     // Live preview while typing a date: {ok, error, date (ISO), hasTime}.
     Q_INVOKABLE QJsonObject guiParseDate(const QString &text) const;
 
-    // Sends free text to an AI engine (motorId empty = config default). The
+    // Sends free text to an AI engine (engineChoice empty = config default). The
     // raw text and the date-annotated variant are stored in `captures` with
     // engine and model. Used by `omaplan add` (synchronous, with event loop).
-    ActionResult propose(const QString &rawText, const QString &motorId = QString(),
+    ActionResult propose(const QString &rawText, const QString &engineChoice = QString(),
                          const QString &modelOverride = QString(), const QString &endpointOverride = QString(),
                          QString *captureIdOut = nullptr);
     // Creates tasks from a proposal JSON (schema keys: tasks/title/guessed/...)
@@ -100,9 +100,9 @@ public:
 
     // Async variant for QML: results arrive as proposalReady/proposalFailed,
     // so the GUI never blocks.
-    Q_INVOKABLE void guiPropose(const QString &text, const QString &motorId = QString());
+    Q_INVOKABLE void guiPropose(const QString &text, const QString &engineChoice = QString());
     Q_INVOKABLE void guiCancelProposal();
-    // Sammenlign: the same text to the two engines of `compare` in
+    // Compare: the same text to the two engines of `compare` in
     // config.toml (default vibe and claude) at once. Each side answers with
     // compareReady/compareFailed (side 0 or 1) and stores its own capture,
     // so both answers are kept whichever one is approved.
@@ -120,13 +120,13 @@ signals:
     void compareFailed(int side, const QString &message, const QString &engine);
 
 private:
-    ActionResult runEngine(const QString &rawText, const QString &motorId, const QString &modelOverride,
+    ActionResult runEngine(const QString &rawText, const QString &engineChoice, const QString &modelOverride,
                            const QString &endpointOverride, QString *captureIdOut, bool wait);
 
     // Builds and starts an engine for the GUI; on success `onReady` gets the
     // proposal and the new capture id, otherwise `onFailed` the message.
     // Cancelled runs report nothing.
-    std::unique_ptr<AiEngine> startGuiEngine(const QString &motorId, const QString &text,
+    std::unique_ptr<AiEngine> startGuiEngine(const QString &engineChoice, const QString &text,
                                              std::function<void(const QJsonObject &, const QString &)> onReady,
                                              std::function<void(const QString &)> onFailed);
 

@@ -5,12 +5,12 @@ import QtQuick.Layouts
 
 import Omaplan
 
-// AI-motorens forslag som en redigerbar liste, før noget gemmes. Felter, som
-// motoren har gættet, er markeret. Man retter direkte i felterne (datoer som i
-// CLI'en: "fredag 10"), sletter med Ctrl+Delete og tilføjer med Ctrl+N.
-// Ctrl+Enter godkender, Esc kasserer. I Sammenlign står to motorers forslag
-// side om side; Ctrl+1 / Ctrl+2 godkender det ene (Alt+←/→ vælger).
-// Motorfejl vises her med motorens råsvar.
+// The AI engine's proposal as an editable list, before anything is stored.
+// Fields the engine guessed are marked. Edit right in the fields (dates as in
+// the CLI: "friday 10"), delete with Ctrl+Delete and add with Ctrl+N.
+// Ctrl+Enter approves, Esc discards. In Compare two engines' proposals stand
+// side by side; Ctrl+1 / Ctrl+2 approves one of them (Alt+←/→ selects).
+// Engine errors are shown here with the engine's raw answer.
 Rectangle {
     id: overlay
     color: Qt.alpha(theme.background, 0.82) // a scrim in the theme's own colour, light or dark

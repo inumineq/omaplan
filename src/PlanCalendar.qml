@@ -4,10 +4,10 @@ import QtQuick.Layouts
 
 import Omaplan
 
-// Kalender: uge (w) som tidsgitter og måned (m) som celler. Opgaver trækkes til
-// en ny dag; i ugen også til et nyt klokkeslæt (kvarter ad gangen) eller op i
-// heldagsrækken. h/l eller pilene bladrer, t går til i dag. Dobbeltklik på en
-// tom plads opretter en opgave dér.
+// Calendar: week (w) as a time grid and month (m) as cells. Tasks are dragged
+// to a new day; in the week also to a new time (a quarter hour at a time) or up
+// into the all-day row. h/l or the arrows page, t goes to today. Double-click
+// on an empty spot creates a task there.
 Item {
     id: cal
     property string mode: "week"
