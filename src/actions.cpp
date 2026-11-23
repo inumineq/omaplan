@@ -24,15 +24,7 @@ static QString startText(const Task &task) {
                              : task.start.date().toString(Qt::ISODate);
 }
 
-// The date a task counts as, for list filters and summaries: its start, else
-// its deadline, else the day it was created.
-static QDate effectiveDate(const Task &task) {
-    if (task.start.isValid())
-        return task.start.date();
-    if (task.deadline.isValid())
-        return task.deadline.date();
-    return task.created.date();
-}
+// effectiveDate() lives in task.h so models and actions share it.
 
 ActionResult Actions::create(const Task &task, const QString &source) {
     QString error;
@@ -43,6 +35,7 @@ ActionResult Actions::create(const Task &task, const QString &source) {
     m_store->task(id, &stored, &error);
     QJsonObject payload;
     payload["task"] = stored.toJson();
+    emit planChanged();
     return {true, {}, tr("Created %1: %2").arg(id, stored.title), payload};
 }
 
@@ -64,6 +57,7 @@ ActionResult Actions::update(const QString &id, const QJsonObject &patch, const 
         return {false, error, {}, {}};
     QJsonObject payload;
     payload["task"] = patched.toJson();
+    emit planChanged();
     return {true, {}, tr("Updated %1: %2").arg(id, patched.title), payload};
 }
 
@@ -78,6 +72,7 @@ ActionResult Actions::move(const QString &id, const QDateTime &when, bool hasTim
         return {false, error, {}, {}};
     QJsonObject payload;
     payload["task"] = task.toJson();
+    emit planChanged();
     const QString whenText = hasTime ? when.toString(QStringLiteral("yyyy-MM-dd HH:mm"))
                                      : when.date().toString(Qt::ISODate);
     return {true, {}, tr("Moved %1 to %2").arg(id, whenText), payload};
@@ -93,6 +88,7 @@ ActionResult Actions::setDone(const QString &id, bool done, const QString &sourc
         return {false, error, {}, {}};
     QJsonObject payload;
     payload["task"] = task.toJson();
+    emit planChanged();
     return {true, {}, done ? tr("Marked done: %1").arg(task.title)
                            : tr("Marked undone: %1").arg(task.title), payload};
 }
@@ -106,6 +102,7 @@ ActionResult Actions::remove(const QString &id, const QString &source) {
         return {false, error, {}, {}};
     QJsonObject payload;
     payload["id"] = id;
+    emit planChanged();
     return {true, {}, tr("Deleted %1").arg(task.title), payload};
 }
 
@@ -120,18 +117,21 @@ ActionResult Actions::undo(const QString &source) {
     if (!m_store->begin(&error))
         return {false, error, {}, {}};
 
+    // The inverse depends only on which side of the change is set: after-only
+    // was a create (delete it), before-only was a delete (re-insert it), both
+    // was an update (restore before).
     bool ok = false;
     Task beforeUndo, afterUndo;
     bool hasBefore = false, hasAfter = false;
-    if (target.kind == QLatin1String("create") && target.hasAfter) {
+    if (target.hasAfter && !target.hasBefore) {
         ok = m_store->deleteTask(target.after.id, &error);
         beforeUndo = target.after;
         hasBefore = true;
-    } else if (target.kind == QLatin1String("delete") && target.hasBefore) {
+    } else if (target.hasBefore && !target.hasAfter) {
         ok = m_store->insertTask(target.before, &error);
         afterUndo = target.before;
         hasAfter = true;
-    } else if (target.kind == QLatin1String("update") && target.hasBefore && target.hasAfter) {
+    } else if (target.hasBefore && target.hasAfter) {
         ok = m_store->replaceTask(target.before, &error);
         beforeUndo = target.after;
         afterUndo = target.before;
@@ -141,7 +141,7 @@ ActionResult Actions::undo(const QString &source) {
     }
     if (ok)
         ok = m_store->logChange(source, QStringLiteral("undo"), target.taskId,
-                                hasBefore ? &beforeUndo : nullptr, hasAfter ? &afterUndo : nullptr, target.id);
+                                hasBefore ? &beforeUndo : nullptr, hasAfter ? &afterUndo : nullptr, target.id) > 0;
     if (!ok) {
         m_store->rollback();
         return {false, error, {}, {}};
@@ -150,9 +150,94 @@ ActionResult Actions::undo(const QString &source) {
         m_store->rollback();
         return {false, error, {}, {}};
     }
+    emit planChanged();
     QJsonObject payload;
     payload["change"] = changeToJson(target);
     return {true, {}, tr("Undone %1 on task %2").arg(target.kind, target.taskId), payload};
+}
+
+ActionResult Actions::redo(const QString &source) {
+    QString error;
+    Store::Change target;
+    if (!m_store->lastUndoChange(&target, &error))
+        return {false, error, {}, {}};
+
+    if (!m_store->begin(&error))
+        return {false, error, {}, {}};
+
+    // Redo re-applies the state that existed before the undo: before-only was
+    // an undo of a create (insert it again), after-only an undo of a delete
+    // (delete it again), both an undo of an update (restore the newer side).
+    bool ok = false;
+    Task beforeRedo, afterRedo;
+    bool hasBefore = false, hasAfter = false;
+    if (target.hasBefore && !target.hasAfter) {
+        ok = m_store->insertTask(target.before, &error);
+        afterRedo = target.before;
+        hasAfter = true;
+    } else if (!target.hasBefore && target.hasAfter) {
+        ok = m_store->deleteTask(target.after.id, &error);
+        beforeRedo = target.after;
+        hasBefore = true;
+    } else if (target.hasBefore && target.hasAfter) {
+        ok = m_store->replaceTask(target.before, &error);
+        beforeRedo = target.after;
+        afterRedo = target.before;
+        hasBefore = hasAfter = true;
+    } else {
+        error = tr("Change %1 cannot be redone").arg(target.id);
+    }
+    qlonglong redoId = 0;
+    if (ok)
+        redoId = m_store->logChange(source, QStringLiteral("redo"), target.taskId,
+                                    hasBefore ? &beforeRedo : nullptr, hasAfter ? &afterRedo : nullptr);
+    if (ok && redoId > 0)
+        ok = m_store->markRedone(target.id, redoId, &error);
+    if (!ok || redoId <= 0) {
+        m_store->rollback();
+        return {false, ok ? error : error, {}, {}};
+    }
+    if (!m_store->commit(&error)) {
+        m_store->rollback();
+        return {false, error, {}, {}};
+    }
+    emit planChanged();
+    QJsonObject payload;
+    payload["change"] = changeToJson(target);
+    return {true, {}, tr("Redone %1 on task %2").arg(target.kind, target.taskId), payload};
+}
+
+static QJsonObject wrapResult(const ActionResult &result) {
+    QJsonObject json;
+    json["ok"] = result.ok;
+    json["error"] = result.error;
+    json["text"] = result.text;
+    json["payload"] = result.payload;
+    return json;
+}
+
+QJsonObject Actions::guiUpdate(const QString &id, const QVariantMap &patch) {
+    return wrapResult(update(id, QJsonObject::fromVariantMap(patch), QStringLiteral("gui")));
+}
+
+QJsonObject Actions::guiMove(const QString &id, const QDateTime &when, bool hasTime) {
+    return wrapResult(move(id, when, hasTime, QStringLiteral("gui")));
+}
+
+QJsonObject Actions::guiSetDone(const QString &id, bool done) {
+    return wrapResult(setDone(id, done, QStringLiteral("gui")));
+}
+
+QJsonObject Actions::guiRemove(const QString &id) {
+    return wrapResult(remove(id, QStringLiteral("gui")));
+}
+
+QJsonObject Actions::guiUndo() {
+    return wrapResult(undo(QStringLiteral("gui")));
+}
+
+QJsonObject Actions::guiRedo() {
+    return wrapResult(redo(QStringLiteral("gui")));
 }
 
 ActionResult Actions::list(const ListFilter &filter) {

@@ -53,20 +53,25 @@ QString Task::validate() const {
     return {};
 }
 
-// Dates are stored as ISO text; date-only values keep hasTime false so the
-// two never collapse into each other.
+// JSON dates follow docs/ai-skema.json: YYYY-MM-DD, or YYYY-MM-DDTHH:MM with
+// a time — never milliseconds. Date-only values keep hasTime false so the two
+// never collapse into each other.
 static QString toIso(const QDateTime &dateTime, bool hasTime) {
     if (!dateTime.isValid())
         return {};
-    return hasTime ? dateTime.toString(Qt::ISODateWithMs) : dateTime.date().toString(Qt::ISODate);
+    return hasTime ? dateTime.toString(QStringLiteral("yyyy-MM-ddTHH:mm"))
+                   : dateTime.date().toString(Qt::ISODate);
 }
 
 static QDateTime fromIso(const QString &text, bool hasTime) {
     if (text.isEmpty())
         return {};
-    if (hasTime)
-        return QDateTime::fromString(text, Qt::ISODateWithMs);
-    return QDateTime(QDate::fromString(text, Qt::ISODate), QTime(0, 0));
+    if (!hasTime)
+        return QDateTime(QDate::fromString(text, Qt::ISODate), QTime(0, 0));
+    QDateTime dateTime = QDateTime::fromString(text, Qt::ISODateWithMs);
+    if (!dateTime.isValid())
+        dateTime = QDateTime::fromString(text, Qt::ISODate);
+    return dateTime;
 }
 
 QJsonObject Task::toJson() const {

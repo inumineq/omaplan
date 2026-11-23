@@ -39,3 +39,13 @@ struct Task {
     QJsonObject toJson() const;
     static Task fromJson(const QJsonObject &json, bool *ok = nullptr);
 };
+
+// The date a task counts as for lists, filters and summaries: its start, else
+// its deadline, else the day it was created.
+inline QDate effectiveDate(const Task &task) {
+    if (task.start.isValid())
+        return task.start.date();
+    if (task.deadline.isValid())
+        return task.deadline.date();
+    return task.created.date();
+}

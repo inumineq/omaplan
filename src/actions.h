@@ -37,9 +37,11 @@ public:
     ActionResult move(const QString &id, const QDateTime &when, bool hasTime, const QString &source);
     ActionResult setDone(const QString &id, bool done, const QString &source);
     ActionResult remove(const QString &id, const QString &source);
-    // Inverts the newest non-undo change in the log, so undo works across
-    // processes (GUI, CLI, MCP share the database).
+    // Inverts the newest change that no undo has inverted yet, so undo works
+    // across processes (GUI, CLI, MCP share the database).
     ActionResult undo(const QString &source);
+    // Re-applies the newest undo that no redo has re-applied yet.
+    ActionResult redo(const QString &source);
 
     ActionResult list(const ListFilter &filter);
     ActionResult show(const QString &id);
@@ -52,6 +54,19 @@ public:
     // can pass a fixed one.
     static bool parseDateTime(const QString &text, const QDate &today, QDateTime *out, bool *hasTime,
                               QString *error = nullptr);
+
+    // QML-friendly wrappers (source "gui"); each returns
+    // {"ok": bool, "error": string, "text": string, "payload": object}.
+    Q_INVOKABLE QJsonObject guiUpdate(const QString &id, const QVariantMap &patch);
+    Q_INVOKABLE QJsonObject guiMove(const QString &id, const QDateTime &when, bool hasTime);
+    Q_INVOKABLE QJsonObject guiSetDone(const QString &id, bool done);
+    Q_INVOKABLE QJsonObject guiRemove(const QString &id);
+    Q_INVOKABLE QJsonObject guiUndo();
+    Q_INVOKABLE QJsonObject guiRedo();
+
+signals:
+    // Emitted after every mutation, so models and views can reload.
+    void planChanged();
 
 private:
     Store *m_store;

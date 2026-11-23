@@ -159,7 +159,7 @@ private slots:
             Store store(path);
             QString error;
             QVERIFY2(store.open(&error), qPrintable(error));
-            QCOMPARE(store.schemaVersion(), 2);
+            QCOMPARE(store.schemaVersion(), 3);
             // The three tables exist.
             QSqlQuery query(store.database());
             QVERIFY(query.exec("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"));
@@ -179,7 +179,7 @@ private slots:
             Store store(path);
             QString error;
             QVERIFY(store.open(&error));
-            QCOMPARE(store.schemaVersion(), 2);
+            QCOMPARE(store.schemaVersion(), 3);
             QCOMPARE(store.tasks(&error).size(), 1);
         }
     }
@@ -217,13 +217,14 @@ private slots:
         Store store(path);
         QString error;
         QVERIFY2(store.open(&error), qPrintable(error));
-        QCOMPARE(store.schemaVersion(), 2);
+        QCOMPARE(store.schemaVersion(), 3);
         QSqlQuery q(store.database());
         QVERIFY(q.exec(QStringLiteral("PRAGMA table_info(changes)")));
         QStringList columns;
         while (q.next())
             columns << q.value(1).toString();
         QVERIFY(columns.contains(QStringLiteral("undo_of")));
+        QVERIFY(columns.contains(QStringLiteral("redo_of")));
     }
 
     void changeLogRecordsBeforeAfterAndSource()
@@ -638,8 +639,8 @@ private slots:
         const QJsonObject moved = cliJson(store, {QStringLiteral("move"), id, QStringLiteral("2026-12-02 10:00"),
                                                    QStringLiteral("--json")}, &err, &code);
         QCOMPARE(code, 0);
-        QCOMPARE(QDateTime::fromString(moved["task"].toObject()["start"].toString(), Qt::ISODateWithMs),
-                 QDateTime(QDate(2026, 12, 2), QTime(10, 0)));
+        // --json dates follow docs/ai-skema.json: no milliseconds.
+        QCOMPARE(moved["task"].toObject()["start"].toString(), QStringLiteral("2026-12-02T10:00"));
         QCOMPARE(moved["task"].toObject()["start_has_time"].toBool(), true);
 
         QCOMPARE(cli(store, {QStringLiteral("done"), id, QStringLiteral("--json")}, &out, &err), 0);
@@ -679,6 +680,75 @@ private slots:
             QCOMPARE(cli(store, {QString::fromLatin1(cmd), QStringLiteral("x")}, &out, &err), 1);
             QVERIFY2(err.contains(QStringLiteral("Not implemented yet")), qPrintable(err));
         }
+    }
+
+    void jsonDatesHaveNoMilliseconds()
+    {
+        // docs/ai-skema.json: YYYY-MM-DD or YYYY-MM-DDTHH:MM — never ms.
+        Task task;
+        task.id = Task::newId();
+        task.title = QStringLiteral("Format");
+        task.start = QDateTime(QDate(2026, 12, 1), QTime(14, 30, 45, 123));
+        task.startHasTime = true;
+        task.deadline = QDateTime(QDate(2026, 12, 5), QTime(0, 0));
+        task.deadlineHasTime = false;
+        task.created = QDateTime::currentDateTime();
+        task.modified = task.created;
+        const QJsonObject json = task.toJson();
+        QCOMPARE(json["start"].toString(), QStringLiteral("2026-12-01T14:30"));
+        QCOMPARE(json["deadline"].toString(), QStringLiteral("2026-12-05"));
+        static const QRegularExpression withMs(QStringLiteral("\\d{3}$"));
+        for (const char *key : {"start", "deadline", "created", "modified"})
+            QVERIFY2(!withMs.match(json[QString::fromLatin1(key)].toString()).hasMatch(),
+                     qPrintable(QString::fromLatin1(key) + ": " + json[QString::fromLatin1(key)].toString()));
+
+        // Round trip still works, with and without milliseconds.
+        bool ok = false;
+        const Task copy = Task::fromJson(json, &ok);
+        QVERIFY(ok);
+        QCOMPARE(copy.start, QDateTime(QDate(2026, 12, 1), QTime(14, 30))); // ms dropped
+        QJsonObject legacy;
+        legacy["id"] = task.id;
+        legacy["title"] = task.title;
+        legacy["start"] = QStringLiteral("2026-12-01T14:30:00.000");
+        legacy["start_has_time"] = true;
+        const Task old = Task::fromJson(legacy, &ok);
+        QVERIFY(ok);
+        QCOMPARE(old.start.time(), QTime(14, 30));
+    }
+
+    void undoAndRedoWalkTheHistory()
+    {
+        QTemporaryDir dir;
+        Store store(dir.filePath("test.db"));
+        QString error;
+        QVERIFY(store.open(&error));
+        Actions actions(&store);
+
+        QVERIFY(!actions.redo(QStringLiteral("gui")).ok); // nothing to redo yet
+
+        Task task;
+        task.title = QStringLiteral("Titel");
+        const QString id = actions.create(task, QStringLiteral("cli")).payload["task"].toObject()["id"].toString();
+
+        QJsonObject patch;
+        patch["title"] = QStringLiteral("Ny titel");
+        QVERIFY(actions.update(id, patch, QStringLiteral("gui")).ok);
+        QCOMPARE(actions.show(id).payload["task"].toObject()["title"].toString(), QStringLiteral("Ny titel"));
+
+        // undo, undo, redo, redo, undo — walks back and forth.
+        QVERIFY(actions.undo(QStringLiteral("gui")).ok);
+        QCOMPARE(actions.show(id).payload["task"].toObject()["title"].toString(), QStringLiteral("Titel"));
+        QVERIFY(actions.undo(QStringLiteral("gui")).ok);
+        QVERIFY(!actions.show(id).ok);
+        QVERIFY(actions.redo(QStringLiteral("gui")).ok);
+        QVERIFY(actions.show(id).ok);
+        QCOMPARE(actions.show(id).payload["task"].toObject()["title"].toString(), QStringLiteral("Titel"));
+        QVERIFY(actions.redo(QStringLiteral("gui")).ok);
+        QCOMPARE(actions.show(id).payload["task"].toObject()["title"].toString(), QStringLiteral("Ny titel"));
+        QVERIFY(!actions.redo(QStringLiteral("gui")).ok); // nothing left to redo
+        QVERIFY(actions.undo(QStringLiteral("gui")).ok); // undo the redo
+        QCOMPARE(actions.show(id).payload["task"].toObject()["title"].toString(), QStringLiteral("Titel"));
     }
 };
 

@@ -43,9 +43,12 @@ public:
     bool insertTask(const Task &task, QString *error = nullptr);
     bool replaceTask(const Task &task, QString *error = nullptr);
     bool deleteTask(const QString &id, QString *error = nullptr);
-    // undoOf > 0 marks this entry as the undo of that change id.
-    bool logChange(const QString &source, const QString &kind, const QString &taskId,
-                   const Task *before, const Task *after, qlonglong undoOf = 0);
+    // undoOf > 0 marks this entry as the undo of that change id. Returns the
+    // new change id, or 0 on error.
+    qlonglong logChange(const QString &source, const QString &kind, const QString &taskId,
+                        const Task *before, const Task *after, qlonglong undoOf = 0);
+    // Marks an undo entry as redone by `redoId`.
+    bool markRedone(qlonglong undoId, qlonglong redoId, QString *error = nullptr);
     bool begin(QString *error = nullptr);
     bool commit(QString *error = nullptr);
     void rollback();
@@ -73,10 +76,13 @@ public:
         bool hasBefore = false;
         bool hasAfter = false;
         qlonglong undoOf = 0; // set on undo entries: the change they invert
+        qlonglong redoOf = 0; // set on undo entries once a redo has re-applied it
     };
     QList<Change> changes(int limit = 50, QString *error = nullptr) const;
     // The newest change that no undo has inverted yet — what undo() reverts.
     bool lastChange(Change *out, QString *error = nullptr) const;
+    // The newest undo that no redo has re-applied yet — what redo() re-does.
+    bool lastUndoChange(Change *out, QString *error = nullptr) const;
 
 private:
     bool migrate(QString *error);
