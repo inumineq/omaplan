@@ -71,7 +71,7 @@ body {
   border-color: var(--border);
 }
 
-/* aktiv visning: målet selv (eller .aktiv sat af JS), eller (uden mål) overblik */
+/* aktiv fane: præcis én ad gangen – målet selv, .aktiv sat af JS, eller (intet valgt) overblik */
 body:has(#overblik:target) .visninger a[href="#overblik"],
 body:has(#overblik.aktiv) .visninger a[href="#overblik"],
 body:has(#liste:target) .visninger a[href="#liste"],
@@ -80,7 +80,7 @@ body:has(#liste-projekt:target) .visninger a[href="#liste"],
 body:has(#liste-projekt.aktiv) .visninger a[href="#liste"],
 body:has(#tidslinje:target) .visninger a[href="#tidslinje"],
 body:has(#tidslinje.aktiv) .visninger a[href="#tidslinje"],
-:root:not(:has(:target)) .visninger a[href="#overblik"] {
+:root:not(:has(:target)):not(:has(.view.aktiv)) .visninger a[href="#overblik"] {
   color: var(--accent-fg);
   background: var(--accent);
 }
@@ -218,6 +218,11 @@ body:has(#tidslinje.aktiv) .visninger a[href="#tidslinje"],
   color: var(--muted);
 }
 
+.tid-ingen {
+  color: var(--muted);
+  font-style: italic;
+}
+
 .titel {
   font-weight: 600;
   overflow-wrap: anywhere;
@@ -299,7 +304,10 @@ body:has(#tidslinje.aktiv) .visninger a[href="#tidslinje"],
 
 /* ---------- tidslinje (Gantt) ---------- */
 
+/* tidsvinduet sættes inline på .gantt (--vs/--vu, hele timer, mindst 8-18) */
 .gantt {
+  --vs: 8;
+  --vu: 18;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-raised);
@@ -326,8 +334,13 @@ body:has(#tidslinje.aktiv) .visninger a[href="#tidslinje"],
 
 .gantt-timer span {
   position: absolute;
-  left: calc(var(--t) / 24 * 100%);
+  left: calc((var(--t) - var(--vs)) / (var(--vu) - var(--vs)) * 100%);
   transform: translateX(-50%);
+}
+
+/* sidste label (ved vinduets slut) højrejusteres, så det ikke klippes */
+.gantt-timer span:last-child {
+  transform: translateX(-100%);
 }
 
 .gantt-dato {
@@ -363,8 +376,8 @@ body:has(#tidslinje.aktiv) .visninger a[href="#tidslinje"],
 .stang {
   position: absolute;
   top: calc(var(--spor-index, 0) * 1.7rem + 0.15rem);
-  left: calc(var(--start, 0) / 24 * 100%);
-  width: calc(var(--laengde, 1) / 24 * 100%);
+  left: calc((var(--start, 8) - var(--vs)) / (var(--vu) - var(--vs)) * 100%);
+  width: calc(var(--laengde, 1) / (var(--vu) - var(--vs)) * 100%);
   min-width: 0.35rem;
   height: 1.4rem;
   background: var(--accent);
@@ -390,10 +403,22 @@ body:has(#tidslinje.aktiv) .visninger a[href="#tidslinje"],
   padding: 0 0.3rem;
 }
 
+/* titel ved siden af bjælken når den ikke kan være i den */
+.stang-label {
+  position: absolute;
+  top: calc(var(--spor-index, 0) * 1.7rem + 0.15rem);
+  left: calc((var(--start, 8) + var(--laengde, 1) - var(--vs)) / (var(--vu) - var(--vs)) * 100% + 0.35rem);
+  height: 1.4rem;
+  line-height: 1.4rem;
+  font-size: 0.75rem;
+  color: var(--fg);
+  white-space: nowrap;
+}
+
 .frist-maerke {
   position: absolute;
   top: calc(var(--spor, 1) * 1.7rem - 0.45rem);
-  left: calc(var(--start, 24) / 24 * 100%);
+  left: calc((var(--start, 18) - var(--vs)) / (var(--vu) - var(--vs)) * 100%);
   width: 0.55rem;
   height: 0.55rem;
   transform: translateX(-50%) rotate(45deg);
@@ -401,6 +426,7 @@ body:has(#tidslinje.aktiv) .visninger a[href="#tidslinje"],
   border-radius: 1px;
 }
 
+/* frist uden for vinduet (eller kun dato) ligger i højre kant */
 .frist-maerke-heldag {
   left: auto;
   right: 0.15rem;
