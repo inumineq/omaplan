@@ -81,6 +81,21 @@ static bool parseDateFlag(const QString &text, QDateTime *when, bool *hasTime, Q
     return true;
 }
 
+// A number flag must be a whole number; "1t" or "høj" is an error instead of
+// silently becoming 0.
+static bool parseIntFlag(const QHash<QString, QString> &flags, const QString &key, int *out, QTextStream &err) {
+    if (!flags.contains(key))
+        return true;
+    bool ok = false;
+    const int value = flags.value(key).trimmed().toInt(&ok);
+    if (!ok) {
+        err << QObject::tr("--%1 must be a whole number, got \"%2\"").arg(key, flags.value(key)) << "\n";
+        return false;
+    }
+    *out = value;
+    return true;
+}
+
 static void setDateField(QJsonObject *patch, const QString &key, const QDateTime &when, bool hasTime) {
     (*patch)[key] = hasTime ? when.toString(Qt::ISODateWithMs) : when.date().toString(Qt::ISODate);
     (*patch)[key + "_has_time"] = hasTime;
@@ -91,9 +106,18 @@ static bool buildPatch(const QHash<QString, QString> &flags, QJsonObject *patch,
     if (flags.contains(QStringLiteral("titel"))) (*patch)["title"] = flags["titel"];
     if (flags.contains(QStringLiteral("noter"))) (*patch)["notes"] = flags["noter"];
     if (flags.contains(QStringLiteral("projekt"))) (*patch)["project"] = flags["projekt"];
-    if (flags.contains(QStringLiteral("prioritet"))) (*patch)["priority"] = flags["prioritet"].toInt();
+    int number = 0;
+    if (flags.contains(QStringLiteral("prioritet"))) {
+        if (!parseIntFlag(flags, QStringLiteral("prioritet"), &number, err))
+            return false;
+        (*patch)["priority"] = number;
+    }
     if (flags.contains(QStringLiteral("status"))) (*patch)["status"] = flags["status"];
-    if (flags.contains(QStringLiteral("varighed"))) (*patch)["duration_minutes"] = flags["varighed"].toInt();
+    if (flags.contains(QStringLiteral("varighed"))) {
+        if (!parseIntFlag(flags, QStringLiteral("varighed"), &number, err))
+            return false;
+        (*patch)["duration_minutes"] = number;
+    }
     QDateTime when;
     bool hasTime;
     if (flags.contains(QStringLiteral("start"))) {
@@ -275,10 +299,9 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
             task.notes = flags[QStringLiteral("noter")];
         if (flags.contains(QStringLiteral("projekt")))
             task.project = flags[QStringLiteral("projekt")];
-        if (flags.contains(QStringLiteral("prioritet")))
-            task.priority = flags[QStringLiteral("prioritet")].toInt();
-        if (flags.contains(QStringLiteral("varighed")))
-            task.durationMinutes = flags[QStringLiteral("varighed")].toInt();
+        if (!parseIntFlag(flags, QStringLiteral("prioritet"), &task.priority, err)
+            || !parseIntFlag(flags, QStringLiteral("varighed"), &task.durationMinutes, err))
+            return 1;
         QDateTime when;
         bool hasTime;
         if (flags.contains(QStringLiteral("start"))) {
@@ -373,8 +396,13 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
         }
         QDateTime when;
         bool hasTime;
-        if (!parseDateFlag(positional[1], &when, &hasTime, err))
+        // `move <id> tirsdag 14` without quotes is the same as "tirsdag 14".
+        if (!parseDateFlag(positional.mid(1).join(QLatin1Char(' ')), &when, &hasTime, err))
             return 1;
+        if (!when.isValid()) {
+            err << QObject::tr("Usage: omaplan move <id> <tid>") << "\n";
+            return 1;
+        }
         ActionResult result = actions.move(positional.first(), when, hasTime, source);
         if (!result.ok) {
             err << result.error << "\n";
@@ -436,7 +464,11 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
         const auto flags = parseFlags(rest, &positional);
         const bool week = flags.contains(QStringLiteral("uge"));
         const bool month = flags.contains(QStringLiteral("maaned"));
-        ActionResult result = actions.summary(week && !month); // default: week
+        if (week && month) {
+            err << QObject::tr("Choose either --uge or --maaned") << "\n";
+            return 1;
+        }
+        ActionResult result = actions.summary(!month); // default: this week
         if (!result.ok) {
             err << result.error << "\n";
             return 1;

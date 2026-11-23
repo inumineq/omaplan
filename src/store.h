@@ -5,6 +5,7 @@
 #include <QObject>
 #include <QSqlDatabase>
 #include <QString>
+#include <QVariantList>
 
 #include "task.h"
 
@@ -24,6 +25,7 @@ public:
     ~Store() override;
 
     static QString defaultPath();
+    QString path() const { return m_path; }
 
     bool open(QString *error = nullptr);
     void close();
@@ -53,9 +55,18 @@ public:
                         const Task *before, const Task *after, qlonglong undoOf = 0);
     // Marks an undo entry as redone by `redoId`.
     bool markRedone(qlonglong undoId, qlonglong redoId, QString *error = nullptr);
+    // Transactions are BEGIN IMMEDIATE: the write lock is taken up front, so
+    // a read-then-write (update, undo) can never fail half-way with a stale
+    // WAL snapshot when another process committed in between. They nest:
+    // only the outermost begin/commit touch SQLite, and a rollback anywhere
+    // rolls back the whole transaction.
     bool begin(QString *error = nullptr);
     bool commit(QString *error = nullptr);
     void rollback();
+    // While a batch id is set, every logged change carries it, so undo and
+    // redo treat the batch (e.g. all tasks of one approved AI proposal) as
+    // one step. Empty clears it.
+    void setBatch(const QString &batch) { m_batch = batch; }
 
     struct Capture {
         QString id;
@@ -82,20 +93,32 @@ public:
         bool hasAfter = false;
         qlonglong undoOf = 0; // set on undo entries: the change they invert
         qlonglong redoOf = 0; // set on undo entries once a redo has re-applied it
+        QString batch;        // changes made as one step share a batch id
     };
     QList<Change> changes(int limit = 50, QString *error = nullptr) const;
-    // The newest change that no undo has inverted yet — what undo() reverts.
-    bool lastChange(Change *out, QString *error = nullptr) const;
-    // The newest undo that no redo has re-applied yet — what redo() re-does.
-    bool lastUndoChange(Change *out, QString *error = nullptr) const;
+    // What undo() reverts: the newest change no undo has inverted yet, plus
+    // the rest of its batch, newest first. Fails with "Nothing to undo".
+    bool undoTargets(QList<Change> *out, QString *error = nullptr) const;
+    // What redo() re-applies: the newest undo no redo has re-applied yet,
+    // plus the rest of its batch, newest first. An undo is only redoable
+    // while no new change (create/update/delete) came after it; otherwise
+    // redo would overwrite newer work. Fails with "Nothing to redo".
+    bool redoTargets(QList<Change> *out, QString *error = nullptr) const;
+    // The newest entry of any kind (for naming the source of a live change).
+    bool newestChange(Change *out, QString *error = nullptr) const;
 
 private:
     bool migrate(QString *error);
     bool createTables(QSqlQuery &query, QString *error);
     bool writeTask(const Task &task, bool replace, QString *error);
     Task rowToTask(const QSqlQuery &query) const;
+    static Change rowToChange(const QSqlQuery &query);
+    bool selectChanges(const QString &sql, const QVariantList &binds, QList<Change> *out,
+                       QString *error) const;
 
     QString m_path;
     QString m_connectionName;
     QSqlDatabase m_db;
+    int m_txDepth = 0;
+    QString m_batch;
 };

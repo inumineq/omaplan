@@ -64,11 +64,15 @@ int main(int argc, char *argv[]) {
 
     Store store(dbPath);
     QString storeError;
-    if (!store.open(&storeError))
-        qWarning() << "omaplan:" << storeError; // the window still opens, empty
+    const bool storeOpen = store.open(&storeError);
+    if (!storeOpen)
+        qWarning() << "omaplan:" << storeError;
 
     Actions actions(&store);
     PlanModel planModel(&store);
+    // The window still opens, and says why the plan is missing.
+    if (!storeOpen)
+        planModel.setStoreError(QObject::tr("Could not open the plan (%1): %2").arg(store.path(), storeError));
     QObject::connect(&actions, &Actions::planChanged, &planModel, &PlanModel::reload);
     planModel.reload();
     // Live: reload when another process (CLI, agent) commits to the database.

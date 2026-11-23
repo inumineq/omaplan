@@ -3,15 +3,41 @@
 #include <QTimer>
 
 PlanModel::PlanModel(Store *store, QObject *parent)
-    : QAbstractListModel(parent), m_store(store) {
+    : QAbstractListModel(parent), m_store(store), m_today(QDate::currentDate()) {
+    // A window left open overnight must move "today" along: check once a
+    // minute, and on a new day reload, so every proxy re-filters.
+    m_dayTimer = new QTimer(this);
+    m_dayTimer->setInterval(60 * 1000);
+    connect(m_dayTimer, &QTimer::timeout, this, &PlanModel::checkDay);
+    m_dayTimer->start();
+}
+
+void PlanModel::checkDay() {
+    const QDate now = QDate::currentDate();
+    if (now == m_today)
+        return;
+    m_today = now;
+    emit todayChanged();
+    reload();
 }
 
 void PlanModel::reload() {
     beginResetModel();
     QString error;
-    m_tasks = m_store->tasks(&error);
+    m_tasks = m_store->isOpen() ? m_store->tasks(&error) : QList<Task>();
     endResetModel();
     emit countChanged();
+    if (!m_store->isOpen() && error.isEmpty())
+        error = m_storeError;
+    if (error != m_error) {
+        m_error = error;
+        emit errorChanged();
+    }
+}
+
+void PlanModel::setStoreError(const QString &error) {
+    m_storeError = error;
+    reload();
 }
 
 void PlanModel::startLivePolling(int intervalMs) {
@@ -38,7 +64,7 @@ void PlanModel::pollExternalChanges() {
     QString error;
     Store::Change change;
     QString source;
-    if (m_store->lastChange(&change, &error))
+    if (m_store->newestChange(&change, &error))
         source = change.source;
     emit externalChange(source);
 }
@@ -113,31 +139,70 @@ static Task taskOf(const QAbstractItemModel *model, const QModelIndex &index) {
     return task;
 }
 
-static bool isOverdue(const Task &task, const QDate &today) {
-    return task.status == Task::Status::Todo && task.deadline.isValid() && task.deadline.date() < today;
-}
 
 OverviewModel::OverviewModel(QObject *parent) : SortProxy(parent) {
     setSortRole(PlanModel::StartRole);
 }
 
+QDate OverviewModel::agendaDate(const Task &task, const QDate &today) {
+    if (isOverdue(task, today) || (!task.start.isValid() && !task.deadline.isValid()))
+        return {};
+    QDate date = effectiveDate(task);
+    if (date < today && task.status == Task::Status::Todo)
+        date = today; // started earlier, due later: in progress today
+    return date;
+}
+
+static QString agendaSection(const Task &task, const QDate &today) {
+    if (isOverdue(task, today))
+        return QStringLiteral("overdue");
+    const QDate date = OverviewModel::agendaDate(task, today);
+    return date.isValid() ? date.toString(Qt::ISODate) : QStringLiteral("none");
+}
+
+QVariant OverviewModel::data(const QModelIndex &index, int role) const {
+    if (role != AgendaSectionRole)
+        return SortProxy::data(index, role);
+    return agendaSection(taskOf(sourceModel(), mapToSource(index)), QDate::currentDate());
+}
+
+QHash<int, QByteArray> OverviewModel::roleNames() const {
+    QHash<int, QByteArray> names = SortProxy::roleNames();
+    names.insert(AgendaSectionRole, "agendaSection");
+    return names;
+}
+
 bool OverviewModel::filterAcceptsRow(int sourceRow, const QModelIndex &sourceParent) const {
     const Task task = taskOf(sourceModel(), sourceModel()->index(sourceRow, 0, sourceParent));
-    const QDate today = QDateTime::currentDateTime().date();
-    return isOverdue(task, today) || effectiveDate(task) <= today.addDays(7);
+    const QDate today = QDate::currentDate();
+    if (isOverdue(task, today))
+        return true;
+    // Open unscheduled tasks belong on the agenda too (last, "No date").
+    if (!task.start.isValid() && !task.deadline.isValid())
+        return task.status == Task::Status::Todo;
+    const QDate date = agendaDate(task, today);
+    return date >= today && date <= today.addDays(7);
 }
 
 bool OverviewModel::lessThan(const QModelIndex &left, const QModelIndex &right) const {
     const Task a = taskOf(sourceModel(), left);
     const Task b = taskOf(sourceModel(), right);
-    const QDate today = QDateTime::currentDateTime().date();
+    const QDate today = QDate::currentDate();
     const bool overdueA = isOverdue(a, today), overdueB = isOverdue(b, today);
     if (overdueA != overdueB)
         return overdueA;
-    const QDate dateA = effectiveDate(a), dateB = effectiveDate(b);
+    const QDate dateA = overdueA ? effectiveDate(a) : agendaDate(a, today);
+    const QDate dateB = overdueB ? effectiveDate(b) : agendaDate(b, today);
+    if (dateA.isValid() != dateB.isValid())
+        return dateA.isValid();
     if (dateA != dateB)
         return dateA < dateB;
-    return a.start < b.start;
+    // Timed tasks in time order before all-day tasks of the same day.
+    if (a.startHasTime != b.startHasTime)
+        return a.startHasTime;
+    if (a.start != b.start)
+        return a.start < b.start;
+    return a.title < b.title;
 }
 
 CalendarModel::CalendarModel(QObject *parent) : SortProxy(parent) {

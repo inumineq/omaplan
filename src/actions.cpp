@@ -5,6 +5,7 @@
 #include <QEventLoop>
 #include <QHash>
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QRegularExpression>
 
 #include "config.h"
@@ -59,10 +60,20 @@ ActionResult Actions::update(const QString &id, const QJsonObject &patch, const 
     QJsonObject json = current.toJson();
     for (auto it = patch.begin(); it != patch.end(); ++it)
         json[it.key()] = it.value();
+    // Only known fields may be patched; a typo ("titel") is an error, not a
+    // silent no-op.
+    for (auto it = patch.begin(); it != patch.end(); ++it)
+        if (!current.toJson().contains(it.key()) || it.key() == QLatin1String("id")
+            || it.key() == QLatin1String("created") || it.key() == QLatin1String("modified"))
+            return {false, tr("Unknown or read-only field: %1").arg(it.key()), {}, {}};
     bool ok = false;
     const Task patched = Task::fromJson(json, &ok);
-    if (!ok)
-        return {false, patched.validate().isEmpty() ? tr("Invalid fields") : patched.validate(), {}, {}};
+    if (!ok) {
+        const QString why = patched.validate();
+        return {false, why.isEmpty() ? tr("Invalid status or date in: %1").arg(
+                                           QString::fromUtf8(QJsonDocument(patch).toJson(QJsonDocument::Compact)))
+                                     : why, {}, {}};
+    }
     if (!m_store->updateTask(patched, source, &error))
         return {false, error, {}, {}};
     QJsonObject payload;
@@ -116,105 +127,106 @@ ActionResult Actions::remove(const QString &id, const QString &source) {
     return {true, {}, tr("Deleted %1").arg(task.title), payload};
 }
 
-ActionResult Actions::undo(const QString &source) {
-    QString error;
-    // lastChange() skips changes that an undo already inverted, so repeated
-    // undo walks back through the history one step at a time.
-    Store::Change target;
-    if (!m_store->lastChange(&target, &error))
-        return {false, error, {}, {}};
-
-    if (!m_store->begin(&error))
-        return {false, error, {}, {}};
-
-    // The inverse depends only on which side of the change is set: after-only
-    // was a create (delete it), before-only was a delete (re-insert it), both
-    // was an update (restore before).
+// Applies the inverse of one logged change and logs it. Which side of the
+// change is set decides the inverse: after-only was a create (delete it),
+// before-only a delete (re-insert it), both an update (restore before). The
+// same rule re-applies an undo entry for redo, since an undo entry's sides
+// are already the inverse of the original.
+static bool invertChange(Store *store, const Store::Change &change, const QString &source, const QString &kind,
+                         qlonglong undoOf, qlonglong *loggedId, QString *error) {
     bool ok = false;
-    Task beforeUndo, afterUndo;
+    Task before, after;
     bool hasBefore = false, hasAfter = false;
-    if (target.hasAfter && !target.hasBefore) {
-        ok = m_store->deleteTask(target.after.id, &error);
-        beforeUndo = target.after;
+    if (change.hasAfter && !change.hasBefore) {
+        ok = store->deleteTask(change.after.id, error);
+        before = change.after;
         hasBefore = true;
-    } else if (target.hasBefore && !target.hasAfter) {
-        ok = m_store->insertTask(target.before, &error);
-        afterUndo = target.before;
+    } else if (change.hasBefore && !change.hasAfter) {
+        ok = store->insertTask(change.before, error);
+        after = change.before;
         hasAfter = true;
-    } else if (target.hasBefore && target.hasAfter) {
-        ok = m_store->replaceTask(target.before, &error);
-        beforeUndo = target.after;
-        afterUndo = target.before;
+    } else if (change.hasBefore && change.hasAfter) {
+        ok = store->replaceTask(change.before, error);
+        before = change.after;
+        after = change.before;
         hasBefore = hasAfter = true;
     } else {
-        error = tr("Change %1 cannot be undone").arg(target.id);
+        *error = QCoreApplication::translate("Actions", "Change %1 cannot be undone").arg(change.id);
     }
-    if (ok)
-        ok = m_store->logChange(source, QStringLiteral("undo"), target.taskId,
-                                hasBefore ? &beforeUndo : nullptr, hasAfter ? &afterUndo : nullptr, target.id) > 0;
-    if (!ok) {
+    if (!ok)
+        return false;
+    *loggedId = store->logChange(source, kind, change.taskId, hasBefore ? &before : nullptr,
+                                 hasAfter ? &after : nullptr, undoOf);
+    if (*loggedId <= 0) {
+        *error = QCoreApplication::translate("Actions", "Could not write the change log");
+        return false;
+    }
+    return true;
+}
+
+ActionResult Actions::undo(const QString &source) {
+    QString error;
+    // Everything happens inside one IMMEDIATE transaction, so two processes
+    // undoing at the same moment cannot invert the same change twice.
+    if (!m_store->begin(&error))
+        return {false, error, {}, {}};
+    QList<Store::Change> targets;
+    if (!m_store->undoTargets(&targets, &error)) {
         m_store->rollback();
         return {false, error, {}, {}};
     }
-    if (!m_store->commit(&error)) {
-        m_store->rollback();
-        return {false, error, {}, {}};
+    m_store->setBatch(targets.size() > 1 ? Task::newId() : QString());
+    for (const Store::Change &target : targets) {
+        qlonglong logged = 0;
+        if (!invertChange(m_store, target, source, QStringLiteral("undo"), target.id, &logged, &error)) {
+            m_store->setBatch({});
+            m_store->rollback();
+            return {false, error, {}, {}};
+        }
     }
+    m_store->setBatch({});
+    if (!m_store->commit(&error))
+        return {false, error, {}, {}};
     emit planChanged();
     QJsonObject payload;
-    payload["change"] = changeToJson(target);
-    return {true, {}, tr("Undone %1 on task %2").arg(target.kind, target.taskId), payload};
+    payload["change"] = changeToJson(targets.first());
+    payload["count"] = targets.size();
+    const QString text = targets.size() == 1
+            ? tr("Undone %1 on task %2").arg(targets.first().kind, targets.first().taskId)
+            : tr("Undone %n changes", nullptr, targets.size());
+    return {true, {}, text, payload};
 }
 
 ActionResult Actions::redo(const QString &source) {
     QString error;
-    Store::Change target;
-    if (!m_store->lastUndoChange(&target, &error))
-        return {false, error, {}, {}};
-
     if (!m_store->begin(&error))
         return {false, error, {}, {}};
-
-    // Redo re-applies the state that existed before the undo: before-only was
-    // an undo of a create (insert it again), after-only an undo of a delete
-    // (delete it again), both an undo of an update (restore the newer side).
-    bool ok = false;
-    Task beforeRedo, afterRedo;
-    bool hasBefore = false, hasAfter = false;
-    if (target.hasBefore && !target.hasAfter) {
-        ok = m_store->insertTask(target.before, &error);
-        afterRedo = target.before;
-        hasAfter = true;
-    } else if (!target.hasBefore && target.hasAfter) {
-        ok = m_store->deleteTask(target.after.id, &error);
-        beforeRedo = target.after;
-        hasBefore = true;
-    } else if (target.hasBefore && target.hasAfter) {
-        ok = m_store->replaceTask(target.before, &error);
-        beforeRedo = target.after;
-        afterRedo = target.before;
-        hasBefore = hasAfter = true;
-    } else {
-        error = tr("Change %1 cannot be redone").arg(target.id);
-    }
-    qlonglong redoId = 0;
-    if (ok)
-        redoId = m_store->logChange(source, QStringLiteral("redo"), target.taskId,
-                                    hasBefore ? &beforeRedo : nullptr, hasAfter ? &afterRedo : nullptr);
-    if (ok && redoId > 0)
-        ok = m_store->markRedone(target.id, redoId, &error);
-    if (!ok || redoId <= 0) {
-        m_store->rollback();
-        return {false, ok ? error : error, {}, {}};
-    }
-    if (!m_store->commit(&error)) {
+    QList<Store::Change> targets;
+    if (!m_store->redoTargets(&targets, &error)) {
         m_store->rollback();
         return {false, error, {}, {}};
     }
+    m_store->setBatch(targets.size() > 1 ? Task::newId() : QString());
+    for (const Store::Change &target : targets) {
+        qlonglong redoId = 0;
+        if (!invertChange(m_store, target, source, QStringLiteral("redo"), 0, &redoId, &error)
+            || !m_store->markRedone(target.id, redoId, &error)) {
+            m_store->setBatch({});
+            m_store->rollback();
+            return {false, error, {}, {}};
+        }
+    }
+    m_store->setBatch({});
+    if (!m_store->commit(&error))
+        return {false, error, {}, {}};
     emit planChanged();
     QJsonObject payload;
-    payload["change"] = changeToJson(target);
-    return {true, {}, tr("Redone %1 on task %2").arg(target.kind, target.taskId), payload};
+    payload["change"] = changeToJson(targets.first());
+    payload["count"] = targets.size();
+    const QString text = targets.size() == 1
+            ? tr("Redone %1 on task %2").arg(targets.first().kind, targets.first().taskId)
+            : tr("Redone %n changes", nullptr, targets.size());
+    return {true, {}, text, payload};
 }
 
 static QJsonObject wrapResult(const ActionResult &result) {
@@ -272,7 +284,14 @@ static QString guessKeyFromSchema(const QString &schemaField) {
 static QStringList existingTaskLines(Store *store) {
     QString error;
     QStringList lines;
+    // Only what helps the engine place new tasks: open tasks from a week
+    // back to two months ahead. The whole history would grow the prompt
+    // (and its cost and latency) without bound.
+    const QDate today = QDateTime::currentDateTime().date();
     for (const Task &task : store->tasks(&error)) {
+        const QDate date = effectiveDate(task);
+        if (task.status == Task::Status::Done || date < today.addDays(-7) || date > today.addDays(60))
+            continue;
         QString line = task.title;
         if (task.start.isValid())
             line += QStringLiteral(" | %1").arg(task.startHasTime
@@ -368,41 +387,73 @@ ActionResult Actions::propose(const QString &rawText, const QString &motorId,
 }
 
 ActionResult Actions::approve(const QJsonObject &proposalJson, const QString &captureId, const QString &source) {
+    // Build and validate every task before writing any, so a bad field in
+    // the third task never leaves the first two stored on their own.
     const QJsonArray tasks = proposalJson.value(QStringLiteral("opgaver")).toArray();
-    QJsonArray stored;
-    QStringList lines;
+    const QDate today = QDateTime::currentDateTime().date();
+    QList<Task> built;
     for (const QJsonValue &value : tasks) {
         const QJsonObject o = value.toObject();
         Task task;
-        task.title = o.value(QStringLiteral("titel")).toString();
+        task.id = Task::newId();
+        task.title = o.value(QStringLiteral("titel")).toString().trimmed();
         task.notes = o.value(QStringLiteral("noter")).toString();
-        task.project = o.value(QStringLiteral("projekt")).toString();
-        task.priority = o.value(QStringLiteral("prioritet")).toInt(0);
+        task.project = o.value(QStringLiteral("projekt")).toString().trimmed();
+        task.priority = o.value(QStringLiteral("prioritet")).toVariant().toInt();
         if (task.priority == 0)
             task.priority = 3;
-        if (o.contains(QStringLiteral("start"))) {
-            const QString s = o.value(QStringLiteral("start")).toString();
-            task.startHasTime = s.contains(QLatin1Char('T'));
-            task.start = QDateTime::fromString(s, Qt::ISODate);
-        }
-        task.durationMinutes = o.value(QStringLiteral("varighed_min")).toInt(0);
-        if (o.contains(QStringLiteral("frist"))) {
-            const QString s = o.value(QStringLiteral("frist")).toString();
-            task.deadlineHasTime = s.contains(QLatin1Char('T'));
-            task.deadline = QDateTime::fromString(s, Qt::ISODate);
-        }
+        // Dates go through the same parser as the CLI: the engine's ISO
+        // values, and whatever the user typed over them in the proposal
+        // ("fredag 10"). An unreadable date is an error, never a silent drop.
+        const auto readDate = [&](const char *key, QDateTime *when, bool *hasTime, QString *error) {
+            const QString text = o.value(QLatin1String(key)).toString().trimmed();
+            if (text.isEmpty())
+                return true;
+            QString why;
+            if (!parseDateTime(text, today, when, hasTime, &why)) {
+                *error = tr("%1: %2").arg(task.title.isEmpty() ? QStringLiteral("?") : task.title, why);
+                return false;
+            }
+            return true;
+        };
+        QString error;
+        if (!readDate("start", &task.start, &task.startHasTime, &error)
+            || !readDate("frist", &task.deadline, &task.deadlineHasTime, &error))
+            return {false, error, {}, {}};
+        task.durationMinutes = o.value(QStringLiteral("varighed_min")).toVariant().toInt();
         const QJsonArray gaet = o.value(QStringLiteral("gaet")).toArray();
         for (const QJsonValue &g : gaet)
             task.guesses.append(guessKeyFromSchema(g.toString()));
         task.captureId = captureId;
+        const QString invalid = task.validate();
+        if (!invalid.isEmpty())
+            return {false, tr("%1: %2").arg(task.title.isEmpty() ? QStringLiteral("?") : task.title, invalid), {}, {}};
+        built.append(task);
+    }
+    if (built.isEmpty())
+        return {false, tr("The proposal has no tasks"), {}, {}};
 
-        QString error;
+    // One transaction and one batch: all tasks or none, and a single undo
+    // takes the whole approval back.
+    QString error;
+    if (!m_store->begin(&error))
+        return {false, error, {}, {}};
+    m_store->setBatch(built.size() > 1 ? Task::newId() : QString());
+    QJsonArray stored;
+    QStringList lines;
+    for (const Task &task : built) {
         const QString id = m_store->createTask(task, source, &error);
-        if (id.isEmpty())
+        if (id.isEmpty()) {
+            m_store->setBatch({});
+            m_store->rollback();
             return {false, error, {}, {}};
+        }
         stored.append(id);
         lines << tr("Created %1: %2").arg(id, task.title);
     }
+    m_store->setBatch({});
+    if (!m_store->commit(&error))
+        return {false, error, {}, {}};
     QJsonObject payload;
     payload["stored"] = stored;
     payload["count"] = stored.size();
@@ -558,6 +609,10 @@ ActionResult Actions::summary(bool week) {
     int total = 0, todo = 0, done = 0, overdue = 0;
     QHash<QString, int> perProject;
     for (const Task &task : all) {
+        // Overdue counts every open task past due, also from earlier
+        // periods: that is exactly what an agent asking for context needs.
+        if (isOverdue(task, today))
+            overdue += 1;
         const QDate date = effectiveDate(task);
         if (date < from || date > to)
             continue;
@@ -568,8 +623,6 @@ ActionResult Actions::summary(bool week) {
             todo += 1;
         if (!task.project.isEmpty())
             perProject[task.project] += 1;
-        if (task.status == Task::Status::Todo && task.deadline.isValid() && task.deadline.date() < today)
-            overdue += 1;
     }
 
     QJsonObject projectsJson;

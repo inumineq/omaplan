@@ -49,3 +49,13 @@ inline QDate effectiveDate(const Task &task) {
         return task.deadline.date();
     return task.created.date();
 }
+
+// Overdue = still open and past its deadline, or (with no deadline) past its
+// start day. Unscheduled tasks are never overdue.
+inline bool isOverdue(const Task &task, const QDate &today) {
+    if (task.status != Task::Status::Todo)
+        return false;
+    if (task.deadline.isValid())
+        return task.deadline.date() < today;
+    return task.start.isValid() && task.start.date() < today;
+}

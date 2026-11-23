@@ -15,6 +15,11 @@
 class PlanModel : public QAbstractListModel {
     Q_OBJECT
     Q_PROPERTY(int count READ rowCount NOTIFY countChanged)
+    // Today's date; changes at midnight while the window is open.
+    Q_PROPERTY(QDate today READ today NOTIFY todayChanged)
+    // Why the plan could not be read (database missing, locked, newer
+    // schema); empty when all is well. Shown in the window.
+    Q_PROPERTY(QString error READ error NOTIFY errorChanged)
 
 public:
     enum Roles {
@@ -41,6 +46,10 @@ public:
     Q_INVOKABLE void reload();
     // Starts polling the database for changes from other processes.
     Q_INVOKABLE void startLivePolling(int intervalMs = 500);
+    QDate today() const { return m_today; }
+    QString error() const { return m_error; }
+    // Error from opening the store, so the window can say what is wrong.
+    void setStoreError(const QString &error);
 
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
@@ -48,18 +57,25 @@ public:
 
 signals:
     void countChanged();
+    void todayChanged();
+    void errorChanged();
     // Emitted when another process committed: source is from `changes`
     // ("cli", "mcp", "gui", ...), empty when unknown.
     void externalChange(const QString &source);
 
 private slots:
     void pollExternalChanges();
+    void checkDay();
 
 private:
     Store *m_store;
     QList<Task> m_tasks;
     class QTimer *m_liveTimer = nullptr;
     int m_lastDataVersion = -1;
+    class QTimer *m_dayTimer = nullptr;
+    QDate m_today;
+    QString m_error;
+    QString m_storeError;
 };
 
 // Base for the view proxies: dynamic sort/filter, and sort once the source is
@@ -76,11 +92,19 @@ public:
     }
 };
 
-// Overblik: overdue tasks first, then everything due within the next 7 days.
+// Overblik: overdue tasks first, then everything due within the next 7 days,
+// then open tasks without a date. The extra role "agendaSection" is the
+// header each row sits under: "overdue", an ISO day, or "none". A task
+// already started but due later sits under today, since it is being worked on.
 class OverviewModel : public SortProxy {
     Q_OBJECT
 public:
+    enum { AgendaSectionRole = PlanModel::ModifiedRole + 100 };
     explicit OverviewModel(QObject *parent = nullptr);
+    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
+    QHash<int, QByteArray> roleNames() const override;
+    // The day a task is listed under; invalid for overdue/unscheduled.
+    static QDate agendaDate(const Task &task, const QDate &today);
 
 protected:
     bool filterAcceptsRow(int sourceRow, const QModelIndex &sourceParent) const override;

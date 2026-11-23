@@ -162,7 +162,7 @@ private slots:
             Store store(path);
             QString error;
             QVERIFY2(store.open(&error), qPrintable(error));
-            QCOMPARE(store.schemaVersion(), 4);
+            QCOMPARE(store.schemaVersion(), 5);
             // The three tables exist.
             QSqlQuery query(store.database());
             QVERIFY(query.exec("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"));
@@ -182,7 +182,7 @@ private slots:
             Store store(path);
             QString error;
             QVERIFY(store.open(&error));
-            QCOMPARE(store.schemaVersion(), 4);
+            QCOMPARE(store.schemaVersion(), 5);
             QCOMPARE(store.tasks(&error).size(), 1);
         }
     }
@@ -220,7 +220,7 @@ private slots:
         Store store(path);
         QString error;
         QVERIFY2(store.open(&error), qPrintable(error));
-        QCOMPARE(store.schemaVersion(), 4);
+        QCOMPARE(store.schemaVersion(), 5);
         QSqlQuery q(store.database());
         QVERIFY(q.exec(QStringLiteral("PRAGMA table_info(changes)")));
         QStringList columns;
@@ -228,6 +228,7 @@ private slots:
             columns << q.value(1).toString();
         QVERIFY(columns.contains(QStringLiteral("undo_of")));
         QVERIFY(columns.contains(QStringLiteral("redo_of")));
+        QVERIFY(columns.contains(QStringLiteral("batch")));
         QVERIFY(q.exec(QStringLiteral("PRAGMA table_info(captures)")));
         QStringList captureColumns;
         while (q.next())
@@ -945,12 +946,244 @@ private slots:
         QVERIFY(actions.setDone(overdue.id, true, QStringLiteral("gui")).ok);
         QCOMPARE(spy.count(), 1);
         model.reload();
-        QCOMPARE(overview.rowCount(), 3); // still within the 7-day window
+        // A done task from the past has left the agenda (it is no longer
+        // overdue, and its day is gone).
+        QCOMPARE(overview.rowCount(), 2);
         QCOMPARE(actions.show(overdue.id).payload["task"].toObject()["status"].toString(), QStringLiteral("done"));
         // A still-todo task with a past deadline sorts before everything else.
         QVERIFY(actions.setDone(overdue.id, false, QStringLiteral("gui")).ok);
         model.reload();
         QCOMPARE(overview.data(overview.index(0, 0), PlanModel::TitleRole).toString(), QStringLiteral("Forfalden"));
+    }
+
+    // ---- Fase 2: regression tests for the review fixes -------------------
+
+    void redoIsRefusedAfterANewChange()
+    {
+        // Undo, then a new edit, then redo: the redo would overwrite the new
+        // edit with stale data, so it must be refused.
+        QTemporaryDir dir;
+        Store store(dir.filePath("t.db"));
+        QString error;
+        QVERIFY(store.open(&error));
+        Actions actions(&store);
+        Task task;
+        task.title = QStringLiteral("A");
+        const QString id = actions.create(task, QStringLiteral("gui")).payload["task"].toObject()["id"].toString();
+        QJsonObject patch;
+        patch["title"] = QStringLiteral("B");
+        QVERIFY(actions.update(id, patch, QStringLiteral("gui")).ok);
+        QVERIFY(actions.undo(QStringLiteral("gui")).ok); // back to A
+        patch["title"] = QStringLiteral("C");
+        QVERIFY(actions.update(id, patch, QStringLiteral("cli")).ok);
+        const ActionResult redo = actions.redo(QStringLiteral("gui"));
+        QVERIFY(!redo.ok);
+        QCOMPARE(redo.error, QStringLiteral("Nothing to redo"));
+        QCOMPARE(actions.show(id).payload["task"].toObject()["title"].toString(), QStringLiteral("C"));
+    }
+
+    void approveIsAtomicParsesEditedDatesAndUndoesInOneStep()
+    {
+        QTemporaryDir dir;
+        Store store(dir.filePath("t.db"));
+        QString error;
+        QVERIFY(store.open(&error));
+        Actions actions(&store);
+
+        // The user typed "fredag 10" over the engine's ISO date: it is parsed.
+        const QJsonObject good = QJsonDocument::fromJson(R"({"opgaver": [
+            {"titel": "Skriv blogindlæg", "start": "fredag 10", "projekt": "Blog"},
+            {"titel": "Ring til Kunde A", "start": "2026-12-01T09:30", "gaet": ["start"]},
+            {"titel": "Læs rapport", "frist": "2026-12-03"}]})").object();
+        const ActionResult ok = actions.approve(good, QString(), QStringLiteral("gui"));
+        QVERIFY2(ok.ok, qPrintable(ok.error));
+        QCOMPARE(ok.payload["count"].toInt(), 3);
+        const QJsonObject friday = actions.show(ok.payload["stored"].toArray().at(0).toString()).payload["task"].toObject();
+        QVERIFY(friday["start"].toString().endsWith(QStringLiteral("T10:00")));
+        QCOMPARE(QDate::fromString(friday["start"].toString().left(10), Qt::ISODate).dayOfWeek(), 5);
+
+        // One undo takes the whole approval back; one redo restores it.
+        QVERIFY(actions.undo(QStringLiteral("gui")).ok);
+        QCOMPARE(store.tasks(&error).size(), 0);
+        QVERIFY(actions.redo(QStringLiteral("gui")).ok);
+        QCOMPARE(store.tasks(&error).size(), 3);
+        QVERIFY(actions.undo(QStringLiteral("gui")).ok); // and the redo is one step too
+        QCOMPARE(store.tasks(&error).size(), 0);
+
+        // An unreadable date in the last task stores nothing at all and
+        // names the task and the problem.
+        const QJsonObject bad = QJsonDocument::fromJson(R"({"opgaver": [
+            {"titel": "Første"}, {"titel": "Anden", "start": "engang"}]})").object();
+        const ActionResult refused = actions.approve(bad, QString(), QStringLiteral("gui"));
+        QVERIFY(!refused.ok);
+        QVERIFY2(refused.error.contains(QStringLiteral("Anden")) && refused.error.contains(QStringLiteral("engang")),
+                 qPrintable(refused.error));
+        QCOMPARE(store.tasks(&error).size(), 0);
+    }
+
+    void transactionsTakeTheWriteLockUpFront()
+    {
+        // BEGIN IMMEDIATE: while one connection is inside a transaction (an
+        // undo reading what to invert), another cannot commit underneath it.
+        QTemporaryDir dir;
+        const QString path = dir.filePath("t.db");
+        Store a(path), b(path);
+        QString error;
+        QVERIFY(a.open(&error));
+        QVERIFY(b.open(&error));
+        QSqlQuery(b.database()).exec(QStringLiteral("PRAGMA busy_timeout=50"));
+        QVERIFY(a.begin(&error));
+        Task task;
+        task.title = QStringLiteral("Fra B");
+        QVERIFY(b.createTask(task, QStringLiteral("cli"), &error).isEmpty()); // locked
+        QVERIFY(a.commit(&error));
+        QVERIFY2(!b.createTask(task, QStringLiteral("cli"), &error).isEmpty(), qPrintable(error));
+    }
+
+    void cliFixes()
+    {
+        QTemporaryDir dir;
+        Store store(dir.filePath("cli.db"));
+        QString error;
+        QVERIFY(store.open(&error));
+        QString out, err;
+        int code = 0;
+
+        // summary without a flag is this week (as the help says), not the month.
+        const QJsonObject summary = cliJson(store, {QStringLiteral("summary"), QStringLiteral("--json")}, &err, &code);
+        QCOMPARE(code, 0);
+        const QDate today = QDate::currentDate();
+        QCOMPARE(summary["summary"].toObject()["from"].toString(),
+                 today.addDays(1 - today.dayOfWeek()).toString(Qt::ISODate));
+
+        const QString id = cliJson(store, {QStringLiteral("new"), QStringLiteral("--titel"), QStringLiteral("X"),
+                                           QStringLiteral("--json")}, &err, &code)["task"].toObject()["id"].toString();
+        // move without quotes: `move <id> 2026-12-01 14:30` keeps the time.
+        const QJsonObject moved = cliJson(store, {QStringLiteral("move"), id, QStringLiteral("2026-12-01"),
+                                                   QStringLiteral("14:30"), QStringLiteral("--json")}, &err, &code);
+        QCOMPARE(code, 0);
+        QCOMPARE(moved["task"].toObject()["start"].toString(), QStringLiteral("2026-12-01T14:30"));
+
+        // Garbage numbers and statuses are errors, not silent defaults.
+        err.clear();
+        QCOMPARE(cli(store, {QStringLiteral("edit"), id, QStringLiteral("--varighed"), QStringLiteral("1t")}, &out, &err), 1);
+        QVERIFY(err.contains(QStringLiteral("varighed")));
+        QCOMPARE(cli(store, {QStringLiteral("new"), QStringLiteral("--titel"), QStringLiteral("Y"),
+                             QStringLiteral("--prioritet"), QStringLiteral("høj")}, &out, &err), 1);
+        QCOMPARE(cli(store, {QStringLiteral("edit"), id, QStringLiteral("--status"), QStringLiteral("færdig")}, &out, &err), 1);
+        QCOMPARE(cliJson(store, {QStringLiteral("show"), id, QStringLiteral("--json")}, &err, &code)["task"].toObject()["status"].toString(),
+                 QStringLiteral("todo"));
+    }
+
+    void updateRejectsUnknownFieldsAndKeepsDateOnlyDates()
+    {
+        QTemporaryDir dir;
+        Store store(dir.filePath("t.db"));
+        QString error;
+        QVERIFY(store.open(&error));
+        Actions actions(&store);
+        Task task;
+        task.title = QStringLiteral("X");
+        const QString id = actions.create(task, QStringLiteral("cli")).payload["task"].toObject()["id"].toString();
+        QJsonObject typo;
+        typo["titel"] = QStringLiteral("Y");
+        QVERIFY(!actions.update(id, typo, QStringLiteral("mcp")).ok);
+        // A date-only start whose text carries a time keeps its date instead
+        // of becoming unscheduled.
+        QJsonObject patch;
+        patch["start"] = QStringLiteral("2026-12-01T10:00");
+        const ActionResult r = actions.update(id, patch, QStringLiteral("mcp"));
+        QVERIFY2(r.ok, qPrintable(r.error));
+        QCOMPARE(r.payload["task"].toObject()["start"].toString(), QStringLiteral("2026-12-01"));
+        // An unreadable date is an error.
+        patch["start"] = QStringLiteral("fredag");
+        QVERIFY(!actions.update(id, patch, QStringLiteral("mcp")).ok);
+    }
+
+    void overdueMeansPastStartOrDeadline()
+    {
+        QTemporaryDir dir;
+        Store store(dir.filePath("t.db"));
+        QString error;
+        QVERIFY(store.open(&error));
+        Actions actions(&store);
+        PlanModel model(&store);
+        OverviewModel overview;
+        overview.setSourceModel(&model);
+        const QDate today = QDate::currentDate();
+
+        Task pastStart; // started last month, never done: overdue
+        pastStart.title = QStringLiteral("Glemt");
+        pastStart.start = QDateTime(today.addDays(-30), QTime(0, 0));
+        Task oldDone; // done long ago: not on the agenda
+        oldDone.title = QStringLiteral("Klaret");
+        oldDone.start = QDateTime(today.addDays(-20), QTime(0, 0));
+        oldDone.status = Task::Status::Done;
+        Task future; // deadline ahead, start in the past: not overdue
+        future.title = QStringLiteral("I gang");
+        future.start = QDateTime(today.addDays(-3), QTime(0, 0));
+        future.deadline = QDateTime(today.addDays(3), QTime(0, 0));
+        for (const Task &t : {pastStart, oldDone, future})
+            QVERIFY(actions.create(t, QStringLiteral("cli")).ok);
+        model.reload();
+
+        QVERIFY(isOverdue(pastStart, today));
+        QVERIFY(!isOverdue(future, today));
+        QCOMPARE(overview.rowCount(), 2);
+        QCOMPARE(overview.data(overview.index(0, 0), PlanModel::TitleRole).toString(), QStringLiteral("Glemt"));
+        // summary counts overdue tasks from earlier periods too.
+        QCOMPARE(actions.summary(true).payload["summary"].toObject()["overdue"].toInt(), 1);
+    }
+
+    void planModelReportsStoreError()
+    {
+        Store store(QStringLiteral("/proc/omaplan-kan-ikke/plan.db"));
+        QString error;
+        QVERIFY(!store.open(&error));
+        PlanModel model(&store);
+        QSignalSpy spy(&model, &PlanModel::errorChanged);
+        model.setStoreError(error);
+        QCOMPARE(spy.count(), 1);
+        QVERIFY(!model.error().isEmpty());
+        QCOMPARE(model.rowCount(), 0);
+        QCOMPARE(model.today(), QDate::currentDate());
+    }
+
+    void promptContextSkipsOldAndDoneTasks()
+    {
+        // The command engine runs `cat`, which echoes the prompt; it fails
+        // validation and the error carries the raw response = the prompt.
+        QTemporaryDir dir;
+        Store store(dir.filePath("t.db"));
+        QString error;
+        QVERIFY(store.open(&error));
+        Actions actions(&store);
+        const QDate today = QDate::currentDate();
+        Task old, done, near;
+        old.title = QStringLiteral("Gammel opgave");
+        old.start = QDateTime(today.addDays(-40), QTime(0, 0));
+        done.title = QStringLiteral("Afsluttet opgave");
+        done.start = QDateTime(today, QTime(0, 0));
+        done.status = Task::Status::Done;
+        near.title = QStringLiteral("Nær opgave");
+        near.start = QDateTime(today.addDays(2), QTime(0, 0));
+        for (const Task &t : {old, done, near})
+            QVERIFY(actions.create(t, QStringLiteral("cli")).ok);
+
+        QTemporaryDir cfgDir;
+        const QString cfgPath = cfgDir.filePath("config.toml");
+        {
+            QFile f(cfgPath);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write("[motor]\nengine = \"command\"\ncommand = \"cat\"\n");
+        }
+        qputenv("OMAPLAN_CONFIG", cfgPath.toLocal8Bit());
+        const ActionResult r = actions.propose(QStringLiteral("noget nyt"));
+        qputenv("OMAPLAN_CONFIG", "");
+        QVERIFY(!r.ok);
+        QVERIFY2(r.error.contains(QStringLiteral("Nær opgave")), qPrintable(r.error));
+        QVERIFY(!r.error.contains(QStringLiteral("Gammel opgave")));
+        QVERIFY(!r.error.contains(QStringLiteral("Afsluttet opgave")));
     }
 
     void dataVersionDetectsOtherConnections()

@@ -27,7 +27,9 @@ Task::Status Task::statusFromString(const QString &text, bool *ok) {
         if (ok) *ok = true;
         return Status::Done;
     }
-    if (ok) *ok = true;
+    // Empty means the default; anything else ("finished", "x") is rejected
+    // instead of silently becoming todo.
+    if (ok) *ok = text.isEmpty() || text == QLatin1String("todo");
     return Status::Todo;
 }
 
@@ -66,8 +68,10 @@ static QString toIso(const QDateTime &dateTime, bool hasTime) {
 static QDateTime fromIso(const QString &text, bool hasTime) {
     if (text.isEmpty())
         return {};
+    // A date-only field keeps only the date, even when the text carries a
+    // time ("2026-11-24T10:00" with has_time false) — never an invalid date.
     if (!hasTime)
-        return QDateTime(QDate::fromString(text, Qt::ISODate), QTime(0, 0));
+        return QDateTime(QDate::fromString(text.left(10), Qt::ISODate), QTime(0, 0));
     QDateTime dateTime = QDateTime::fromString(text, Qt::ISODateWithMs);
     if (!dateTime.isValid())
         dateTime = QDateTime::fromString(text, Qt::ISODate);
@@ -119,7 +123,11 @@ Task Task::fromJson(const QJsonObject &json, bool *ok) {
     task.created = fromIso(json["created"].toString(), true);
     task.modified = fromIso(json["modified"].toString(), true);
 
+    // A date text that does not parse makes the task invalid rather than
+    // quietly unscheduling it.
+    const bool datesOk = (json["start"].toString().isEmpty() || task.start.isValid())
+                         && (json["deadline"].toString().isEmpty() || task.deadline.isValid());
     if (ok)
-        *ok = statusOk && task.validate().isEmpty();
+        *ok = statusOk && datesOk && task.validate().isEmpty();
     return task;
 }
