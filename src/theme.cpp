@@ -74,6 +74,48 @@ QString Theme::readAccent(const QString &path) {
     return "#FFD60A";
 }
 
+QHash<QString, QString> Theme::readColors(const QString &path) {
+    QHash<QString, QString> colors;
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly))
+        return colors;
+    static const QRegularExpression line(R"re(^\s*([a-z_0-9]+)\s*=\s*["']([^"']+)["'])re",
+                                         QRegularExpression::MultilineOption);
+    auto it = line.globalMatch(QString::fromUtf8(file.readAll()));
+    while (it.hasNext()) {
+        const auto match = it.next();
+        colors.insert(match.captured(1), match.captured(2).trimmed());
+    }
+    return colors;
+}
+
+QString Theme::color(const char *key, const char *fallback) const {
+    const QString value = m_colors.value(QLatin1String(key));
+    if (QLatin1String(key) == QLatin1String("mode"))
+        return value.isEmpty() ? QString::fromLatin1(fallback) : value;
+    return QColor::isValidColorName(value) ? value : QString::fromLatin1(fallback);
+}
+
+// Mixes two colors; t = 0 gives a, 1 gives b.
+static QString mix(const QString &a, const QString &b, double t) {
+    const QColor x(a), y(b);
+    return QColor::fromRgbF(x.redF() + (y.redF() - x.redF()) * t, x.greenF() + (y.greenF() - x.greenF()) * t,
+                            x.blueF() + (y.blueF() - x.blueF()) * t).name();
+}
+
+QString Theme::surface() const {
+    const QString lighter = color("lighter_background", "");
+    return lighter.isEmpty() ? mix(background(), foreground(), 0.06) : mix(background(), lighter, 0.6);
+}
+
+QString Theme::raised() const { return mix(background(), foreground(), 0.13); }
+QString Theme::border() const { return mix(background(), foreground(), 0.18); }
+
+QString Theme::muted() const {
+    const QString value = color("muted", "");
+    return value.isEmpty() ? mix(foreground(), background(), 0.42) : value;
+}
+
 // Black or white, whichever reads on the accent (WCAG relative luminance).
 QString Theme::accentForeground() const {
     const QColor c(m_accent);
@@ -102,8 +144,10 @@ void Theme::reload() {
             m_watcher.addPath(path);
 
     const auto accent = readAccent(m_directory + "/theme/colors.toml");
-    if (accent != m_accent) {
+    const auto colors = readColors(m_directory + "/theme/colors.toml");
+    if (accent != m_accent || colors != m_colors) {
         m_accent = accent;
+        m_colors = colors;
         emit changed();
     }
 }

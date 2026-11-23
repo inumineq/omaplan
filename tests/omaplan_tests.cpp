@@ -1,3 +1,4 @@
+#include <QColor>
 #include <QDir>
 #include <QFile>
 #include <QJsonDocument>
@@ -17,6 +18,7 @@
 #include "skill.h"
 #include "store.h"
 #include "task.h"
+#include "theme.h"
 
 // Runs the CLI in-process against an already-constructed store, capturing
 // stdout and stderr.
@@ -1446,6 +1448,32 @@ private slots:
         QCOMPARE(failed.count(), 0);
         QCOMPARE(single.count(), 0);
         qputenv("OMAPLAN_CONFIG", "");
+    }
+
+    void themeReadsOmarchyColorsWithFallbacks()
+    {
+        // Views take every color from the theme; a theme without a key (or
+        // no Omarchy at all) still gives a complete dark palette.
+        QTemporaryDir dir;
+        Theme fallback(dir.path());
+        QCOMPARE(fallback.accent(), QStringLiteral("#FFD60A"));
+        QVERIFY(fallback.dark());
+        for (const QString &c : {fallback.background(), fallback.surface(), fallback.raised(), fallback.border(),
+                                 fallback.foreground(), fallback.muted(), fallback.danger(), fallback.success()})
+            QVERIFY2(QColor::isValidColorName(c), qPrintable(c));
+        QVERIFY(QColor(fallback.surface()).lightness() > QColor(fallback.background()).lightness());
+
+        QDir().mkpath(dir.filePath("theme"));
+        QFile f(dir.filePath("theme/colors.toml"));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("mode = \"light\"\naccent = \"#123456\"\nbackground = \"#fafafa\"\nforeground = \"#111111\"\nred = \"#cc0000\"\n");
+        f.close();
+        Theme light(dir.path());
+        QCOMPARE(light.accent(), QStringLiteral("#123456"));
+        QVERIFY(!light.dark());
+        QCOMPARE(light.background(), QStringLiteral("#fafafa"));
+        QCOMPARE(light.danger(), QStringLiteral("#cc0000"));
+        QVERIFY(QColor(light.muted()).lightness() > QColor(light.foreground()).lightness());
     }
 
     void dataVersionDetectsOtherConnections()
