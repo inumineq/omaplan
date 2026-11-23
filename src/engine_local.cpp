@@ -29,7 +29,7 @@ public:
     }
 
     QString id() const override { return QStringLiteral("lokal"); }
-    QString displayName() const override { return QStringLiteral("Lokal (%1)").arg(m_model); }
+    QString displayName() const override { return m_model.isEmpty() ? QStringLiteral("Lokal") : QStringLiteral("Lokal (%1)").arg(m_model); }
     QString modelInfo() const override { return m_model; }
 
     // No external binary; reachability and configuration are reported per

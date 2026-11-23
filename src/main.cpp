@@ -55,10 +55,7 @@ int main(int argc, char *argv[]) {
         return runCli(args, &store, out, err);
     }
 
-    qmlRegisterType<OverviewModel>("Omaplan", 1, 0, "OverviewModel");
-    qmlRegisterType<CalendarModel>("Omaplan", 1, 0, "CalendarModel");
-    qmlRegisterType<PlanListModel>("Omaplan", 1, 0, "PlanListModel");
-    qmlRegisterType<GanttModel>("Omaplan", 1, 0, "GanttModel");
+    registerQmlTypes();
 
     Theme theme;
 

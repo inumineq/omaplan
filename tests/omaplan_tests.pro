@@ -1,4 +1,4 @@
-QT += core gui sql network testlib dbus
+QT += core gui sql network testlib dbus qml
 
 CONFIG += c++17 testcase console
 TARGET = omaplan_tests
@@ -15,3 +15,5 @@ SOURCES += omaplan_tests.cpp ../src/task.cpp ../src/store.cpp ../src/actions.cpp
            ../src/engine_command.cpp ../src/prompt.cpp ../src/proposal.cpp ../src/translator.cpp ../src/mcp.cpp ../src/theme.cpp
 
 RESOURCES += ../src/ai-skema.qrc ../src/skill.qrc
+# The source tree, for checks over the QML and the translations.
+DEFINES += OMAPLAN_SRC=\\\"$$PWD/../src\\\"

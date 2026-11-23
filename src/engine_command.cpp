@@ -1,3 +1,4 @@
+#include <QFileInfo>
 #include "engine.h"
 
 #include <QProcess>
@@ -19,7 +20,11 @@ public:
     QString id() const override { return QStringLiteral("command"); }
     QString displayName() const override
     {
-        return QStringLiteral("Command (%1)").arg(m_commandLine.isEmpty() ? QStringLiteral("?") : m_commandLine);
+        // Only the script or program name: the full command line can be long
+        // and hold paths that do not belong in the window.
+        const QStringList parts = QProcess::splitCommand(m_commandLine);
+        return QStringLiteral("Command (%1)")
+            .arg(parts.isEmpty() ? QStringLiteral("?") : QFileInfo(parts.last()).fileName());
     }
 
     void setCommandLine(const QString &commandLine)

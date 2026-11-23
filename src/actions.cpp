@@ -266,6 +266,44 @@ QJsonObject Actions::guiProjects() {
     return wrapResult(projects());
 }
 
+QJsonObject Actions::guiTask(const QString &id) {
+    return wrapResult(show(id));
+}
+
+static Actions::Fields fieldsFromVariant(const QVariantMap &map) {
+    Actions::Fields fields;
+    for (auto it = map.begin(); it != map.end(); ++it)
+        fields.insert(it.key(), it.value().toString());
+    return fields;
+}
+
+QJsonObject Actions::guiEdit(const QString &id, const QVariantMap &fields) {
+    QJsonObject patch;
+    QString error;
+    if (!patchFromFields(fieldsFromVariant(fields), &patch, &error))
+        return wrapResult({false, error, {}, {}});
+    return wrapResult(update(id, patch, QStringLiteral("gui")));
+}
+
+QJsonObject Actions::guiNew(const QVariantMap &fields) {
+    Task task;
+    QString error;
+    if (!taskFromFields(fieldsFromVariant(fields), &task, &error))
+        return wrapResult({false, error, {}, {}});
+    return wrapResult(create(task, QStringLiteral("gui")));
+}
+
+QJsonObject Actions::guiParseDate(const QString &text) const {
+    QDateTime when;
+    bool hasTime = false;
+    QString error;
+    const bool ok = parseDateTime(text, QDate::currentDate(), &when, &hasTime, &error);
+    return {{QStringLiteral("ok"), ok},
+            {QStringLiteral("error"), error},
+            {QStringLiteral("date"), ok ? when.toString(QStringLiteral("yyyy-MM-ddTHH:mm")) : QString()},
+            {QStringLiteral("hasTime"), hasTime}};
+}
+
 // ---------------------------------------------------------------------------
 // AI proposals
 

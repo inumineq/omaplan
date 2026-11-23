@@ -75,6 +75,15 @@ public:
     Q_INVOKABLE QJsonObject guiUndo();
     Q_INVOKABLE QJsonObject guiRedo();
     Q_INVOKABLE QJsonObject guiProjects();
+    // The task as JSON (payload.task), for the editor.
+    Q_INVOKABLE QJsonObject guiTask(const QString &id);
+    // Edit and create from the editor's text fields, by their CLI names
+    // (titel, start, frist, varighed, ...), so the window accepts the same
+    // date expressions as the CLI.
+    Q_INVOKABLE QJsonObject guiEdit(const QString &id, const QVariantMap &fields);
+    Q_INVOKABLE QJsonObject guiNew(const QVariantMap &fields);
+    // Live preview while typing a date: {ok, error, date (ISO), hasTime}.
+    Q_INVOKABLE QJsonObject guiParseDate(const QString &text) const;
 
     // Sends free text to an AI engine (motorId empty = config default). The
     // raw text and the date-annotated variant are stored in `captures` with

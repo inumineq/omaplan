@@ -15,6 +15,8 @@
 class PlanModel : public QAbstractListModel {
     Q_OBJECT
     Q_PROPERTY(int count READ rowCount NOTIFY countChanged)
+    // Bumped on every reload, so bindings over rows() re-evaluate.
+    Q_PROPERTY(int revision READ revision NOTIFY revisionChanged)
     // Today's date; changes at midnight while the window is open.
     Q_PROPERTY(QDate today READ today NOTIFY todayChanged)
     // Why the plan could not be read (database missing, locked, newer
@@ -39,6 +41,7 @@ public:
         GuessesRole,        // QStringList
         CreatedRole,
         ModifiedRole,
+        DayKeyRole,         // ISO day the task belongs to (start, else deadline); "" when undated
     };
 
     explicit PlanModel(Store *store, QObject *parent = nullptr);
@@ -47,6 +50,7 @@ public:
     // Starts polling the database for changes from other processes.
     Q_INVOKABLE void startLivePolling(int intervalMs = 500);
     QDate today() const { return m_today; }
+    int revision() const { return m_revision; }
     QString error() const { return m_error; }
     // Error from opening the store, so the window can say what is wrong.
     void setStoreError(const QString &error);
@@ -58,6 +62,7 @@ public:
 signals:
     void countChanged();
     void todayChanged();
+    void revisionChanged();
     void errorChanged();
     // Emitted when another process committed: source is from `changes`
     // ("cli", "mcp", "gui", ...), empty when unknown.
@@ -76,21 +81,46 @@ private:
     QDate m_today;
     QString m_error;
     QString m_storeError;
+    int m_revision = 0;
 };
 
 // Base for the view proxies: dynamic sort/filter, and sort once the source is
 // set (QSortFilterProxyModel does not sort until told to).
 class SortProxy : public QSortFilterProxyModel {
     Q_OBJECT
+    Q_PROPERTY(int count READ rowCount NOTIFY contentChanged)
+    // Bumped whenever the visible rows change (filter, sort, data), so QML
+    // bindings over rows() and ids() follow this model and nothing else.
+    Q_PROPERTY(int revision READ revision NOTIFY contentChanged)
 public:
     explicit SortProxy(QObject *parent = nullptr) : QSortFilterProxyModel(parent) {
         setDynamicSortFilter(true);
+        const auto bump = [this] { ++m_revision; emit contentChanged(); };
+        connect(this, &QAbstractItemModel::modelReset, this, bump);
+        connect(this, &QAbstractItemModel::layoutChanged, this, bump);
+        connect(this, &QAbstractItemModel::rowsInserted, this, bump);
+        connect(this, &QAbstractItemModel::rowsRemoved, this, bump);
+        connect(this, &QAbstractItemModel::rowsMoved, this, bump);
+        connect(this, &QAbstractItemModel::dataChanged, this, bump);
     }
+    int revision() const { return m_revision; }
     void setSourceModel(QAbstractItemModel *model) override {
         QSortFilterProxyModel::setSourceModel(model);
         sort(0, Qt::AscendingOrder);
     }
+    // Task ids in display order, for keyboard navigation in the views.
+    Q_INVOKABLE QStringList ids() const;
+    // All rows as {roleName: value} maps, for views that lay tasks out
+    // themselves (time grid, month cells, timeline lanes).
+    Q_INVOKABLE QVariantList rows() const;
+signals:
+    void contentChanged();
+private:
+    int m_revision = 0;
 };
+
+// Registers the view models and the Fmt singleton under "import Omaplan".
+void registerQmlTypes();
 
 // Overblik: overdue tasks first, then everything due within the next 7 days,
 // then open tasks without a date. The extra role "agendaSection" is the
@@ -99,7 +129,7 @@ public:
 class OverviewModel : public SortProxy {
     Q_OBJECT
 public:
-    enum { AgendaSectionRole = PlanModel::ModifiedRole + 100 };
+    enum { AgendaSectionRole = PlanModel::DayKeyRole + 100 };
     explicit OverviewModel(QObject *parent = nullptr);
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
     QHash<int, QByteArray> roleNames() const override;
@@ -142,15 +172,25 @@ private:
 class PlanListModel : public SortProxy {
     Q_OBJECT
     Q_PROPERTY(QString projectFilter READ projectFilter WRITE setProjectFilter NOTIFY projectFilterChanged)
+    // "" = all, "todo" or "done".
+    Q_PROPERTY(QString statusFilter READ statusFilter WRITE setStatusFilter NOTIFY statusFilterChanged)
+    // "" = by date, "project" = by project then date (so sections group).
+    Q_PROPERTY(QString grouping READ grouping WRITE setGrouping NOTIFY groupingChanged)
 
 public:
     explicit PlanListModel(QObject *parent = nullptr);
 
     QString projectFilter() const { return m_projectFilter; }
     void setProjectFilter(const QString &filter);
+    QString statusFilter() const { return m_statusFilter; }
+    void setStatusFilter(const QString &filter);
+    QString grouping() const { return m_grouping; }
+    void setGrouping(const QString &grouping);
 
 signals:
     void projectFilterChanged();
+    void statusFilterChanged();
+    void groupingChanged();
 
 protected:
     bool filterAcceptsRow(int sourceRow, const QModelIndex &sourceParent) const override;
@@ -158,6 +198,8 @@ protected:
 
 private:
     QString m_projectFilter;
+    QString m_statusFilter;
+    QString m_grouping;
 };
 
 // Tidslinje: only scheduled tasks (a bar needs a start), sorted by start.

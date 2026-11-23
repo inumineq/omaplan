@@ -1,6 +1,8 @@
 #include "planmodel.h"
 
+#include <QQmlEngine>
 #include <QTimer>
+#include <QUrl>
 
 PlanModel::PlanModel(Store *store, QObject *parent)
     : QAbstractListModel(parent), m_store(store), m_today(QDate::currentDate()) {
@@ -26,6 +28,8 @@ void PlanModel::reload() {
     QString error;
     m_tasks = m_store->isOpen() ? m_store->tasks(&error) : QList<Task>();
     endResetModel();
+    ++m_revision;
+    emit revisionChanged();
     emit countChanged();
     if (!m_store->isOpen() && error.isEmpty())
         error = m_storeError;
@@ -94,6 +98,8 @@ QVariant PlanModel::data(const QModelIndex &index, int role) const {
     case GuessesRole: return task.guesses;
     case CreatedRole: return task.created;
     case ModifiedRole: return task.modified;
+    case DayKeyRole:
+        return task.start.isValid() || task.deadline.isValid() ? effectiveDate(task).toString(Qt::ISODate) : QString();
     default: return {};
     }
 }
@@ -116,6 +122,7 @@ QHash<int, QByteArray> PlanModel::roleNames() const {
         {GuessesRole, "guesses"},
         {CreatedRole, "created"},
         {ModifiedRole, "modified"},
+        {DayKeyRole, "dayKey"},
     };
 }
 
@@ -236,18 +243,26 @@ bool CalendarModel::filterAcceptsRow(int sourceRow, const QModelIndex &sourcePar
     if (!m_from.isValid() || !m_to.isValid())
         return true;
     const Task task = taskOf(sourceModel(), sourceModel()->index(sourceRow, 0, sourceParent));
+    // A calendar shows dated tasks only; undated ones live in the list.
+    if (!task.start.isValid() && !task.deadline.isValid())
+        return false;
     const QDate date = effectiveDate(task);
     return date >= m_from && date <= m_to;
 }
 
 bool CalendarModel::lessThan(const QModelIndex &left, const QModelIndex &right) const {
+    // Day by day; within a day all-day tasks (shown on top) before timed
+    // ones in time order — the order the week view draws them in.
     const Task a = taskOf(sourceModel(), left);
     const Task b = taskOf(sourceModel(), right);
-    if (a.start.isValid() != b.start.isValid())
-        return a.start.isValid();
+    const QDate dateA = effectiveDate(a), dateB = effectiveDate(b);
+    if (dateA != dateB)
+        return dateA < dateB;
+    if (a.startHasTime != b.startHasTime)
+        return !a.startHasTime;
     if (a.start != b.start)
         return a.start < b.start;
-    return effectiveDate(a) < effectiveDate(b);
+    return a.title.localeAwareCompare(b.title) < 0;
 }
 
 PlanListModel::PlanListModel(QObject *parent) : SortProxy(parent) {
@@ -261,22 +276,53 @@ void PlanListModel::setProjectFilter(const QString &filter) {
     invalidateFilter();
 }
 
+void PlanListModel::setStatusFilter(const QString &filter) {
+    if (m_statusFilter == filter)
+        return;
+    m_statusFilter = filter;
+    emit statusFilterChanged();
+    invalidateFilter();
+}
+
+void PlanListModel::setGrouping(const QString &grouping) {
+    if (m_grouping == grouping)
+        return;
+    m_grouping = grouping;
+    emit groupingChanged();
+    invalidate();
+}
+
 bool PlanListModel::filterAcceptsRow(int sourceRow, const QModelIndex &sourceParent) const {
-    if (m_projectFilter.isEmpty())
-        return true;
     const Task task = taskOf(sourceModel(), sourceModel()->index(sourceRow, 0, sourceParent));
-    return task.project == m_projectFilter;
+    if (!m_projectFilter.isEmpty() && task.project != m_projectFilter)
+        return false;
+    return m_statusFilter.isEmpty() || Task::statusToString(task.status) == m_statusFilter;
 }
 
 bool PlanListModel::lessThan(const QModelIndex &left, const QModelIndex &right) const {
     const Task a = taskOf(sourceModel(), left);
     const Task b = taskOf(sourceModel(), right);
-    if (a.status != b.status)
-        return a.status == Task::Status::Todo; // undone first
+    // Grouped by project: projects alphabetically, "no project" last, so
+    // each project's rows sit together under one section header.
+    if (m_grouping == QLatin1String("project") && a.project != b.project) {
+        if (a.project.isEmpty() != b.project.isEmpty())
+            return !a.project.isEmpty();
+        return a.project.localeAwareCompare(b.project) < 0;
+    }
+    // Dated tasks by day (timed before all-day), undated last; done ones
+    // stay in place so a checked task does not jump away under the cursor.
+    const bool datedA = a.start.isValid() || a.deadline.isValid();
+    const bool datedB = b.start.isValid() || b.deadline.isValid();
+    if (datedA != datedB)
+        return datedA;
     const QDate dateA = effectiveDate(a), dateB = effectiveDate(b);
     if (dateA != dateB)
         return dateA < dateB;
-    return a.title < b.title;
+    if (a.startHasTime != b.startHasTime)
+        return a.startHasTime;
+    if (a.start != b.start)
+        return a.start < b.start;
+    return a.title.localeAwareCompare(b.title) < 0;
 }
 
 GanttModel::GanttModel(QObject *parent) : SortProxy(parent) {
@@ -290,4 +336,33 @@ bool GanttModel::filterAcceptsRow(int sourceRow, const QModelIndex &sourceParent
 
 bool GanttModel::lessThan(const QModelIndex &left, const QModelIndex &right) const {
     return taskOf(sourceModel(), left).start < taskOf(sourceModel(), right).start;
+}
+
+QStringList SortProxy::ids() const {
+    QStringList result;
+    for (int row = 0; row < rowCount(); ++row)
+        result << data(index(row, 0), PlanModel::IdRole).toString();
+    return result;
+}
+
+QVariantList SortProxy::rows() const {
+    QVariantList result;
+    const QHash<int, QByteArray> names = roleNames();
+    for (int row = 0; row < rowCount(); ++row) {
+        QVariantMap map;
+        const QModelIndex idx = index(row, 0);
+        for (auto it = names.begin(); it != names.end(); ++it)
+            map.insert(QString::fromLatin1(it.value()), data(idx, it.key()));
+        result << map;
+    }
+    return result;
+}
+
+void registerQmlTypes() {
+    qmlRegisterType<OverviewModel>("Omaplan", 1, 0, "OverviewModel");
+    qmlRegisterType<CalendarModel>("Omaplan", 1, 0, "CalendarModel");
+    qmlRegisterType<PlanListModel>("Omaplan", 1, 0, "PlanListModel");
+    qmlRegisterType<GanttModel>("Omaplan", 1, 0, "GanttModel");
+    // Date, time and duration formatting in the Omarchy language.
+    qmlRegisterSingletonType(QUrl(QStringLiteral("qrc:/Fmt.qml")), "Omaplan", 1, 0, "Fmt");
 }

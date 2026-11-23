@@ -3,6 +3,7 @@
 #include <QFile>
 #include <QJsonDocument>
 #include <QProcess>
+#include <QRegularExpression>
 #include <QJsonObject>
 #include <QSqlDatabase>
 #include <QSqlQuery>
@@ -931,7 +932,10 @@ private slots:
 
         // Calendar range filters by effective date.
         calendar.setRange(today, today.addDays(7));
-        QCOMPARE(calendar.rowCount(), 2); // overdue (deadline yesterday) + today
+        // Only "I dag": the overdue task is two days back, and the undated
+        // task (whose effective date is its creation day) is not a
+        // calendar entry.
+        QCOMPARE(calendar.rowCount(), 1);
         calendar.setRange(today.addDays(8), today.addDays(12));
         QCOMPARE(calendar.rowCount(), 1);
         QCOMPARE(calendar.data(calendar.index(0, 0), PlanModel::TitleRole).toString(), QStringLiteral("Om 10 dage"));
@@ -1450,6 +1454,32 @@ private slots:
         qputenv("OMAPLAN_CONFIG", "");
     }
 
+    // Every string the window or the CLI shows has a Danish translation: a
+    // missing key shows English in the middle of the Danish window.
+    void everyUserStringHasADanishTranslation() {
+        const QDir src(QStringLiteral(OMAPLAN_SRC));
+        QFile daFile(src.filePath(QStringLiteral("i18n/da.json")));
+        QVERIFY(daFile.open(QIODevice::ReadOnly));
+        const QJsonObject da = QJsonDocument::fromJson(daFile.readAll()).object();
+        QVERIFY(!da.isEmpty());
+
+        // qsTr("...") with escaped quotes allowed inside.
+        const QRegularExpression qml(QStringLiteral("qsTr\\(\\s*\"((?:[^\"\\\\]|\\\\.)*)\""));
+        QStringList missing;
+        for (const QString &name : src.entryList({QStringLiteral("*.qml")})) {
+            QFile f(src.filePath(name));
+            QVERIFY(f.open(QIODevice::ReadOnly));
+            const QString text = QString::fromUtf8(f.readAll());
+            for (auto it = qml.globalMatch(text); it.hasNext();) {
+                QString key = it.next().captured(1);
+                key.replace(QStringLiteral("\\\""), QStringLiteral("\""));
+                if (!da.contains(key))
+                    missing << name + QStringLiteral(": ") + key;
+            }
+        }
+        QVERIFY2(missing.isEmpty(), qPrintable(missing.join(QLatin1Char('\n'))));
+    }
+
     void themeReadsOmarchyColorsWithFallbacks()
     {
         // Views take every color from the theme; a theme without a key (or
@@ -1474,6 +1504,68 @@ private slots:
         QCOMPARE(light.background(), QStringLiteral("#fafafa"));
         QCOMPARE(light.danger(), QStringLiteral("#cc0000"));
         QVERIFY(QColor(light.muted()).lightness() > QColor(light.foreground()).lightness());
+    }
+
+    void guiHelpersForTheKeyboardViews()
+    {
+        QTemporaryDir dir;
+        Store store(dir.filePath("t.db"));
+        QString error;
+        QVERIFY(store.open(&error));
+        Actions actions(&store);
+        PlanModel model(&store);
+        PlanListModel list;
+        CalendarModel calendar;
+        list.setSourceModel(&model);
+        calendar.setSourceModel(&model);
+        QObject::connect(&actions, &Actions::planChanged, &model, &PlanModel::reload);
+
+        // The editor creates and edits with text fields, dates as in the CLI.
+        const QDate monday = QDate(2026, 12, 7);
+        QJsonObject r = actions.guiNew({{QStringLiteral("titel"), QStringLiteral("Møde")},
+                                        {QStringLiteral("start"), QStringLiteral("2026-12-07 10:00")},
+                                        {QStringLiteral("projekt"), QStringLiteral("Kunde A")}});
+        QVERIFY2(r["ok"].toBool(), qPrintable(r["error"].toString()));
+        const QString meeting = r["payload"].toObject()["task"].toObject()["id"].toString();
+        r = actions.guiNew({{QStringLiteral("titel"), QStringLiteral("Heldag")}, {QStringLiteral("start"), QStringLiteral("2026-12-07")}});
+        const QString allDay = r["payload"].toObject()["task"].toObject()["id"].toString();
+        r = actions.guiNew({{QStringLiteral("titel"), QStringLiteral("Blog")}, {QStringLiteral("projekt"), QStringLiteral("Blog")}});
+        const QString blog = r["payload"].toObject()["task"].toObject()["id"].toString();
+        QVERIFY(!actions.guiNew({{QStringLiteral("titel"), QStringLiteral("X")}, {QStringLiteral("frist"), QStringLiteral("snart")}})["ok"].toBool());
+
+        r = actions.guiEdit(meeting, {{QStringLiteral("varighed"), QStringLiteral("90")}, {QStringLiteral("frist"), QStringLiteral("2026-12-08")}});
+        QVERIFY2(r["ok"].toBool(), qPrintable(r["error"].toString()));
+        QCOMPARE(actions.guiTask(meeting)["payload"].toObject()["task"].toObject()["duration_minutes"].toInt(), 90);
+        QVERIFY(!actions.guiEdit(meeting, {{QStringLiteral("varighed"), QStringLiteral("halvanden time")}})["ok"].toBool());
+
+        // Date preview while typing.
+        const QJsonObject parsed = actions.guiParseDate(QStringLiteral("2026-12-09 kl. 14"));
+        QVERIFY(!parsed["ok"].toBool()); // ISO with "kl." is not a supported form
+        const QJsonObject friday = actions.guiParseDate(QStringLiteral("fredag 10"));
+        QVERIFY(friday["ok"].toBool());
+        QVERIFY(friday["hasTime"].toBool());
+        QCOMPARE(QDateTime::fromString(friday["date"].toString(), QStringLiteral("yyyy-MM-ddTHH:mm")).date().dayOfWeek(), 5);
+        QVERIFY(!actions.guiParseDate(QStringLiteral("blabla"))["error"].toString().isEmpty());
+
+        // Calendar order within a day: all-day first, then by time.
+        calendar.setRange(monday, monday);
+        QCOMPARE(calendar.ids(), (QStringList{allDay, meeting}));
+        const QVariantList rows = calendar.rows();
+        QCOMPARE(rows.size(), 2);
+        QCOMPARE(rows.at(1).toMap().value(QStringLiteral("title")).toString(), QStringLiteral("Møde"));
+        QCOMPARE(rows.at(1).toMap().value(QStringLiteral("durationMinutes")).toInt(), 90);
+        QVERIFY(model.revision() > 0);
+        // List: dated by day, undated last; filters and project grouping.
+        QCOMPARE(list.ids(), (QStringList{meeting, allDay, blog}));
+        list.setGrouping(QStringLiteral("project"));
+        QCOMPARE(list.ids(), (QStringList{blog, meeting, allDay}));
+        list.setGrouping(QString());
+        QVERIFY(actions.setDone(allDay, true, QStringLiteral("gui")).ok);
+        list.setStatusFilter(QStringLiteral("done"));
+        QCOMPARE(list.ids(), QStringList{allDay});
+        list.setStatusFilter(QStringLiteral("todo"));
+        list.setProjectFilter(QStringLiteral("Kunde A"));
+        QCOMPARE(list.ids(), QStringList{meeting});
     }
 
     void dataVersionDetectsOtherConnections()
