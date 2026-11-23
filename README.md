@@ -91,7 +91,8 @@ claude mcp add omaplan -- omaplan mcp
 ```
 
 `propose` stores nothing: show the proposal to the user, and store it with `approve` (with `capture_id` from the
-answer). `add` stores at once and is only for when the user has asked for that.
+answer). `add` stores at once and is only for when the user has asked for that. Tasks in `--json` and MCP answers
+list the fields the AI guessed under `guessed`, the same key as in proposals and `plan.json`.
 
 ## Read-only edition (phone and other machines)
 

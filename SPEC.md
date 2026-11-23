@@ -56,7 +56,9 @@ The views are different looks at the same data. No view has state of its own bey
 | source | id of the capture | traceability back to the raw text |
 | created, modified | timestamps | |
 
-In JSON (AI proposals, `--json`, `plan.json`) the duration is `duration_min`.
+In JSON the guessed fields are `guessed` everywhere (AI proposals, `--json`, MCP, `plan.json`); `guesses` from
+before 0.2 is still read. The duration is `duration_min` in AI proposals and `plan.json`, and `duration_minutes`
+in `--json` and MCP answers, next to `start_has_time` and `deadline_has_time`.
 
 Recurrence ("every thursday in november") is expanded by the AI into single tasks in the first version. Real
 recurrence rules are the next version.

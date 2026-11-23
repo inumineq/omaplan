@@ -42,7 +42,8 @@ language.
 Dates accept ISO (`2026-12-01`, `2026-12-01 14:30`) and English or Danish
 expressions ("tomorrow", "friday 12", "next monday", "at 14:30", "i morgen",
 "kl. 14:30"). Every command takes `--json`, exits 0/1 and prints errors on
-stderr, so it is safe to script; `--json` output is always English. Examples
+stderr, so it is safe to script; `--json` output is always English. A task's
+`guessed` lists the fields the AI guessed — confirm those with the user. Examples
 use invented names ("Blog", "Client A") — use the user's own words in real
 calls.
 
