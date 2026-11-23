@@ -467,6 +467,22 @@ private slots:
         QCOMPARE(two.proposal.tasks.at(1).guessed, QStringList{QStringLiteral("projekt")});
     }
 
+    void taskLevelUnclearMovesToTopLevel()
+    {
+        // eval-vibe-4, case 04: vibe put "uafklaret" inside the task. It is a
+        // list about the whole input, so it moves up and the proposal stands.
+        const ParseResult r = parseProposal(QStringLiteral(
+            R"({"opgaver": [{"titel": "Nyhedsbrev", "start": "2026-11-26", "uafklaret": ["hver uge?"]}],)"
+            R"( "uafklaret": ["i november"]})"));
+        QVERIFY2(r.ok, qPrintable(r.error));
+        QCOMPARE(r.proposal.unclear, (QStringList{QStringLiteral("i november"), QStringLiteral("hver uge?")}));
+
+        const ParseResult empty = parseProposal(QStringLiteral(
+            R"({"opgaver": [{"titel": "Nyhedsbrev", "uafklaret": []}]})"));
+        QVERIFY2(empty.ok, qPrintable(empty.error));
+        QVERIFY(empty.proposal.unclear.isEmpty());
+    }
+
     void systemPromptSeparatesDeadlineFromStart()
     {
         // eval-vibe-3: "skal være klar fredag" / "inden søndag" became start.

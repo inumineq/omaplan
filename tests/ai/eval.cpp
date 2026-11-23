@@ -227,6 +227,13 @@ int main(int argc, char **argv)
             // Full error text (including the raw response) -- do not truncate,
             // otherwise the cause is invisible.
             out << "\n    error: " << error.replace(QLatin1Char('\n'), QLatin1Char(' '));
+        else if (!isCorr) {
+            // A valid answer that missed: show both, or the miss cannot be told
+            // apart from a too strict "correct" (eval-vibe-4, cases 02/12/14).
+            out << "\n    got:      " << QJsonDocument(actual.toJson()).toJson(QJsonDocument::Compact);
+            if (expected.ok)
+                out << "\n    expected: " << QJsonDocument(expected.proposal.toJson()).toJson(QJsonDocument::Compact);
+        }
         out << "\n";
         out.flush();
     }

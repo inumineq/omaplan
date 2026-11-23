@@ -369,6 +369,26 @@ ParseResult parseProposal(const QString &rawResponse)
                 obj.insert(QStringLiteral("opgaver"), tasks);
             }
         }
+        // The opposite slip: "uafklaret" inside a task. It lists what was not
+        // understood in the whole input, so it moves up to the top level.
+        QJsonArray tasks = obj.value(QStringLiteral("opgaver")).toArray();
+        QJsonArray unclear = obj.value(QStringLiteral("uafklaret")).toArray();
+        bool moved = false;
+        for (qsizetype i = 0; i < tasks.size(); ++i) {
+            QJsonObject task = tasks.at(i).toObject();
+            if (!task.contains(QStringLiteral("uafklaret")))
+                continue;
+            for (const QJsonValue &u : task.take(QStringLiteral("uafklaret")).toArray())
+                if (!unclear.contains(u))
+                    unclear.append(u);
+            tasks.replace(i, task);
+            moved = true;
+        }
+        if (moved) {
+            obj.insert(QStringLiteral("opgaver"), tasks);
+            if (!unclear.isEmpty() || obj.contains(QStringLiteral("uafklaret")))
+                obj.insert(QStringLiteral("uafklaret"), unclear);
+        }
     }
 
     const QStringList errors = validateAgainstSchema(obj);
