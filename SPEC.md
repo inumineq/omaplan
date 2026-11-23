@@ -72,18 +72,39 @@ Alle motorer får samme prompt og skal returnere JSON efter samme skema (`docs/a
 Appen validerer svaret; ugyldigt svar vises som fejl i vinduet med motorens råsvar, aldrig som tavst tab.
 Ingen API-nøgler i appen eller i repoet. Se ADR 0002.
 
-## Kommandolinje (uden skærm, til agenter)
+## AI-integration (bærende krav)
 
-Som Hype: hver kommando tager `--json`, exit 0/1, fejl på stderr, `QT_QPA_PLATFORM=offscreen`.
+Omaplan skal kunne betjenes fuldt af enhver AI-agent på en Omarchy-maskine (Claude Code, Codex, Mistral Vibe,
+OpenCode m.fl.), lige så godt som af brugeren. Alt, man kan i GUI'en, kan man fra kommandolinjen. Se ADR 0004.
+
+### Kommandolinje
+
+Som Hype: hver kommando tager `--json`, exit 0/1, fejl på stderr, `QT_QPA_PLATFORM=offscreen`, stabile id'er,
+og `--help` med eksempler. Datoer accepterer ISO og danske/engelske udtryk ("i morgen", "fredag 12").
 
 - `omaplan open` – GUI (standard uden argumenter)
-- `omaplan add "<tekst>" [--motor mistral|claude|ollama|kommando] [--ja]` – foreslå opgaver; `--ja` gemmer
-  forslaget uden at spørge, ellers udskrives det kun
-- `omaplan list [--fra DATO] [--til DATO] [--projekt P] [--json]`
-- `omaplan done <id>`
-- `omaplan snapshot <sti>` – skriv læseudgavens øjebliksbillede (se nedenfor)
-- `omaplan serve [--snapshot STI] [--port 8787] [--bind 127.0.0.1]` – læseudgave (tilføjelse, fase 3)
-- `omaplan skill install` – installer en kort agent-skill, der er bundtet i binæren
+- `omaplan add "<fri tekst>" [--motor …] [--ja]` – AI-forslag; uden `--ja` udskrives forslaget, med gemmes det
+- `omaplan new --titel T [--start …] [--varighed …] [--frist …] [--projekt …] [--prioritet …]` – opret direkte, uden AI
+- `omaplan list [--fra] [--til] [--projekt] [--status] [--json]`, `omaplan show <id>`
+- `omaplan edit <id> [felter]`, `omaplan move <id> <tid>`, `omaplan done <id>`, `omaplan undone <id>`, `omaplan rm <id>`
+- `omaplan projects`, `omaplan summary [--uge|--maaned]` – kort tekst/JSON-oversigt til at give en agent kontekst
+- `omaplan undo` – fortryd seneste ændring, uanset om den kom fra GUI eller CLI
+- `omaplan snapshot <sti>`, `omaplan serve …` (læseudgave, fase 3)
+- `omaplan mcp` – MCP-server over stdio med de samme handlinger som værktøjer
+- `omaplan skill install` – installér den bundtede agent-skill i alle agent-mapper, der findes
+  (`~/.claude/skills`, `~/.codex`, `~/.vibe`, `~/.config/opencode` m.fl.); `omaplan skill uninstall` fjerner igen
+
+### Live
+
+GUI og CLI deler databasen. Ændringer fra en agent vises i et åbent vindue med det samme (GUI'en lytter på
+databasens ændringer), markeret kort med hvilken kilde der ændrede ("fra CLI"). Samtidige skrivninger er sikre
+(SQLite-transaktioner, WAL, busy-timeout).
+
+### Agent-skill
+
+En kort skill bundtet i binæren: hvad Omaplan er, hvornår agenten skal bruge den ("læg det i min plan",
+"hvad har jeg i denne uge"), de vigtigste kommandoer med eksempler, og reglen om at vise forslag før `--ja`,
+medmindre brugeren har bedt om at gemme direkte.
 
 ## Læseudgave på tailnettet (tilføjelse, fase 3)
 
@@ -111,8 +132,8 @@ skrivning via læseudgaven, notifikationer.
 ## Faser
 
 1. **Kerne** (Mistral bygger): datamodel og lager, AI-motorer med Mistral og Claude, indtastning og forslag,
-   de fire visninger, kommandolinjen undtagen `serve`, tests.
-2. **Andet pas** (Claude): gennemgang og forbedring af fase 1, sammenlign-tilstand, polering af visningerne,
-   oversættelse til dansk.
+   de fire visninger, hele kommandolinjen undtagen `serve`, live-opdatering fra CLI, agent-skill, tests.
+2. **Andet pas** (Claude): gennemgang og forbedring af fase 1, `omaplan mcp`, sammenlign-tilstand,
+   polering af visningerne, oversættelse til dansk.
 3. **Læseudgave**: `snapshot` og `serve`.
 4. **Uafhængig gennemgang** (Codex) før installation.

@@ -9,7 +9,10 @@ til projektform, tema, sprog og konventioner. Dette dokument beskriver kun det, 
 | Fil | Ansvar |
 |---|---|
 | `main.cpp` | opsætning; vælger CLI eller GUI (`open`); giver C++-objekter til QML |
-| `cli.{h,cpp}` | kommandolinjen (`add`, `list`, `done`, `snapshot`, `serve`, `skill install`), som Hypes `cli.cpp` |
+| `actions.{h,cpp}` | alle handlinger (opret, ret, flyt, afslut, slet, fortryd, list, opsummér) ét sted; CLI, MCP og QML kalder kun herigennem |
+| `cli.{h,cpp}` | kommandolinjen over `actions`, som Hypes `cli.cpp` |
+| `mcp.{h,cpp}` | `omaplan mcp`: MCP over stdio (JSON-RPC), værktøjer = `actions` |
+| `skill.{h,cpp}` + `skill/SKILL.md` | bundtet agent-skill og `skill install/uninstall` |
 | `task.{h,cpp}` | værditypen `Task` og dens validering; dato/tid som `QDate`/`QDateTime` i lokal tid |
 | `store.{h,cpp}` | SQLite via Qt SQL (`QSQLITE`), skema-version og migrering, transaktioner; eneste sted der skriver data |
 | `planmodel.{h,cpp}` | `QAbstractListModel` over opgaverne med roller; filtrering/gruppering via proxy-modeller pr. visning |
@@ -33,7 +36,8 @@ er påkrævet. Manglende værktøj (fx `vibe` ikke installeret) vises i vinduet 
 - `~/.local/share/omaplan/omaplan.db` (SQLite, WAL). `~/.config/omaplan/config.toml` til motorvalg og modeller.
 - `~/.local/share/omaplan/plan.json` til læseudgaven.
 - Rå indtastninger gemmes (tabellen `captures`) med motor og model, så et forslag kan spores.
-- Fortryd/gentag via en kommandostak i C++ (`QUndoStack`), ikke i QML.
+- Fortryd via en ændringslog i databasen (tabellen `changes` med før/efter og kilde gui/cli/mcp), så `undo` virker på tværs af processer.
+- GUI'en opdager ændringer fra andre processer via `PRAGMA data_version` (poll hvert 500 ms) og genindlæser modellen.
 
 ## Tid
 
