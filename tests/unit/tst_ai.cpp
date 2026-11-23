@@ -9,7 +9,9 @@
 #include <QDir>
 #include <QEventLoop>
 #include <QFile>
+#include <QJsonArray>
 #include <QJsonDocument>
+#include <QJsonObject>
 #include <QTest>
 #include <QTimer>
 
@@ -102,6 +104,7 @@ private slots:
         QVERIFY(prompt.contains(QStringLiteral("mandag"), Qt::CaseInsensitive));
         QVERIFY(prompt.contains(QStringLiteral("Europe/Copenhagen")));
         QVERIFY(prompt.contains(QStringLiteral("\"da\"")) || prompt.contains(QStringLiteral(" da")));
+        QVERIFY(prompt.contains(QStringLiteral("own instruction"))); // app's own system prompt, not user text
         QVERIFY(prompt.contains(QStringLiteral("opgaver")));   // the schema is embedded
         QVERIFY(prompt.contains(QStringLiteral("gaet")));       // guessing rules
         QVERIFY(prompt.contains(QStringLiteral("uafklaret")));
@@ -212,9 +215,68 @@ private slots:
         }
     }
 
+    // Builds a vibe --output json event array without raw string literals
+    // (moc misparses those in this file).
+    static QJsonObject vibeTextMessage(const QString &role, const QStringList &textParts)
+    {
+        QJsonArray content;
+        for (const QString &part : textParts) {
+            QJsonObject t;
+            t.insert(QStringLiteral("type"), QStringLiteral("text"));
+            t.insert(QStringLiteral("text"), part);
+            content.append(t);
+        }
+        QJsonObject m;
+        m.insert(QStringLiteral("type"), QStringLiteral("message"));
+        m.insert(QStringLiteral("role"), role);
+        m.insert(QStringLiteral("content"), content);
+        return m;
+    }
+
+    void vibeEventArrayTakesLastAssistantMessage()
+    {
+        // Two assistant messages: the last one wins, and its text parts are
+        // concatenated. Reasoning in between must be ignored.
+        QJsonArray events;
+        events.append(vibeTextMessage(QStringLiteral("user"), {QStringLiteral("køb mælk")}));
+        events.append(vibeTextMessage(QStringLiteral("assistant"),
+                                      {QStringLiteral("{\"opgaver\": [{\"titel\": \"Forkert\"}]}")}));
+        QJsonObject reasoning;
+        reasoning.insert(QStringLiteral("type"), QStringLiteral("reasoning"));
+        reasoning.insert(QStringLiteral("text"), QStringLiteral("{\"opgaver\": [{\"titel\": \"Fra reasoning\"}]}"));
+        events.append(reasoning);
+        events.append(vibeTextMessage(QStringLiteral("assistant"),
+                                      {QStringLiteral("{\"opgaver\": ["),
+                                       QStringLiteral("{\"titel\": \"Køb mælk\", \"start\": \"2026-11-24\"}]}")}));
+        const QString raw = QString::fromUtf8(QJsonDocument(events).toJson(QJsonDocument::Compact));
+        const ParseResult r = parseProposal(raw);
+        QVERIFY2(r.ok, qPrintable(r.error));
+        QCOMPARE(r.proposal.tasks.size(), 1);
+        QCOMPARE(r.proposal.tasks.first().title, QStringLiteral("Køb mælk"));
+        QCOMPARE(r.proposal.tasks.first().start.date(), QDate(2026, 11, 24));
+    }
+
+    void vibeEventArrayWithoutAssistantMessageFails()
+    {
+        QJsonArray events;
+        events.append(vibeTextMessage(QStringLiteral("user"), {QStringLiteral("køb mælk")}));
+        QJsonObject reasoning;
+        reasoning.insert(QStringLiteral("type"), QStringLiteral("reasoning"));
+        reasoning.insert(QStringLiteral("text"), QStringLiteral("{\"opgaver\": [{\"titel\": \"Kun reasoning\"}]}"));
+        events.append(reasoning);
+        const QString raw = QString::fromUtf8(QJsonDocument(events).toJson(QJsonDocument::Compact));
+        const ParseResult r = parseProposal(raw);
+        QVERIFY(!r.ok);
+        QVERIFY(r.error.contains(QStringLiteral("no assistant message")));
+        QVERIFY(r.error.contains(raw.left(40))); // raw response included
+    }
+
     void invalidEnvelopeFixturesAreRejectedWithRaw()
     {
+        // vibe-invalid-array.json has valid JSON ONLY in its reasoning entry,
+        // so it must be rejected -- this proves reasoning text is never used.
         const QStringList invalid = {QStringLiteral("envelopes/vibe-invalid.json"),
+                                     QStringLiteral("envelopes/vibe-invalid-array.json"),
                                      QStringLiteral("envelopes/claude-invalid.json"),
                                      QStringLiteral("envelopes/ollama-invalid.json"),
                                      QStringLiteral("envelopes/command-invalid.json")};
@@ -397,6 +459,31 @@ private slots:
         const bool claudeOk = claude->available(&why);
         if (!claudeOk)
             QVERIFY(why.contains(QStringLiteral("claude")));
+    }
+
+    void isolatedWorkingDirectoryIsEmptyTempDir()
+    {
+        // A process engine that runs `pwd` in the isolated working directory.
+        // pwd is not an AI; its stdout lands in the raw response of the error.
+        class PwdEngine : public AiEngine {
+        public:
+            QString id() const override { return QStringLiteral("pwd"); }
+            QString displayName() const override { return QStringLiteral("Pwd"); }
+        protected:
+            void start(const QString &, const QString &) override
+            {
+                launch(QStringLiteral("pwd"), {}, QByteArray(), QStringLiteral("pwd missing"),
+                       useIsolatedWorkingDirectory());
+            }
+        } engine;
+        QString error;
+        QVERIFY(!runEngine(engine, QStringLiteral("x"), nullptr, &error));
+        const QString wd = engine.lastLaunchWorkingDirectory();
+        QVERIFY2(wd.startsWith(QDir::tempPath()), qPrintable(wd));
+        QVERIFY2(error.contains(wd), qPrintable(error)); // pwd printed the isolated dir
+        QDir dir(wd);
+        QVERIFY2(dir.entryList(QDir::NoDotAndDotDot | QDir::AllEntries).isEmpty(),
+                 qPrintable(wd + QStringLiteral(" is not empty")));
     }
 };
 

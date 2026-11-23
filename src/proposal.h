@@ -43,10 +43,11 @@ struct ParseResult {
 
 // Parses and validates a raw engine response against docs/ai-skema.json
 // (embedded as the Qt resource ":/ai-skema.json"). Tolerates JSON wrapped
-// in prose or ```-fenced blocks, and engine envelopes such as claude -p's
-// {"result": "..."} or Ollama's {"response": "..."}. When the response is
-// invalid, ParseResult::error contains the raw response so the UI can show
-// it instead of failing silently.
+// in prose or ```-fenced blocks, engine envelopes such as claude -p's
+// {"result": "..."} or Ollama's {"response": "..."}, and vibe --output json's
+// event array (only the last assistant message's text parts count; reasoning
+// is never used). When the response is invalid, ParseResult::error contains
+// the raw response so the UI can show it instead of failing silently.
 ParseResult parseProposal(const QString &rawResponse);
 
 // The schema as a JSON object/text, read from the embedded resource. Used by

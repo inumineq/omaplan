@@ -2,6 +2,7 @@
 
 #include <QProcess>
 #include <QStandardPaths>
+#include <QTemporaryDir>
 #include <QTimer>
 
 AiEngine::AiEngine(QObject *parent)
@@ -15,6 +16,7 @@ AiEngine::AiEngine(QObject *parent)
 AiEngine::~AiEngine()
 {
     kill();
+    m_isolatedDir.reset();
 }
 
 bool AiEngine::available(QString *whyNot) const
@@ -38,6 +40,7 @@ void AiEngine::propose(const QString &text, const PromptContext &context)
 {
     if (m_running)
         cancel();
+    m_isolatedDir.reset();
     m_running = true;
     m_stdout.clear();
     m_stderr.clear();
@@ -69,6 +72,15 @@ void AiEngine::kill()
         m_process->deleteLater();
         m_process = nullptr;
     }
+    // Note: m_isolatedDir is intentionally NOT reset here -- launch() calls
+    // kill() right before starting the process in that directory. It is
+    // reset on the next propose() and in the destructor.
+}
+
+QString AiEngine::useIsolatedWorkingDirectory()
+{
+    m_isolatedDir = std::make_unique<QTemporaryDir>();
+    return m_isolatedDir->path();
 }
 
 void AiEngine::stopTimer()
@@ -77,15 +89,19 @@ void AiEngine::stopTimer()
 }
 
 QProcess *AiEngine::launch(const QString &program, const QStringList &arguments,
-                           const QByteArray &stdinData, const QString &missingToolHint)
+                           const QByteArray &stdinData, const QString &missingToolHint,
+                           const QString &workingDirectory)
 {
     kill();
     m_stdout.clear();
     m_stderr.clear();
     m_startFailed = false;
     m_missingToolHint = missingToolHint;
+    m_lastWorkingDir = workingDirectory;
 
     m_process = new QProcess(this);
+    if (!workingDirectory.isEmpty())
+        m_process->setWorkingDirectory(workingDirectory);
     connect(m_process, &QProcess::readyReadStandardOutput, this, &AiEngine::onProcessReadyRead);
     connect(m_process, &QProcess::finished, this, &AiEngine::onProcessFinished);
     connect(m_process, &QProcess::errorOccurred, this, &AiEngine::onProcessErrorOccurred);

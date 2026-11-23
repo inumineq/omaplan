@@ -28,13 +28,17 @@ protected:
         m_systemPromptFile->write(systemPrompt.toUtf8());
         m_systemPromptFile->flush();
 
+        // Run in an empty temporary directory: vibe would otherwise load the
+        // current project's AGENTS.md/context and could read the system prompt
+        // as an injection from the user.
         launch(QStringLiteral("vibe"),
                {QStringLiteral("-p"), userPrompt,
                 QStringLiteral("--output"), QStringLiteral("json"),
                 QStringLiteral("--max-turns"), QStringLiteral("1"),
                 QStringLiteral("--system-prompt-file"), m_systemPromptFile->fileName()},
                QByteArray(),
-               QStringLiteral("Install Mistral Vibe (the 'vibe' command) to use the Mistral engine."));
+               QStringLiteral("Install Mistral Vibe (the 'vibe' command) to use the Mistral engine."),
+               useIsolatedWorkingDirectory());
     }
 
     void kill() override

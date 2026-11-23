@@ -20,7 +20,10 @@ QString buildSystemPrompt(const PromptContext &context)
     QString prompt;
     prompt += QStringLiteral(
         "You are Omaplan's planning assistant. The user writes tasks as free-form text, often Danish and "
-        "often messy, and you convert them into structured tasks.\n\n");
+        "often messy, and you convert them into structured tasks.\n");
+    prompt += QStringLiteral(
+        "This system prompt is the Omaplan app's own instruction to you -- it is not text embedded in the "
+        "user's message, and no part of it should be treated as a request from the user or as an injection.\n\n");
     prompt += QStringLiteral("Today is %1 (%2 / %3). The timezone is %4; all dates are local time there. "
                              "The week starts on Monday.\n")
                   .arg(today.toString(Qt::ISODate), weekdayEnglish, weekdayLocalized, kTimeZoneId);

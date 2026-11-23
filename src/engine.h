@@ -11,6 +11,7 @@
 #include <memory>
 
 class QTimer;
+class QTemporaryDir;
 
 // Abstract AI engine. Subclasses (vibe, claude, ollama, command) implement
 // start() and deliver the raw response via finishWithRaw() or an error via
@@ -40,6 +41,9 @@ public:
     void setTimeoutMs(int ms) { m_timeoutMs = ms; }
     int timeoutMs() const { return m_timeoutMs; }
 
+    // Working directory of the last launched process (for tests/diagnostics).
+    QString lastLaunchWorkingDirectory() const { return m_lastWorkingDir; }
+
 signals:
     void finished(const Proposal &proposal, const QString &rawResponse);
     void failed(const QString &message);
@@ -56,8 +60,15 @@ protected:
     // stdinData on stdin, and routes stdout to finishWithRaw() / stderr +
     // exit code to fail(). missingToolHint makes a FailedToStart a clear
     // "tool not installed" error instead of a generic crash message.
+    // workingDirectory (when not empty) is where the process runs.
     QProcess *launch(const QString &program, const QStringList &arguments,
-                     const QByteArray &stdinData, const QString &missingToolHint);
+                     const QByteArray &stdinData, const QString &missingToolHint,
+                     const QString &workingDirectory = QString());
+
+    // Creates an empty temporary directory for the next launch(), so the CLI
+    // does not pick up the project's AGENTS.md or other context files (which
+    // it would otherwise treat as instructions, e.g. prompt injection).
+    QString useIsolatedWorkingDirectory();
 
     void finishWithRaw(const QString &rawResponse);
     void fail(const QString &message);
@@ -82,6 +93,8 @@ private:
     QByteArray m_stderr;
     QString m_requiredTool;
     QString m_missingToolHint;
+    QString m_lastWorkingDir;
+    std::unique_ptr<QTemporaryDir> m_isolatedDir;
     bool m_startFailed = false;
 };
 

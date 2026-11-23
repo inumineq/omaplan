@@ -254,17 +254,66 @@ static QStringList validateAgainstSchema(const QJsonValue &value)
     return errors;
 }
 
+// vibe --output json answers with a JSON array of events (user messages,
+// reasoning, assistant messages). Only the LAST assistant message is the
+// answer; its text parts are concatenated. Reasoning text is never used --
+// in particular, the generic "find JSON in the text" fallback below must
+// never see it, so arrays are unwrapped here before any text scanning.
+static bool unwrapVibeEventArray(const QString &trimmed, QString *assistantText, QString *error)
+{
+    QJsonParseError err{};
+    const QJsonDocument doc = QJsonDocument::fromJson(trimmed.toUtf8(), &err);
+    if (err.error != QJsonParseError::NoError || !doc.isArray()) {
+        *error = QStringLiteral("Expected a JSON array of events, got: %1").arg(err.errorString());
+        return false;
+    }
+    const QJsonArray events = doc.array();
+    for (const QJsonValue &e : events) {
+        const QJsonObject o = e.toObject();
+        if (o.value(QStringLiteral("type")).toString() == QLatin1String("message")
+            && o.value(QStringLiteral("role")).toString() == QLatin1String("assistant")) {
+            QString text;
+            const QJsonArray content = o.value(QStringLiteral("content")).toArray();
+            for (const QJsonValue &c : content) {
+                const QJsonObject part = c.toObject();
+                if (part.value(QStringLiteral("type")).toString() == QLatin1String("text"))
+                    text += part.value(QStringLiteral("text")).toString();
+            }
+            *assistantText = text; // a later assistant message replaces earlier ones
+        }
+    }
+    if (assistantText->isEmpty()) {
+        *error = QStringLiteral("The event array contains no assistant message.");
+        return false;
+    }
+    return true;
+}
+
 ParseResult parseProposal(const QString &rawResponse)
 {
     ParseResult result;
-    if (rawResponse.trimmed().isEmpty()) {
+    const QString trimmed = rawResponse.trimmed();
+    if (trimmed.isEmpty()) {
         result.error = QStringLiteral("Engine returned an empty response.\n\nRaw response:\n%1")
                            .arg(rawResponse);
         return result;
     }
 
+    // Unwrap vibe's event array first; everything after this works on the
+    // assistant text (or, for other engines, on the raw response).
+    QString payload = trimmed;
+    if (trimmed.startsWith(QLatin1Char('['))) {
+        QString assistantText;
+        QString unwrapError;
+        if (!unwrapVibeEventArray(trimmed, &assistantText, &unwrapError)) {
+            result.error = QStringLiteral("%1\n\nRaw response:\n%2").arg(unwrapError, rawResponse);
+            return result;
+        }
+        payload = assistantText;
+    }
+
     bool found = false;
-    QJsonObject obj = extractJsonObject(rawResponse, &found);
+    QJsonObject obj = extractJsonObject(payload, &found);
     if (!found) {
         result.error = QStringLiteral("No JSON object found in the engine response.\n\nRaw response:\n%1")
                            .arg(rawResponse);

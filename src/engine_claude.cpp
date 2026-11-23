@@ -19,11 +19,14 @@ protected:
     void start(const QString &systemPrompt, const QString &userPrompt) override
     {
         const QString fullPrompt = systemPrompt + QStringLiteral("\n\n") + userPrompt;
+        // Empty temporary working directory, so no project AGENTS.md/context
+        // is picked up and mistaken for instructions.
         launch(QStringLiteral("claude"),
                {QStringLiteral("-p"), fullPrompt,
                 QStringLiteral("--output-format"), QStringLiteral("json")},
                QByteArray(),
-               QStringLiteral("Install the Claude CLI (the 'claude' command) and log in to use the Claude engine."));
+               QStringLiteral("Install the Claude CLI (the 'claude' command) and log in to use the Claude engine."),
+               useIsolatedWorkingDirectory());
     }
 };
 
