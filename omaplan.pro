@@ -8,13 +8,17 @@ HEADERS += \
     src/theme.h \
     src/translator.h \
     src/task.h \
-    src/store.h
+    src/store.h \
+    src/actions.h \
+    src/cli.h
 
 SOURCES += \
     src/main.cpp \
     src/theme.cpp \
     src/translator.cpp \
     src/task.cpp \
-    src/store.cpp
+    src/store.cpp \
+    src/actions.cpp \
+    src/cli.cpp
 
 RESOURCES += src/resources.qrc

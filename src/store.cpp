@@ -9,7 +9,7 @@
 #include <QUuid>
 #include <QVariant>
 
-static const int kSchemaVersion = 1;
+static const int kSchemaVersion = 2;
 
 // The database lives under the user's data directory; OMAPLAN_DB overrides the
 // whole path so tests and one-off CLI runs can use a temporary file.
@@ -80,17 +80,43 @@ int Store::schemaVersion() const {
 }
 
 bool Store::migrate(QString *error) {
-    const int version = schemaVersion();
+    int version = schemaVersion();
     if (version > kSchemaVersion) {
         if (error) *error = QStringLiteral("database schema version %1 is newer than this build (%2)")
                                 .arg(version).arg(kSchemaVersion);
         return false;
     }
-    if (version == kSchemaVersion)
-        return true;
 
-    // Version 0 is an empty (or brand new) database: create the tables.
     QSqlQuery query(m_db);
+    while (version < kSchemaVersion) {
+        if (version == 0) {
+            // Version 1: the three tables (see below).
+            if (!createTables(query, error))
+                return false;
+            version = 1;
+        } else if (version == 1) {
+            // Version 2: changes.undo_of links an undo to the change it
+            // inverted, so repeated undo walks back through the history
+            // instead of inverting the same change twice.
+            if (!query.exec(QStringLiteral("ALTER TABLE changes ADD COLUMN undo_of INTEGER"))) {
+                if (error) *error = query.lastError().text();
+                return false;
+            }
+            version = 2;
+        } else {
+            if (error) *error = QStringLiteral("unknown schema version %1").arg(version);
+            return false;
+        }
+        query.prepare(QStringLiteral("PRAGMA user_version=%1").arg(version));
+        if (!query.exec()) {
+            if (error) *error = query.lastError().text();
+            return false;
+        }
+    }
+    return true;
+}
+
+bool Store::createTables(QSqlQuery &query, QString *error) {
     if (!query.exec(QStringLiteral(
             "CREATE TABLE IF NOT EXISTS tasks ("
             "  id TEXT PRIMARY KEY,"
@@ -134,11 +160,6 @@ bool Store::migrate(QString *error) {
             "  before_json TEXT,"
             "  after_json TEXT"
             ")"))) {
-        if (error) *error = query.lastError().text();
-        return false;
-    }
-    query.prepare(QStringLiteral("PRAGMA user_version=%1").arg(kSchemaVersion));
-    if (!query.exec()) {
         if (error) *error = query.lastError().text();
         return false;
     }
@@ -249,11 +270,68 @@ bool Store::writeTask(const Task &task, bool replace, QString *error) {
     return true;
 }
 
-bool Store::recordChange(const QString &source, const QString &kind, const QString &taskId,
-                         const Task *before, const Task *after) {
+bool Store::begin(QString *error) {
+    if (!m_db.transaction()) {
+        if (error) *error = m_db.lastError().text();
+        return false;
+    }
+    return true;
+}
+
+bool Store::commit(QString *error) {
+    if (!m_db.commit()) {
+        if (error) *error = m_db.lastError().text();
+        return false;
+    }
+    return true;
+}
+
+void Store::rollback() {
+    m_db.rollback();
+}
+
+bool Store::insertTask(const Task &task, QString *error) {
+    const QString validation = task.validate();
+    if (!validation.isEmpty()) {
+        if (error) *error = validation;
+        return false;
+    }
+    return writeTask(task, false, error);
+}
+
+bool Store::replaceTask(const Task &task, QString *error) {
+    const QString validation = task.validate();
+    if (!validation.isEmpty()) {
+        if (error) *error = validation;
+        return false;
+    }
+    Task existing;
+    if (!this->task(task.id, &existing, error))
+        return false;
+    Task updated = task;
+    updated.created = existing.created; // created survives every update
+    if (!writeTask(updated, true, error))
+        return false;
+    return true;
+}
+
+bool Store::deleteTask(const QString &id, QString *error) {
+    QSqlQuery query(m_db);
+    query.prepare(QStringLiteral("DELETE FROM tasks WHERE id=?"));
+    query.addBindValue(id);
+    if (!query.exec()) {
+        if (error) *error = query.lastError().text();
+        return false;
+    }
+    return query.numRowsAffected() > 0 || true;
+}
+
+bool Store::logChange(const QString &source, const QString &kind, const QString &taskId,
+                      const Task *before, const Task *after, qlonglong undoOf) {
     QSqlQuery query(m_db);
     query.prepare(QStringLiteral(
-        "INSERT INTO changes (at, source, kind, task_id, before_json, after_json) VALUES (?,?,?,?,?,?)"));
+        "INSERT INTO changes (at, source, kind, task_id, before_json, after_json, undo_of)"
+        " VALUES (?,?,?,?,?,?,?)"));
     query.addBindValue(isoNow());
     query.addBindValue(source);
     query.addBindValue(kind);
@@ -262,6 +340,7 @@ bool Store::recordChange(const QString &source, const QString &kind, const QStri
                                : QString());
     query.addBindValue(after ? QString::fromUtf8(QJsonDocument(after->toJson()).toJson(QJsonDocument::Compact))
                               : QString());
+    query.addBindValue(undoOf > 0 ? QVariant(undoOf) : QVariant());
     return query.exec();
 }
 
@@ -279,17 +358,14 @@ QString Store::createTask(const Task &input, const QString &source, QString *err
         task.created = now;
     task.modified = now;
 
-    if (!m_db.transaction()) {
-        if (error) *error = m_db.lastError().text();
+    if (!begin(error))
+        return {};
+    if (!insertTask(task, error) || !logChange(source, QStringLiteral("create"), task.id, nullptr, &task)) {
+        rollback();
         return {};
     }
-    if (!writeTask(task, false, error) || !recordChange(source, QStringLiteral("create"), task.id, nullptr, &task)) {
-        m_db.rollback();
-        return {};
-    }
-    if (!m_db.commit()) {
-        if (error) *error = m_db.lastError().text();
-        m_db.rollback();
+    if (!commit(error)) {
+        rollback();
         return {};
     }
     return task.id;
@@ -308,17 +384,14 @@ bool Store::updateTask(const Task &input, const QString &source, QString *error)
     task.created = before.created;
     task.modified = QDateTime::currentDateTime();
 
-    if (!m_db.transaction()) {
-        if (error) *error = m_db.lastError().text();
+    if (!begin(error))
+        return false;
+    if (!writeTask(task, true, error) || !logChange(source, QStringLiteral("update"), task.id, &before, &task)) {
+        rollback();
         return false;
     }
-    if (!writeTask(task, true, error) || !recordChange(source, QStringLiteral("update"), task.id, &before, &task)) {
-        m_db.rollback();
-        return false;
-    }
-    if (!m_db.commit()) {
-        if (error) *error = m_db.lastError().text();
-        m_db.rollback();
+    if (!commit(error)) {
+        rollback();
         return false;
     }
     return true;
@@ -329,21 +402,14 @@ bool Store::removeTask(const QString &id, const QString &source, QString *error)
     if (!task(id, &before, error))
         return false;
 
-    if (!m_db.transaction()) {
-        if (error) *error = m_db.lastError().text();
+    if (!begin(error))
+        return false;
+    if (!deleteTask(id, error) || !logChange(source, QStringLiteral("delete"), id, &before, nullptr)) {
+        rollback();
         return false;
     }
-    QSqlQuery query(m_db);
-    query.prepare(QStringLiteral("DELETE FROM tasks WHERE id=?"));
-    query.addBindValue(id);
-    if (!query.exec() || !recordChange(source, QStringLiteral("delete"), id, &before, nullptr)) {
-        if (error) *error = query.lastError().text().isEmpty() ? m_db.lastError().text() : query.lastError().text();
-        m_db.rollback();
-        return false;
-    }
-    if (!m_db.commit()) {
-        if (error) *error = m_db.lastError().text();
-        m_db.rollback();
+    if (!commit(error)) {
+        rollback();
         return false;
     }
     return true;
@@ -358,7 +424,7 @@ bool Store::task(const QString &id, Task *out, QString *error) const {
         return false;
     }
     if (!query.next()) {
-        if (error) *error = QStringLiteral("no task with id %1").arg(id);
+        if (error) *error = tr("No task with id %1").arg(id);
         return false;
     }
     if (out)
@@ -435,6 +501,7 @@ QList<Store::Change> Store::changes(int limit, QString *error) const {
         change.source = query.value("source").toString();
         change.kind = query.value("kind").toString();
         change.taskId = query.value("task_id").toString();
+        change.undoOf = query.value("undo_of").toLongLong();
         const QString beforeJson = query.value("before_json").toString();
         const QString afterJson = query.value("after_json").toString();
         bool ok = false;
@@ -449,4 +516,43 @@ QList<Store::Change> Store::changes(int limit, QString *error) const {
         result.append(change);
     }
     return result;
+}
+
+bool Store::lastChange(Change *out, QString *error) const {
+    // The newest original change (not an undo) that no undo entry points at
+    // yet — that is the one undo() reverts.
+    QSqlQuery query(m_db);
+    if (!query.exec(QStringLiteral(
+            "SELECT * FROM changes WHERE kind <> 'undo'"
+            " AND id NOT IN (SELECT undo_of FROM changes WHERE undo_of IS NOT NULL)"
+            " ORDER BY id DESC LIMIT 1"))) {
+        if (error) *error = query.lastError().text();
+        return false;
+    }
+    if (!query.next()) {
+        if (error) *error = tr("Nothing to undo");
+        return false;
+    }
+    if (out) {
+        Change change;
+        change.id = query.value("id").toLongLong();
+        change.at = QDateTime::fromString(query.value("at").toString(), Qt::ISODateWithMs);
+        change.source = query.value("source").toString();
+        change.kind = query.value("kind").toString();
+        change.taskId = query.value("task_id").toString();
+        change.undoOf = query.value("undo_of").toLongLong();
+        const QString beforeJson = query.value("before_json").toString();
+        const QString afterJson = query.value("after_json").toString();
+        bool ok = false;
+        if (!beforeJson.isEmpty()) {
+            change.before = Task::fromJson(QJsonDocument::fromJson(beforeJson.toUtf8()).object(), &ok);
+            change.hasBefore = ok;
+        }
+        if (!afterJson.isEmpty()) {
+            change.after = Task::fromJson(QJsonDocument::fromJson(afterJson.toUtf8()).object(), &ok);
+            change.hasAfter = ok;
+        }
+        *out = change;
+    }
+    return true;
 }

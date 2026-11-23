@@ -1,7 +1,14 @@
 #include "task.h"
 
+#include <QCoreApplication>
 #include <QJsonArray>
 #include <QUuid>
+
+// Validation messages are user-facing (the CLI prints them), so they go through
+// the translator like everything else.
+static QString tr(const char *text) {
+    return QCoreApplication::translate("Task", text);
+}
 
 const QStringList Task::guessableFields() {
     return {"start", "duration_minutes", "deadline", "project", "priority"};
@@ -27,22 +34,22 @@ Task::Status Task::statusFromString(const QString &text, bool *ok) {
 QString Task::validate() const {
     const QUuid uuid(id);
     if (uuid.isNull())
-        return QStringLiteral("id is not a UUID: %1").arg(id);
+        return tr("id is not a UUID: %1").arg(id);
     if (title.trimmed().isEmpty())
-        return QStringLiteral("title is empty");
+        return tr("title is empty");
     if (title.size() > 200)
-        return QStringLiteral("title is longer than 200 characters");
+        return tr("title is longer than 200 characters");
     if (priority < 1 || priority > 3)
-        return QStringLiteral("priority must be 1..3, got %1").arg(priority);
+        return tr("priority must be 1..3, got %1").arg(priority);
     if (durationMinutes < 0)
-        return QStringLiteral("duration must not be negative, got %1").arg(durationMinutes);
+        return tr("duration must not be negative, got %1").arg(durationMinutes);
     if (start.isValid() && startHasTime && !start.time().isValid())
-        return QStringLiteral("start has a time flag but no valid time");
+        return tr("start has a time flag but no valid time");
     for (const QString &guess : guesses)
         if (!guessableFields().contains(guess))
-            return QStringLiteral("unknown guessed field: %1").arg(guess);
+            return tr("unknown guessed field: %1").arg(guess);
     if (!captureId.isEmpty() && QUuid(captureId).isNull())
-        return QStringLiteral("capture id is not a UUID: %1").arg(captureId);
+        return tr("capture id is not a UUID: %1").arg(captureId);
     return {};
 }
 

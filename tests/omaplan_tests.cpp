@@ -1,12 +1,31 @@
 #include <QDir>
 #include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QTemporaryDir>
+#include <QTextStream>
 #include <QtTest>
 
+#include "actions.h"
+#include "cli.h"
 #include "store.h"
 #include "task.h"
+
+// Runs the CLI in-process against an already-constructed store, capturing
+// stdout and stderr.
+static int cli(Store &store, const QStringList &args, QString *out, QString *err) {
+    QTextStream outStream(out, QIODevice::WriteOnly);
+    QTextStream errStream(err, QIODevice::WriteOnly);
+    return runCli(args, &store, outStream, errStream);
+}
+
+static QJsonObject cliJson(Store &store, const QStringList &args, QString *err, int *code) {
+    QString out;
+    *code = cli(store, args, &out, err);
+    return QJsonDocument::fromJson(out.toUtf8()).object();
+}
 
 class OmaplanTests : public QObject {
     Q_OBJECT
@@ -140,7 +159,7 @@ private slots:
             Store store(path);
             QString error;
             QVERIFY2(store.open(&error), qPrintable(error));
-            QCOMPARE(store.schemaVersion(), 1);
+            QCOMPARE(store.schemaVersion(), 2);
             // The three tables exist.
             QSqlQuery query(store.database());
             QVERIFY(query.exec("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"));
@@ -160,9 +179,51 @@ private slots:
             Store store(path);
             QString error;
             QVERIFY(store.open(&error));
-            QCOMPARE(store.schemaVersion(), 1);
+            QCOMPARE(store.schemaVersion(), 2);
             QCOMPARE(store.tasks(&error).size(), 1);
         }
+    }
+
+    void migrationFromV1Database()
+    {
+        QTemporaryDir dir;
+        const QString path = dir.filePath("v1.db");
+        {
+            // A database as trin 1's schema v1 left it: no undo_of column.
+            QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("v1test"));
+            db.setDatabaseName(path);
+            QVERIFY(db.open());
+            QSqlQuery q(db);
+            QVERIFY(q.exec(QStringLiteral("CREATE TABLE tasks (id TEXT PRIMARY KEY, title TEXT NOT NULL,"
+                                          " notes TEXT NOT NULL DEFAULT '', project TEXT NOT NULL DEFAULT '',"
+                                          " priority INTEGER NOT NULL DEFAULT 3, status TEXT NOT NULL DEFAULT 'todo',"
+                                          " start TEXT, start_has_time INTEGER NOT NULL DEFAULT 0,"
+                                          " duration_min INTEGER NOT NULL DEFAULT 0, deadline TEXT,"
+                                          " deadline_has_time INTEGER NOT NULL DEFAULT 0,"
+                                          " guesses TEXT NOT NULL DEFAULT '[]', capture_id TEXT NOT NULL DEFAULT '',"
+                                          " created TEXT NOT NULL, modified TEXT NOT NULL)")));
+            QVERIFY(q.exec(QStringLiteral("CREATE TABLE captures (id TEXT PRIMARY KEY, raw_text TEXT NOT NULL,"
+                                          " engine TEXT NOT NULL DEFAULT '', model TEXT NOT NULL DEFAULT '',"
+                                          " response TEXT NOT NULL DEFAULT '', created TEXT NOT NULL)")));
+            QVERIFY(q.exec(QStringLiteral("CREATE TABLE changes (id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                                          " at TEXT NOT NULL, source TEXT NOT NULL, kind TEXT NOT NULL,"
+                                          " task_id TEXT NOT NULL, before_json TEXT, after_json TEXT)")));
+            QVERIFY(q.exec(QStringLiteral("PRAGMA user_version=1")));
+            q.finish();
+            db.close();
+            db = QSqlDatabase();
+            QSqlDatabase::removeDatabase(QStringLiteral("v1test"));
+        }
+        Store store(path);
+        QString error;
+        QVERIFY2(store.open(&error), qPrintable(error));
+        QCOMPARE(store.schemaVersion(), 2);
+        QSqlQuery q(store.database());
+        QVERIFY(q.exec(QStringLiteral("PRAGMA table_info(changes)")));
+        QStringList columns;
+        while (q.next())
+            columns << q.value(1).toString();
+        QVERIFY(columns.contains(QStringLiteral("undo_of")));
     }
 
     void changeLogRecordsBeforeAfterAndSource()
@@ -240,6 +301,327 @@ private slots:
         QVERIFY2(store.open(&error), qPrintable(error));
         QVERIFY(QFile::exists(path));
         qputenv("OMAPLAN_DB", "");
+    }
+
+    void actionsCrud()
+    {
+        QTemporaryDir dir;
+        Store store(dir.filePath("test.db"));
+        QString error;
+        QVERIFY(store.open(&error));
+        Actions actions(&store);
+
+        Task task;
+        task.title = QStringLiteral("Skriv blogindlæg");
+        task.project = QStringLiteral("Blog");
+        ActionResult created = actions.create(task, QStringLiteral("cli"));
+        QVERIFY2(created.ok, qPrintable(created.error));
+        const QString id = created.payload["task"].toObject()["id"].toString();
+        QVERIFY(!id.isEmpty());
+
+        ActionResult shown = actions.show(id);
+        QVERIFY(shown.ok);
+        QCOMPARE(shown.payload["task"].toObject()["title"].toString(), task.title);
+
+        QJsonObject patch;
+        patch["title"] = QStringLiteral("Skriv blogindlæg om budgettet");
+        patch["priority"] = 1;
+        ActionResult edited = actions.update(id, patch, QStringLiteral("gui"));
+        QVERIFY2(edited.ok, qPrintable(edited.error));
+        QCOMPARE(edited.payload["task"].toObject()["title"].toString(), QStringLiteral("Skriv blogindlæg om budgettet"));
+        QCOMPARE(edited.payload["task"].toObject()["priority"].toInt(), 1);
+
+        ActionResult moved = actions.move(id, QDateTime(QDate(2026, 12, 2), QTime(10, 0)), true, QStringLiteral("cli"));
+        QVERIFY2(moved.ok, qPrintable(moved.error));
+        QCOMPARE(moved.payload["task"].toObject()["start_has_time"].toBool(), true);
+
+        ActionResult done = actions.setDone(id, true, QStringLiteral("cli"));
+        QVERIFY(done.ok);
+        QCOMPARE(done.payload["task"].toObject()["status"].toString(), QStringLiteral("done"));
+        ActionResult undone = actions.setDone(id, false, QStringLiteral("cli"));
+        QVERIFY(undone.ok);
+        QCOMPARE(undone.payload["task"].toObject()["status"].toString(), QStringLiteral("todo"));
+
+        ActionResult removed = actions.remove(id, QStringLiteral("cli"));
+        QVERIFY2(removed.ok, qPrintable(removed.error));
+        QVERIFY(!actions.show(id).ok);
+    }
+
+    void actionsUndoWalksTheChangeLog()
+    {
+        QTemporaryDir dir;
+        Store store(dir.filePath("test.db"));
+        QString error;
+        QVERIFY(store.open(&error));
+        Actions actions(&store);
+
+        // Nothing to undo yet.
+        QVERIFY(!actions.undo(QStringLiteral("cli")).ok);
+
+        Task task;
+        task.title = QStringLiteral("Første titel");
+        const QString id = actions.create(task, QStringLiteral("cli")).payload["task"].toObject()["id"].toString();
+
+        QJsonObject patch;
+        patch["title"] = QStringLiteral("Anden titel");
+        QVERIFY(actions.update(id, patch, QStringLiteral("gui")).ok);
+
+        // Undo the update: the original title is back.
+        ActionResult undone = actions.undo(QStringLiteral("cli"));
+        QVERIFY2(undone.ok, qPrintable(undone.error));
+        QCOMPARE(actions.show(id).payload["task"].toObject()["title"].toString(), QStringLiteral("Første titel"));
+
+        // Undo the create: the task is gone.
+        QVERIFY(actions.undo(QStringLiteral("cli")).ok);
+        QVERIFY(!actions.show(id).ok);
+        QCOMPARE(actions.list({}).payload["tasks"].toArray().size(), 0);
+
+        // Undo the delete of a removed task: it comes back with the same id.
+        const QString id2 = actions.create(task, QStringLiteral("cli")).payload["task"].toObject()["id"].toString();
+        QVERIFY(actions.remove(id2, QStringLiteral("mcp")).ok);
+        QVERIFY(actions.undo(QStringLiteral("gui")).ok);
+        QVERIFY(actions.show(id2).ok);
+    }
+
+    void undoWorksAcrossProcesses()
+    {
+        QTemporaryDir dir;
+        const QString path = dir.filePath("shared.db");
+        QString error;
+        Store first(path);
+        QVERIFY(first.open(&error));
+        Actions actionsFirst(&first);
+        Task task;
+        task.title = QStringLiteral("Opret i proces A");
+        const QString id = actionsFirst.create(task, QStringLiteral("cli")).payload["task"].toObject()["id"].toString();
+
+        // A second connection to the same file, like a separate CLI process.
+        Store second(path);
+        QVERIFY(second.open(&error));
+        Actions actionsSecond(&second);
+        ActionResult undone = actionsSecond.undo(QStringLiteral("gui"));
+        QVERIFY2(undone.ok, qPrintable(undone.error));
+
+        // The first connection sees the undo too.
+        QVERIFY(!actionsFirst.show(id).ok);
+    }
+
+    void actionsListFiltersProjectsSummary()
+    {
+        QTemporaryDir dir;
+        Store store(dir.filePath("test.db"));
+        QString error;
+        QVERIFY(store.open(&error));
+        Actions actions(&store);
+
+        // Dates far enough out that "this week" never contains them.
+        const QDate base = QDateTime::currentDateTime().date().addDays(70);
+        Task a;
+        a.title = QStringLiteral("Blogindlæg");
+        a.project = QStringLiteral("Blog");
+        a.start = QDateTime(base, QTime(0, 0));
+        a.startHasTime = false;
+        Task b = a;
+        b.title = QStringLiteral("Kundemøde");
+        b.project = QStringLiteral("Kunde A");
+        b.start = QDateTime(base.addDays(4), QTime(0, 0));
+        b.status = Task::Status::Done;
+        QVERIFY(actions.create(a, QStringLiteral("cli")).ok);
+        QVERIFY(actions.create(b, QStringLiteral("cli")).ok);
+
+        ListFilter all;
+        QCOMPARE(actions.list(all).payload["tasks"].toArray().size(), 2);
+
+        ListFilter blog;
+        blog.project = QStringLiteral("Blog");
+        QCOMPARE(actions.list(blog).payload["tasks"].toArray().size(), 1);
+
+        ListFilter done;
+        done.status = QStringLiteral("done");
+        const auto doneList = actions.list(done).payload["tasks"].toArray();
+        QCOMPARE(doneList.size(), 1);
+        QCOMPARE(doneList.first().toObject()["title"].toString(), QStringLiteral("Kundemøde"));
+
+        ListFilter range;
+        range.hasFrom = true;
+        range.from = base.addDays(1);
+        range.hasTo = true;
+        range.to = base.addDays(30);
+        QCOMPARE(actions.list(range).payload["tasks"].toArray().size(), 1);
+
+        const auto projects = actions.projects().payload["projects"].toArray();
+        QCOMPARE(projects.size(), 2);
+
+        const QDate today = QDateTime::currentDateTime().date();
+        Task inWeek;
+        inWeek.title = QStringLiteral("Denne uge");
+        inWeek.start = QDateTime(today, QTime(0, 0));
+        QVERIFY(actions.create(inWeek, QStringLiteral("cli")).ok);
+        const auto week = actions.summary(true).payload["summary"].toObject();
+        QCOMPARE(week["tasks"].toInt(), 1);
+        QCOMPARE(week["todo"].toInt(), 1);
+        const auto month = actions.summary(false).payload["summary"].toObject();
+        QVERIFY(month["tasks"].toInt() >= 1);
+    }
+
+    void dateParsing()
+    {
+        const QDate today(2026, 11, 23); // a Monday
+        QCOMPARE(today.dayOfWeek(), 1);
+        QDateTime out;
+        bool hasTime = false;
+        QString error;
+
+        QVERIFY(Actions::parseDateTime(QStringLiteral("2026-12-01"), today, &out, &hasTime, &error));
+        QCOMPARE(out.date(), QDate(2026, 12, 1));
+        QVERIFY(!hasTime);
+
+        QVERIFY(Actions::parseDateTime(QStringLiteral("2026-12-01 14:30"), today, &out, &hasTime, &error));
+        QCOMPARE(out.date(), QDate(2026, 12, 1));
+        QCOMPARE(out.time(), QTime(14, 30));
+        QVERIFY(hasTime);
+
+        QVERIFY(Actions::parseDateTime(QStringLiteral("2026-12-01T09:05"), today, &out, &hasTime, &error));
+        QCOMPARE(out.time(), QTime(9, 5));
+        QVERIFY(hasTime);
+
+        QVERIFY(Actions::parseDateTime(QStringLiteral("i dag"), today, &out, &hasTime, &error));
+        QCOMPARE(out.date(), today);
+        QVERIFY(!hasTime);
+
+        QVERIFY(Actions::parseDateTime(QStringLiteral("tomorrow"), today, &out, &hasTime, &error));
+        QCOMPARE(out.date(), today.addDays(1));
+
+        QVERIFY(Actions::parseDateTime(QStringLiteral("i morgen"), today, &out, &hasTime, &error));
+        QCOMPARE(out.date(), today.addDays(1));
+
+        QVERIFY(Actions::parseDateTime(QStringLiteral("fredag"), today, &out, &hasTime, &error));
+        QCOMPARE(out.date().dayOfWeek(), 5);
+        QCOMPARE(out.date(), today.addDays(4));
+
+        QVERIFY(Actions::parseDateTime(QStringLiteral("mandag"), today, &out, &hasTime, &error));
+        QCOMPARE(out.date(), today); // today is Monday
+
+        QVERIFY(Actions::parseDateTime(QStringLiteral("next monday"), today, &out, &hasTime, &error));
+        QCOMPARE(out.date(), today.addDays(7));
+
+        QVERIFY(Actions::parseDateTime(QStringLiteral("næste fredag"), today, &out, &hasTime, &error));
+        QCOMPARE(out.date(), today.addDays(4));
+
+        // "fredag 12": the 12th; November's is past, so December's.
+        QVERIFY(Actions::parseDateTime(QStringLiteral("fredag 12"), today, &out, &hasTime, &error));
+        QCOMPARE(out.date(), QDate(2026, 12, 12));
+
+        QVERIFY(Actions::parseDateTime(QStringLiteral("25"), today, &out, &hasTime, &error));
+        QCOMPARE(out.date(), QDate(2026, 11, 25));
+
+        QVERIFY(Actions::parseDateTime(QStringLiteral("fredag kl. 14:30"), today, &out, &hasTime, &error));
+        QCOMPARE(out.date(), today.addDays(4));
+        QCOMPARE(out.time(), QTime(14, 30));
+        QVERIFY(hasTime);
+
+        QVERIFY(Actions::parseDateTime(QStringLiteral("i morgen 09:00"), today, &out, &hasTime, &error));
+        QCOMPARE(out.date(), today.addDays(1));
+        QCOMPARE(out.time(), QTime(9, 0));
+        QVERIFY(hasTime);
+
+        QVERIFY(!Actions::parseDateTime(QStringLiteral("bogus"), today, &out, &hasTime, &error));
+        QVERIFY(!error.isEmpty());
+        QVERIFY(!Actions::parseDateTime(QStringLiteral("2026-13-40"), today, &out, &hasTime, &error));
+    }
+
+    void cliExitCodesAndJson()
+    {
+        QTemporaryDir dir;
+        Store store(dir.filePath("cli.db"));
+        QString error;
+        QVERIFY(store.open(&error));
+        QString out, err;
+        int code = 0;
+
+        // --help exits 0 and shows examples.
+        QCOMPARE(cli(store, {QStringLiteral("--help")}, &out, &err), 0);
+        QVERIFY(out.contains(QStringLiteral("Usage:")));
+        QVERIFY(out.contains(QStringLiteral("omaplan new")));
+
+        // new --json exits 0 with the task as JSON on stdout.
+        const QJsonObject created = cliJson(store, {QStringLiteral("new"), QStringLiteral("--titel"),
+                                                     QStringLiteral("Test opgave"), QStringLiteral("--projekt"),
+                                                     QStringLiteral("Blog"), QStringLiteral("--start"),
+                                                     QStringLiteral("2026-12-01"), QStringLiteral("--json")},
+                                            &err, &code);
+        QCOMPARE(code, 0);
+        const QJsonObject task = created["task"].toObject();
+        QCOMPARE(task["title"].toString(), QStringLiteral("Test opgave"));
+        QCOMPARE(task["project"].toString(), QStringLiteral("Blog"));
+        QCOMPARE(task["start"].toString(), QStringLiteral("2026-12-01"));
+        QCOMPARE(task["start_has_time"].toBool(), false);
+        const QString id = task["id"].toString();
+        QVERIFY(!QUuid(id).isNull());
+
+        // Without --json the human text goes to stdout.
+        out.clear();
+        QCOMPARE(cli(store, {QStringLiteral("new"), QStringLiteral("--titel"), QStringLiteral("Anden opgave")}, &out, &err), 0);
+        QVERIFY(out.contains(QStringLiteral("Created")));
+
+        // list --json, show, edit, move, done, undone, rm, undo.
+        const QJsonObject listed = cliJson(store, {QStringLiteral("list"), QStringLiteral("--json")}, &err, &code);
+        QCOMPARE(code, 0);
+        QCOMPARE(listed["tasks"].toArray().size(), 2);
+
+        const QJsonObject shown = cliJson(store, {QStringLiteral("show"), id, QStringLiteral("--json")}, &err, &code);
+        QCOMPARE(code, 0);
+        QCOMPARE(shown["task"].toObject()["id"].toString(), id);
+
+        const QJsonObject edited = cliJson(store, {QStringLiteral("edit"), id, QStringLiteral("--titel"),
+                                                    QStringLiteral("Rettet"), QStringLiteral("--json")}, &err, &code);
+        QCOMPARE(code, 0);
+        QCOMPARE(edited["task"].toObject()["title"].toString(), QStringLiteral("Rettet"));
+
+        const QJsonObject moved = cliJson(store, {QStringLiteral("move"), id, QStringLiteral("2026-12-02 10:00"),
+                                                   QStringLiteral("--json")}, &err, &code);
+        QCOMPARE(code, 0);
+        QCOMPARE(QDateTime::fromString(moved["task"].toObject()["start"].toString(), Qt::ISODateWithMs),
+                 QDateTime(QDate(2026, 12, 2), QTime(10, 0)));
+        QCOMPARE(moved["task"].toObject()["start_has_time"].toBool(), true);
+
+        QCOMPARE(cli(store, {QStringLiteral("done"), id, QStringLiteral("--json")}, &out, &err), 0);
+        QCOMPARE(cliJson(store, {QStringLiteral("show"), id, QStringLiteral("--json")}, &err, &code)["task"].toObject()["status"].toString(),
+                 QStringLiteral("done"));
+        QCOMPARE(cli(store, {QStringLiteral("undone"), id}, &out, &err), 0);
+
+        // list with filters.
+        const QJsonObject filtered = cliJson(store, {QStringLiteral("list"), QStringLiteral("--projekt"), QStringLiteral("Blog"),
+                                                      QStringLiteral("--status"), QStringLiteral("todo"), QStringLiteral("--json")}, &err, &code);
+        QCOMPARE(code, 0);
+        QCOMPARE(filtered["tasks"].toArray().size(), 1);
+
+        // projects and summary work over --json.
+        QCOMPARE(cli(store, {QStringLiteral("projects"), QStringLiteral("--json")}, &out, &err), 0);
+        QCOMPARE(cli(store, {QStringLiteral("summary"), QStringLiteral("--uge"), QStringLiteral("--json")}, &out, &err), 0);
+        QCOMPARE(cli(store, {QStringLiteral("summary"), QStringLiteral("--maaned")}, &out, &err), 0);
+
+        // undo removes the newest change; rm + undo brings the task back.
+        QCOMPARE(cli(store, {QStringLiteral("rm"), id, QStringLiteral("--json")}, &out, &err), 0);
+        const QJsonObject undone = cliJson(store, {QStringLiteral("undo"), QStringLiteral("--json")}, &err, &code);
+        QCOMPARE(code, 0);
+        QCOMPARE(undone["change"].toObject()["kind"].toString(), QStringLiteral("delete"));
+        QCOMPARE(cliJson(store, {QStringLiteral("show"), id, QStringLiteral("--json")}, &err, &code)["task"].toObject()["id"].toString(), id);
+
+        // Errors: exit 1, message on stderr, nothing required on stdout.
+        out.clear(); err.clear();
+        QCOMPARE(cli(store, {QStringLiteral("show"), QStringLiteral("ikke-et-id")}, &out, &err), 1);
+        QVERIFY(!err.isEmpty());
+        QCOMPARE(cli(store, {QStringLiteral("new")}, &out, &err), 1); // mangler --titel
+        QCOMPARE(cli(store, {QStringLiteral("frobnicate")}, &out, &err), 1);
+        QCOMPARE(cli(store, {QStringLiteral("new"), QStringLiteral("--titel"), QStringLiteral("X"), QStringLiteral("--start"), QStringLiteral("bogus")}, &out, &err), 1);
+
+        // Later-phase commands answer "not implemented yet" with exit 1.
+        for (const char *cmd : {"add", "snapshot", "serve", "mcp", "skill"}) {
+            err.clear();
+            QCOMPARE(cli(store, {QString::fromLatin1(cmd), QStringLiteral("x")}, &out, &err), 1);
+            QVERIFY2(err.contains(QStringLiteral("Not implemented yet")), qPrintable(err));
+        }
     }
 };
 
