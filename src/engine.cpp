@@ -202,7 +202,7 @@ std::unique_ptr<AiEngine> createEngine(const QString &id, const QString &modelOv
         return createVibeEngine();
     if (id == QLatin1String("claude"))
         return createClaudeEngine();
-    if (id == QLatin1String("lokal")) {
+    if (id == QLatin1String("local") || id == QLatin1String("lokal")) { // "lokal" until 0.1
         const QString model = !modelOverride.isEmpty() ? modelOverride : config.localModel;
         const QString endpoint = !endpointOverride.isEmpty() ? endpointOverride : config.localEndpoint;
         return createLocalEngine(endpoint, model, config.localApi);
@@ -211,12 +211,12 @@ std::unique_ptr<AiEngine> createEngine(const QString &id, const QString &modelOv
         if (config.command.isEmpty()) {
             if (error)
                 *error = QObject::tr("Engine 'command' needs a command in ~/.config/omaplan/config.toml: "
-                                        "[motor]\ncommand = \"...\"");
+                                        "[engine]\ncommand = \"...\"");
             return nullptr;
         }
         return createCommandEngine(config.command);
     }
     if (error)
-        *error = QObject::tr("Unknown engine '%1'. Choose vibe, claude, lokal or command.").arg(id);
+        *error = QObject::tr("Unknown engine '%1'. Choose vibe, claude, local or command.").arg(id);
     return nullptr;
 }

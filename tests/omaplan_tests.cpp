@@ -1036,8 +1036,8 @@ private slots:
         QVERIFY(out.contains(QStringLiteral("omaplan new")));
 
         // new --json exits 0 with the task as JSON on stdout.
-        const QJsonObject created = cliJson(store, {QStringLiteral("new"), QStringLiteral("--titel"),
-                                                     QStringLiteral("Test opgave"), QStringLiteral("--projekt"),
+        const QJsonObject created = cliJson(store, {QStringLiteral("new"), QStringLiteral("--title"),
+                                                     QStringLiteral("Test opgave"), QStringLiteral("--project"),
                                                      QStringLiteral("Blog"), QStringLiteral("--start"),
                                                      QStringLiteral("2026-12-01"), QStringLiteral("--json")},
                                             &err, &code);
@@ -1052,7 +1052,7 @@ private slots:
 
         // Without --json the human text goes to stdout.
         out.clear();
-        QCOMPARE(cli(store, {QStringLiteral("new"), QStringLiteral("--titel"), QStringLiteral("Anden opgave")}, &out, &err), 0);
+        QCOMPARE(cli(store, {QStringLiteral("new"), QStringLiteral("--title"), QStringLiteral("Anden opgave")}, &out, &err), 0);
         QVERIFY(out.contains(QStringLiteral("Created")));
 
         // list --json, show, edit, move, done, undone, rm, undo.
@@ -1064,7 +1064,7 @@ private slots:
         QCOMPARE(code, 0);
         QCOMPARE(shown["task"].toObject()["id"].toString(), id);
 
-        const QJsonObject edited = cliJson(store, {QStringLiteral("edit"), id, QStringLiteral("--titel"),
+        const QJsonObject edited = cliJson(store, {QStringLiteral("edit"), id, QStringLiteral("--title"),
                                                     QStringLiteral("Rettet"), QStringLiteral("--json")}, &err, &code);
         QCOMPARE(code, 0);
         QCOMPARE(edited["task"].toObject()["title"].toString(), QStringLiteral("Rettet"));
@@ -1082,15 +1082,15 @@ private slots:
         QCOMPARE(cli(store, {QStringLiteral("undone"), id}, &out, &err), 0);
 
         // list with filters.
-        const QJsonObject filtered = cliJson(store, {QStringLiteral("list"), QStringLiteral("--projekt"), QStringLiteral("Blog"),
+        const QJsonObject filtered = cliJson(store, {QStringLiteral("list"), QStringLiteral("--project"), QStringLiteral("Blog"),
                                                       QStringLiteral("--status"), QStringLiteral("todo"), QStringLiteral("--json")}, &err, &code);
         QCOMPARE(code, 0);
         QCOMPARE(filtered["tasks"].toArray().size(), 1);
 
         // projects and summary work over --json.
         QCOMPARE(cli(store, {QStringLiteral("projects"), QStringLiteral("--json")}, &out, &err), 0);
-        QCOMPARE(cli(store, {QStringLiteral("summary"), QStringLiteral("--uge"), QStringLiteral("--json")}, &out, &err), 0);
-        QCOMPARE(cli(store, {QStringLiteral("summary"), QStringLiteral("--maaned")}, &out, &err), 0);
+        QCOMPARE(cli(store, {QStringLiteral("summary"), QStringLiteral("--week"), QStringLiteral("--json")}, &out, &err), 0);
+        QCOMPARE(cli(store, {QStringLiteral("summary"), QStringLiteral("--month")}, &out, &err), 0);
 
         // undo removes the newest change; rm + undo brings the task back.
         QCOMPARE(cli(store, {QStringLiteral("rm"), id, QStringLiteral("--json")}, &out, &err), 0);
@@ -1103,9 +1103,9 @@ private slots:
         out.clear(); err.clear();
         QCOMPARE(cli(store, {QStringLiteral("show"), QStringLiteral("ikke-et-id")}, &out, &err), 1);
         QVERIFY(!err.isEmpty());
-        QCOMPARE(cli(store, {QStringLiteral("new")}, &out, &err), 1); // mangler --titel
+        QCOMPARE(cli(store, {QStringLiteral("new")}, &out, &err), 1); // missing --title
         QCOMPARE(cli(store, {QStringLiteral("frobnicate")}, &out, &err), 1);
-        QCOMPARE(cli(store, {QStringLiteral("new"), QStringLiteral("--titel"), QStringLiteral("X"), QStringLiteral("--start"), QStringLiteral("bogus")}, &out, &err), 1);
+        QCOMPARE(cli(store, {QStringLiteral("new"), QStringLiteral("--title"), QStringLiteral("X"), QStringLiteral("--start"), QStringLiteral("bogus")}, &out, &err), 1);
 
         // serve rejects bad arguments before it listens.
         QCOMPARE(cli(store, {QStringLiteral("serve"), QStringLiteral("--port"), QStringLiteral("abc")}, &out, &err), 1);
@@ -1129,13 +1129,13 @@ private slots:
         {
             QFile f(cfgPath);
             QVERIFY(f.open(QIODevice::WriteOnly));
-            f.write("[motor]\nengine = \"command\"\ncommand = \"cat " + fixture.toUtf8() + "\"\n");
+            f.write("[engine]\ndefault = \"command\"\ncommand = \"cat " + fixture.toUtf8() + "\"\n");
         }
         qputenv("OMAPLAN_CONFIG", cfgPath.toLocal8Bit());
 
         QString out, err;
         int code = 0;
-        // Without --ja the proposal is printed, nothing stored.
+        // Without --yes the proposal is printed, nothing stored.
         const QJsonObject proposal = cliJson(store, {QStringLiteral("add"), QStringLiteral("køb mælk i morgen"), QStringLiteral("--json")}, &err, &code);
         QCOMPARE(code, 0);
         QCOMPARE(proposal["proposal"].toObject()["tasks"].toArray().size(), 1);
@@ -1150,8 +1150,8 @@ private slots:
         QVERIFY(captures[0].annotatedText.contains(QStringLiteral("i morgen [tirsdag 2026-11-24]")));
         QCOMPARE(captures[0].engine, QStringLiteral("command"));
 
-        // With --ja the tasks are stored and linked to the capture.
-        const QJsonObject stored = cliJson(store, {QStringLiteral("add"), QStringLiteral("køb mælk fredag"), QStringLiteral("--ja"), QStringLiteral("--json")}, &err, &code);
+        // With --yes the tasks are stored and linked to the capture.
+        const QJsonObject stored = cliJson(store, {QStringLiteral("add"), QStringLiteral("køb mælk fredag"), QStringLiteral("--yes"), QStringLiteral("--json")}, &err, &code);
         QCOMPARE(code, 0);
         QCOMPARE(stored["stored"].toArray().size(), 1);
         const auto tasks = cliJson(store, {QStringLiteral("list"), QStringLiteral("--json")}, &err, &code)["tasks"].toArray();
@@ -1160,9 +1160,9 @@ private slots:
         // gaet from the schema maps to Task guess keys.
         QCOMPARE(tasks.first().toObject()["guesses"].toArray().first().toString(), QStringLiteral("project"));
 
-        // Unknown motor: exit 1 with a clear error.
+        // Unknown engine: exit 1 with a clear error.
         err.clear();
-        QCOMPARE(cli(store, {QStringLiteral("add"), QStringLiteral("x"), QStringLiteral("--motor"), QStringLiteral("ingen")}, &out, &err), 1);
+        QCOMPARE(cli(store, {QStringLiteral("add"), QStringLiteral("x"), QStringLiteral("--engine"), QStringLiteral("ingen")}, &out, &err), 1);
         QVERIFY(err.contains(QStringLiteral("Unknown engine")));
 
         qputenv("OMAPLAN_CONFIG", "");
@@ -1452,6 +1452,48 @@ private slots:
         QVERIFY2(!b.createTask(task, QStringLiteral("cli"), &error).isEmpty(), qPrintable(error));
     }
 
+    void cliAcceptsTheDanishFlagsAsHiddenAliases()
+    {
+        // The flags from before 0.1 keep working (habits, older skill files),
+        // but --help shows only the English ones.
+        QTemporaryDir dir;
+        Store store(dir.filePath("cli.db"));
+        QString error;
+        QVERIFY(store.open(&error));
+        QString out, err;
+        int code = 0;
+        const QJsonObject created = cliJson(store, {QStringLiteral("new"), QStringLiteral("--titel"), QStringLiteral("Old habit"),
+                                                     QStringLiteral("--noter"), QStringLiteral("n"), QStringLiteral("--projekt"),
+                                                     QStringLiteral("Blog"), QStringLiteral("--prioritet"), QStringLiteral("2"),
+                                                     QStringLiteral("--start"), QStringLiteral("2026-12-01 09:00"),
+                                                     QStringLiteral("--varighed"), QStringLiteral("30"), QStringLiteral("--frist"),
+                                                     QStringLiteral("2026-12-02"), QStringLiteral("--json")}, &err, &code);
+        QCOMPARE(code, 0);
+        const QJsonObject task = created["task"].toObject();
+        QCOMPARE(task["title"].toString(), QStringLiteral("Old habit"));
+        QCOMPARE(task["notes"].toString(), QStringLiteral("n"));
+        QCOMPARE(task["project"].toString(), QStringLiteral("Blog"));
+        QCOMPARE(task["priority"].toInt(), 2);
+        QCOMPARE(task["duration_minutes"].toInt(), 30);
+        QCOMPARE(task["deadline"].toString(), QStringLiteral("2026-12-02"));
+        const QJsonObject listed = cliJson(store, {QStringLiteral("list"), QStringLiteral("--fra"), QStringLiteral("2026-12-01"),
+                                                    QStringLiteral("--til"), QStringLiteral("2026-12-01"), QStringLiteral("--json")},
+                                           &err, &code);
+        QCOMPARE(code, 0);
+        QCOMPARE(listed["tasks"].toArray().size(), 1);
+        QCOMPARE(cli(store, {QStringLiteral("summary"), QStringLiteral("--maaned")}, &out, &err), 0);
+        QCOMPARE(cli(store, {QStringLiteral("summary"), QStringLiteral("--uge"), QStringLiteral("--month")}, &out, &err), 1);
+
+        QCOMPARE(cli(store, {QStringLiteral("--help")}, &out, &err), 0);
+        for (const char *flag : {"--titel", "--noter", "--projekt", "--prioritet", "--varighed", "--frist", "--fra", "--til",
+                                 "--motor", "--ja", "--uge", "--maaned"})
+            QVERIFY2(!out.contains(QString::fromLatin1(flag) + QLatin1Char(' '))
+                         && !out.contains(QString::fromLatin1(flag) + QLatin1Char('|'))
+                         && !out.contains(QString::fromLatin1(flag) + QLatin1Char(']')), flag);
+        QVERIFY(out.contains(QStringLiteral("--title")));
+        QVERIFY(out.contains(QStringLiteral("--yes")));
+    }
+
     void cliFixes()
     {
         QTemporaryDir dir;
@@ -1468,7 +1510,7 @@ private slots:
         QCOMPARE(summary["summary"].toObject()["from"].toString(),
                  today.addDays(1 - today.dayOfWeek()).toString(Qt::ISODate));
 
-        const QString id = cliJson(store, {QStringLiteral("new"), QStringLiteral("--titel"), QStringLiteral("X"),
+        const QString id = cliJson(store, {QStringLiteral("new"), QStringLiteral("--title"), QStringLiteral("X"),
                                            QStringLiteral("--json")}, &err, &code)["task"].toObject()["id"].toString();
         // move without quotes: `move <id> 2026-12-01 14:30` keeps the time.
         const QJsonObject moved = cliJson(store, {QStringLiteral("move"), id, QStringLiteral("2026-12-01"),
@@ -1478,10 +1520,10 @@ private slots:
 
         // Garbage numbers and statuses are errors, not silent defaults.
         err.clear();
-        QCOMPARE(cli(store, {QStringLiteral("edit"), id, QStringLiteral("--varighed"), QStringLiteral("1t")}, &out, &err), 1);
+        QCOMPARE(cli(store, {QStringLiteral("edit"), id, QStringLiteral("--duration"), QStringLiteral("1t")}, &out, &err), 1);
         QVERIFY(err.contains(QStringLiteral("duration")));
-        QCOMPARE(cli(store, {QStringLiteral("new"), QStringLiteral("--titel"), QStringLiteral("Y"),
-                             QStringLiteral("--prioritet"), QStringLiteral("høj")}, &out, &err), 1);
+        QCOMPARE(cli(store, {QStringLiteral("new"), QStringLiteral("--title"), QStringLiteral("Y"),
+                             QStringLiteral("--priority"), QStringLiteral("høj")}, &out, &err), 1);
         QCOMPARE(cli(store, {QStringLiteral("edit"), id, QStringLiteral("--status"), QStringLiteral("færdig")}, &out, &err), 1);
         QCOMPARE(cliJson(store, {QStringLiteral("show"), id, QStringLiteral("--json")}, &err, &code)["task"].toObject()["status"].toString(),
                  QStringLiteral("todo"));
@@ -1587,7 +1629,7 @@ private slots:
         {
             QFile f(cfgPath);
             QVERIFY(f.open(QIODevice::WriteOnly));
-            f.write("[motor]\nengine = \"command\"\ncommand = \"cat\"\n");
+            f.write("[engine]\ndefault = \"command\"\ncommand = \"cat\"\n");
         }
         qputenv("OMAPLAN_CONFIG", cfgPath.toLocal8Bit());
         const ActionResult r = actions.propose(QStringLiteral("noget nyt"));
@@ -1606,20 +1648,40 @@ private slots:
         const QString path = dir.filePath("config.toml");
         QFile f(path);
         QVERIFY(f.open(QIODevice::WriteOnly));
-        f.write("[motor]\nengine = \"claude\"            # standardmotor: vibe | claude\n"
-                "compare = \"claude, lokal\"  # sammenlign\n"
-                "[motor.lokal]\napi = 'openai' # endpoint-type\nendpoint = http://127.0.0.1:8080 # uden citat\n"
-                "model = \"navn#med#hegn\"\n");
+        f.write("language = \"DA\"  # ui\n"
+                "[engine]\ndefault = \"claude\"            # default engine: vibe | claude\n"
+                "compare = \"claude, local\"  # compare\n"
+                "[engine.local]\napi = 'openai' # endpoint type\nendpoint = http://127.0.0.1:8080 # unquoted\n"
+                "model = \"name#with#hash\"\n");
         f.close();
         const AppConfig config = AppConfig::load(path);
+        QCOMPARE(config.language, QStringLiteral("da"));
         QCOMPARE(config.engine, QStringLiteral("claude"));
-        QCOMPARE(config.compare, (QStringList{QStringLiteral("claude"), QStringLiteral("lokal")}));
+        QCOMPARE(config.compare, (QStringList{QStringLiteral("claude"), QStringLiteral("local")}));
         QCOMPARE(config.localApi, QStringLiteral("openai"));
         QCOMPARE(config.localEndpoint, QStringLiteral("http://127.0.0.1:8080"));
-        QCOMPARE(config.localModel, QStringLiteral("navn#med#hegn"));
-        // Defaults without a file: vibe, and Sammenlign = vibe vs claude.
-        const AppConfig none = AppConfig::load(dir.filePath("findes-ikke.toml"));
+        QCOMPARE(config.localModel, QStringLiteral("name#with#hash"));
+        // Defaults without a file: vibe, and Compare = vibe vs claude.
+        const AppConfig none = AppConfig::load(dir.filePath("missing.toml"));
         QCOMPARE(none.compare, (QStringList{QStringLiteral("vibe"), QStringLiteral("claude")}));
+        QVERIFY(none.language.isEmpty());
+    }
+
+    void configReadsTheNamesFromBeforeZeroPointOne()
+    {
+        QTemporaryDir dir;
+        const QString path = dir.filePath("config.toml");
+        QFile f(path);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("[motor]\nengine = \"lokal\"\ncompare = \"claude, lokal\"\n"
+                "[motor.lokal]\napi = 'openai'\nendpoint = http://127.0.0.1:8080\nmodel = old\n");
+        f.close();
+        const AppConfig config = AppConfig::load(path);
+        QCOMPARE(config.engine, QStringLiteral("local"));
+        QCOMPARE(config.compare, (QStringList{QStringLiteral("claude"), QStringLiteral("local")}));
+        QCOMPARE(config.localApi, QStringLiteral("openai"));
+        QCOMPARE(config.localEndpoint, QStringLiteral("http://127.0.0.1:8080"));
+        QCOMPARE(config.localModel, QStringLiteral("old"));
     }
 
     // Runs `omaplan mcp` (the real binary) with the given JSON-RPC lines on
@@ -1665,10 +1727,10 @@ private slots:
     {
         QTemporaryDir dir;
         const QString db = dir.filePath("mcp.db");
-        // Never a real AI: "lokal" without a model fails before any request.
+        // Never a real AI: "local" without a model fails before any request.
         QFile cfg(dir.filePath("config.toml"));
         QVERIFY(cfg.open(QIODevice::WriteOnly));
-        cfg.write("[motor]\nengine = \"lokal\"\n");
+        cfg.write("[engine]\ndefault = \"local\"\n");
         cfg.close();
         // Seed one task through the CLI, so the MCP side reads shared data.
         Task seeded;
@@ -1765,7 +1827,7 @@ private slots:
                                     .filePath(QStringLiteral("../../tests/ai-fixtures/envelopes/command-valid.json"));
         QFile cfg(dir.filePath("config.toml"));
         QVERIFY(cfg.open(QIODevice::WriteOnly));
-        cfg.write("[motor]\nengine = \"command\"\ncommand = \"cat " + fixture.toUtf8() + "\"\n");
+        cfg.write("[engine]\ndefault = \"command\"\ncommand = \"cat " + fixture.toUtf8() + "\"\n");
         cfg.close();
         QString stderrText;
         QList<QJsonObject> r = mcpSession(db, {
@@ -1790,7 +1852,7 @@ private slots:
 
     void compareSendsTheSameTextToTwoEnginesAndKeepsBothCaptures()
     {
-        // Fake engines only: "command" runs `cat <fixture>`, and "lokal"
+        // Fake engines only: "command" runs `cat <fixture>`, and "local"
         // without a model fails at once with a clear message.
         QTemporaryDir dir;
         Store store(dir.filePath("t.db"));
@@ -1803,7 +1865,7 @@ private slots:
         const auto writeConfig = [&](const QByteArray &compare) {
             QFile f(cfgPath);
             QVERIFY(f.open(QIODevice::WriteOnly));
-            f.write("[motor]\nengine = \"command\"\ncommand = \"cat " + fixture.toUtf8() + "\"\ncompare = \"" + compare + "\"\n");
+            f.write("[engine]\ndefault = \"command\"\ncommand = \"cat " + fixture.toUtf8() + "\"\ncompare = \"" + compare + "\"\n");
         };
         qputenv("OMAPLAN_CONFIG", cfgPath.toLocal8Bit());
 
@@ -1828,7 +1890,7 @@ private slots:
         QCOMPARE(store.tasks(&error).first().captureId, chosenCapture);
 
         // One side failing does not block the other.
-        writeConfig("command, lokal");
+        writeConfig("command, local");
         ready.clear();
         failed.clear();
         actions.guiCompare(QStringLiteral("køb mælk i morgen"));
@@ -1843,7 +1905,7 @@ private slots:
         {
             QFile f(cfgPath);
             QVERIFY(f.open(QIODevice::WriteOnly));
-            f.write("[motor]\nengine = \"command\"\ncommand = \"sleep 5\"\ncompare = \"command, command\"\n");
+            f.write("[engine]\ndefault = \"command\"\ncommand = \"sleep 5\"\ncompare = \"command, command\"\n");
         }
         ready.clear();
         failed.clear();

@@ -103,15 +103,15 @@ private:
 // Factories; the concrete classes live in their own engine_*.cpp files.
 std::unique_ptr<AiEngine> createVibeEngine(QObject *parent = nullptr);
 std::unique_ptr<AiEngine> createClaudeEngine(QObject *parent = nullptr);
-// One generic local engine ("lokal") speaking Ollama's /api/chat and
+// One generic local engine ("local") speaking Ollama's /api/chat and
 // OpenAI-compatible /v1/chat/completions; endpoint/model/api are the user's
 // choice (config.toml or CLI flags), nothing is hardcoded.
 std::unique_ptr<AiEngine> createLocalEngine(const QString &endpoint, const QString &model,
                                              const QString &api, QObject *parent = nullptr);
 std::unique_ptr<AiEngine> createCommandEngine(const QString &commandLine, QObject *parent = nullptr);
 
-// Creates an engine by id ("vibe", "claude", "lokal", "command") from the app
-// config; modelOverride/endpointOverride (CLI flags) win over config.toml.
+// Creates an engine by id ("vibe", "claude", "local", "command"; "lokal" is
+// the old alias of "local") from the app config; modelOverride/endpointOverride (CLI flags) win over config.toml.
 // Returns nullptr with an error message when the id is unknown or required
 // configuration is missing.
 std::unique_ptr<AiEngine> createEngine(const QString &id, const QString &modelOverride = QString(),

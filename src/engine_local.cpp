@@ -9,10 +9,10 @@
 #include <QNetworkRequest>
 #include <QUrl>
 
-// One generic local engine (id "lokal") that speaks both Ollama's
+// One generic local engine (id "local") that speaks both Ollama's
 // /api/chat and an OpenAI-compatible /v1/chat/completions (llama-server,
 // LM Studio, m.fl.). Endpoint, model and protocol are the user's choice
-// (config.toml [motor.lokal] or CLI flags --endpoint/--model); nothing is
+// (config.toml [engine.local] or CLI flags --endpoint/--model); nothing is
 // hardcoded and no model is bundled. The schema is sent as grammar (Ollama
 // "format", OpenAI response_format json_schema) so small models stay valid.
 // A truncated answer (done_reason/finish_reason "length") is an error and
@@ -28,7 +28,7 @@ public:
     {
     }
 
-    QString id() const override { return QStringLiteral("lokal"); }
+    QString id() const override { return QStringLiteral("local"); }
     QString displayName() const override { return m_model.isEmpty() ? QStringLiteral("Lokal") : QStringLiteral("Lokal (%1)").arg(m_model); }
     QString modelInfo() const override { return m_model; }
 
@@ -46,12 +46,12 @@ protected:
         if (m_model.isEmpty() || m_endpoint.isEmpty()) {
             fail(tr("The local engine needs a model and an endpoint. Example config "
                                 "(~/.config/omaplan/config.toml):\n\n"
-                                "[motor.lokal]\n"
+                                "[engine.local]\n"
                                 "api = \"ollama\"\n"
                                 "endpoint = \"http://127.0.0.1:11434\"\n"
-                                "model = \"dit-valg\"\n\n"
-                                "or on the command line: omaplan add \"...\" --motor lokal "
-                                "--endpoint http://127.0.0.1:11434 --model dit-valg"));
+                                "model = \"your-choice\"\n\n"
+                                "or on the command line: omaplan add \"...\" --engine local "
+                                "--endpoint http://127.0.0.1:11434 --model your-choice"));
             return;
         }
 

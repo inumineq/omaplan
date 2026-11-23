@@ -863,7 +863,7 @@ private slots:
                                .toJson(QJsonDocument::Compact);
         QVERIFY(srv.listen());
         auto engine = createLocalEngine(srv.endpoint(), QStringLiteral("test-model"), QStringLiteral("ollama"));
-        QCOMPARE(engine->id(), QStringLiteral("lokal"));
+        QCOMPARE(engine->id(), QStringLiteral("local"));
         QCOMPARE(engine->modelInfo(), QStringLiteral("test-model"));
         QString why;
         QVERIFY(engine->available(&why)); // no external binary needed
@@ -1016,14 +1016,14 @@ private slots:
         const QString cfg = dir.filePath(QStringLiteral("config.toml"));
         QFile f(cfg);
         QVERIFY(f.open(QIODevice::WriteOnly));
-        f.write(QStringLiteral("[motor]\n"
-                               "engine = \"command\"\n"
+        f.write(QStringLiteral("[engine]\n"
+                               "default = \"command\"\n"
                                "command = \"cat %1\"\n"
                                "\n"
-                               "[motor.lokal]\n"
+                               "[engine.local]\n"
                                "api = \"openai\"\n"
                                "endpoint = \"http://127.0.0.1:9999\"\n"
-                               "model = \"mit-valg\"\n")
+                               "model = \"my-choice\"\n")
                     .arg(fixturesDir() + QStringLiteral("/envelopes/command-valid.json"))
                     .toUtf8());
         f.close();
@@ -1034,15 +1034,21 @@ private slots:
             QVERIFY2(cmd != nullptr, qPrintable(error));
             QCOMPARE(cmd->id(), QStringLiteral("command"));
 
-            auto lokal = createEngine(QStringLiteral("lokal"), {}, {}, &error);
-            QVERIFY2(lokal != nullptr, qPrintable(error));
-            QCOMPARE(lokal->modelInfo(), QStringLiteral("mit-valg"));
+            auto local = createEngine(QStringLiteral("local"), {}, {}, &error);
+            QVERIFY2(local != nullptr, qPrintable(error));
+            QCOMPARE(local->modelInfo(), QStringLiteral("my-choice"));
+            QCOMPARE(local->id(), QStringLiteral("local"));
+
+            // "lokal" is the engine's id from before 0.1.
+            auto alias = createEngine(QStringLiteral("lokal"), {}, {}, &error);
+            QVERIFY2(alias != nullptr, qPrintable(error));
+            QCOMPARE(alias->id(), QStringLiteral("local"));
 
             // CLI overrides win over config.toml.
-            auto overridden = createEngine(QStringLiteral("lokal"), QStringLiteral("andet-valg"),
+            auto overridden = createEngine(QStringLiteral("local"), QStringLiteral("other-choice"),
                                            QStringLiteral("http://127.0.0.1:1"), &error);
             QVERIFY(overridden != nullptr);
-            QCOMPARE(overridden->modelInfo(), QStringLiteral("andet-valg"));
+            QCOMPARE(overridden->modelInfo(), QStringLiteral("other-choice"));
 
             // Unknown id: nullptr + clear error.
             QVERIFY(createEngine(QStringLiteral("nej"), {}, {}, &error) == nullptr);
