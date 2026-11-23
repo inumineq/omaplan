@@ -310,14 +310,37 @@ static const QHash<QString, int> &weekdays() {
     return map;
 }
 
-// Day-of-month inside the month of `base`, clamped to the month's length;
-// rolls into the next month when already past.
-static QDate dayOfMonth(const QDate &base, int day, bool future) {
-    QDate candidate(base.year(), base.month(), 1);
-    candidate = candidate.addDays(qMin(day, candidate.daysInMonth()) - 1);
-    if (future && candidate < base)
-        candidate = QDate(base.year(), base.month(), 1).addMonths(1).addDays(qMin(day, QDate(base.year(), base.month(), 1).addMonths(1).daysInMonth()) - 1);
-    return candidate;
+// First occurrence of `day` (1-31) in `base`'s month or a later one, never
+// before `base`. A day the current month lacks rolls into a later month
+// instead of being clamped into it ("30" in February = March 30).
+static bool dayOfMonthDate(const QDate &base, int day, QDate *out) {
+    if (day < 1 || day > 31)
+        return false;
+    for (int i = 0; i < 12; ++i) {
+        const QDate first = QDate(base.year(), base.month(), 1).addMonths(i);
+        if (day <= first.daysInMonth()) {
+            const QDate candidate = first.addDays(day - 1);
+            if (candidate >= base) {
+                *out = candidate;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+static const QHash<QString, int> &monthNames() {
+    static const QHash<QString, int> map = {
+        {QStringLiteral("januar"), 1}, {QStringLiteral("februar"), 2}, {QStringLiteral("marts"), 3},
+        {QStringLiteral("april"), 4}, {QStringLiteral("maj"), 5}, {QStringLiteral("juni"), 6},
+        {QStringLiteral("juli"), 7}, {QStringLiteral("august"), 8}, {QStringLiteral("september"), 9},
+        {QStringLiteral("oktober"), 10}, {QStringLiteral("november"), 11}, {QStringLiteral("december"), 12},
+        {QStringLiteral("january"), 1}, {QStringLiteral("february"), 2}, {QStringLiteral("march"), 3},
+        {QStringLiteral("april"), 4}, {QStringLiteral("may"), 5}, {QStringLiteral("june"), 6},
+        {QStringLiteral("july"), 7}, {QStringLiteral("august"), 8}, {QStringLiteral("september"), 9},
+        {QStringLiteral("october"), 10}, {QStringLiteral("november"), 11}, {QStringLiteral("december"), 12},
+    };
+    return map;
 }
 
 bool Actions::parseDateTime(const QString &text, const QDate &today, QDateTime *out, bool *hasTime,
@@ -358,20 +381,30 @@ bool Actions::parseDateTime(const QString &text, const QDate &today, QDateTime *
 
     QString rest = trimmed.toLower();
 
-    // Optional trailing time: "kl. 14:30", "kl 9.00", "at 14:30", "14:30".
+    // Optional trailing time: "kl. 14:30", "kl 9", "at 14:30", "14:30",
+    // "fredag 12" (weekday + 0-23 = hour), "i morgen 10". A trailing number
+    // above 23 without minutes is not a time; it stays for the date part
+    // ("25" = the 25th).
     static const QRegularExpression timeRe(
-        QStringLiteral("(?:\\bkl\\.?|\\bat\\b)?\\s*(\\d{1,2})[:.](\\d{2})\\s*$"));
+        QStringLiteral("(?:^|\\s)(?:\\bkl\\.?|\\bat\\b)?\\s*(\\d{1,2})(?:[:.](\\d{2}))?\\s*$"));
     QTime time(0, 0);
     bool withTime = false;
     const auto timeMatch = timeRe.match(rest);
     if (timeMatch.hasMatch()) {
-        time = QTime(timeMatch.captured(1).toInt(), timeMatch.captured(2).toInt());
-        if (!time.isValid()) {
+        const int hour = timeMatch.captured(1).toInt();
+        const int minute = timeMatch.captured(2).isEmpty() ? 0 : timeMatch.captured(2).toInt();
+        if (hour <= 23) {
+            time = QTime(hour, minute);
+            if (!time.isValid()) {
+                if (error) *error = QCoreApplication::translate("Actions", "invalid time: %1").arg(trimmed);
+                return false;
+            }
+            withTime = true;
+            rest = rest.left(timeMatch.capturedStart()).trimmed();
+        } else if (!timeMatch.captured(2).isEmpty() || hour > 31) {
             if (error) *error = QCoreApplication::translate("Actions", "invalid time: %1").arg(trimmed);
             return false;
         }
-        withTime = true;
-        rest = rest.left(timeMatch.capturedStart()).trimmed();
     }
 
     QDate date;
@@ -390,30 +423,84 @@ bool Actions::parseDateTime(const QString &text, const QDate &today, QDateTime *
             strictlyNext = true;
             rest = rest.mid(5).trimmed();
         }
-        int weekday = 0, dayNumber = 0;
-        bool bad = false;
+
+        // Tokens: weekday, "den 12.", "12.", "12/12", "12. december", bare "25".
+        int weekday = 0, day = 0, month = 0;
+        bool hasDen = false, bad = false;
+        static const QRegularExpression dayDot(QStringLiteral("^(\\d{1,2})\\.$"));
+        static const QRegularExpression daySlash(QStringLiteral("^(\\d{1,2})/(\\d{1,2})$"));
+        static const QRegularExpression bareNumber(QStringLiteral("^\\d{1,2}$"));
         const QStringList parts = rest.split(QLatin1Char(' '), Qt::SkipEmptyParts);
         for (const QString &part : parts) {
-            if (weekdays().contains(part))
+            if (weekdays().contains(part)) {
                 weekday = weekdays().value(part);
-            else if (part.contains(QRegularExpression(QStringLiteral("^\\d+$"))))
-                dayNumber = part.toInt();
-            else
+            } else if (part == QLatin1String("den")) {
+                hasDen = true;
+            } else if (auto m = dayDot.match(part); m.hasMatch()) {
+                day = m.captured(1).toInt();
+            } else if (auto m = daySlash.match(part); m.hasMatch()) {
+                day = m.captured(1).toInt();
+                month = m.captured(2).toInt();
+            } else if (monthNames().contains(part)) {
+                month = monthNames().value(part);
+            } else if (bareNumber.match(part).hasMatch()) {
+                day = part.toInt();
+            } else {
                 bad = true;
+            }
         }
-        if (bad || (weekday == 0 && dayNumber == 0)) {
+        if (bad || (weekday == 0 && day == 0)) {
             if (error) *error = QCoreApplication::translate("Actions", "cannot parse date: %1").arg(trimmed);
             return false;
         }
-        if (weekday != 0) {
+        if (weekday != 0 && day != 0 && month == 0 && !hasDen) {
+            // "fredag 25": a number above 23 after a weekday is neither a
+            // time nor a date-of-month form.
+            if (error) *error = QCoreApplication::translate("Actions", "cannot parse date: %1").arg(trimmed);
+            return false;
+        }
+        if (day != 0 && month != 0) {
+            // "12/12" or "12. december": explicit day and month.
+            int year = today.year();
+            QDate candidate(year, month, 1);
+            if (day > candidate.daysInMonth()) {
+                if (error) *error = QCoreApplication::translate("Actions", "invalid date: %1").arg(trimmed);
+                return false;
+            }
+            candidate = candidate.addDays(day - 1);
+            if (candidate < today)
+                candidate = QDate(year + 1, month, 1).addDays(day - 1);
+            date = candidate;
+            if (weekday != 0 && date.dayOfWeek() != weekday) {
+                if (error) *error = QCoreApplication::translate("Actions", "%1 is not a %2")
+                                        .arg(date.toString(Qt::ISODate), weekdays().key(weekday));
+                return false;
+            }
+        } else if (day != 0) {
+            // "den 12.", "12.", bare "25": day of the month, first occurrence
+            // from today on; a day the month lacks rolls to a later month
+            // instead of being clamped.
+            if (!dayOfMonthDate(today, day, &date)) {
+                if (error) *error = QCoreApplication::translate("Actions", "invalid date: %1").arg(trimmed);
+                return false;
+            }
+            if (weekday != 0) {
+                if (!hasDen) {
+                    if (error) *error = QCoreApplication::translate("Actions", "cannot parse date: %1").arg(trimmed);
+                    return false;
+                }
+                if (date.dayOfWeek() != weekday) {
+                    if (error) *error = QCoreApplication::translate("Actions", "%1 is not a %2")
+                                            .arg(date.toString(Qt::ISODate), weekdays().key(weekday));
+                    return false;
+                }
+            }
+        } else {
+            // Weekday only: the next occurrence, today included.
             int delta = (weekday - today.dayOfWeek() + 7) % 7;
             if (strictlyNext && delta == 0)
                 delta = 7;
             date = today.addDays(delta);
-            if (dayNumber != 0)
-                date = dayOfMonth(today, dayNumber, true); // "fredag 12" = the 12th, not the Friday
-        } else {
-            date = dayOfMonth(today, dayNumber, true);
         }
     }
 
