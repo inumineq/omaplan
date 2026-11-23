@@ -27,7 +27,7 @@ bool AiEngine::available(QString *whyNot) const
     if (!QStandardPaths::findExecutable(m_requiredTool).isEmpty())
         return true;
     if (whyNot)
-        *whyNot = QStringLiteral("The '%1' command was not found on PATH. Install it to use the %2 engine.")
+        *whyNot = tr("The '%1' command was not found on PATH. Install it to use the %2 engine.")
                       .arg(m_requiredTool, id());
     return false;
 }
@@ -131,9 +131,9 @@ void AiEngine::onProcessErrorOccurred(QProcess::ProcessError error)
         m_startFailed = true;
         const QString program = m_process ? m_process->program() : QStringLiteral("?");
         const QString hint = m_missingToolHint.isEmpty()
-                                 ? QStringLiteral("The command is not installed or not on PATH.")
+                                 ? tr("The command is not installed or not on PATH.")
                                  : m_missingToolHint;
-        fail(QStringLiteral("Could not start '%1'. %2").arg(program, hint));
+        fail(tr("Could not start '%1'. %2").arg(program, hint));
     }
 }
 
@@ -152,7 +152,7 @@ void AiEngine::onProcessFinished(int exitCode, QProcess::ExitStatus status)
         if (err.contains(QStringLiteral("turn_limit"), Qt::CaseInsensitive))
             err += QStringLiteral("\n") + tr("The engine stopped at its turn limit, often because it tried a tool "
                                             "call; Omaplan runs vibe with tools disabled.");
-        fail(QStringLiteral("Engine '%1' exited with code %2.%3")
+        fail(tr("Engine '%1' exited with code %2.%3")
                  .arg(displayName())
                  .arg(exitCode)
                  .arg(err.isEmpty() ? QString() : QStringLiteral("\n\n") + err));
@@ -165,7 +165,7 @@ void AiEngine::onTimeout()
 {
     if (!m_running)
         return;
-    fail(QStringLiteral("Timeout after %1 s: engine '%2' did not answer.")
+    fail(tr("Timeout after %1 s: engine '%2' did not answer.")
              .arg(m_timeoutMs / 1000.0, 0, 'f', 0)
              .arg(displayName()));
 }
@@ -180,7 +180,7 @@ void AiEngine::finishWithRaw(const QString &rawResponse)
     if (parsed.ok)
         emit finished(parsed.proposal, rawResponse);
     else
-        emit failed(QStringLiteral("Invalid response from engine '%1': %2")
+        emit failed(tr("Invalid response from engine '%1': %2")
                         .arg(displayName(), parsed.error));
 }
 
@@ -210,13 +210,13 @@ std::unique_ptr<AiEngine> createEngine(const QString &id, const QString &modelOv
     if (id == QLatin1String("command")) {
         if (config.command.isEmpty()) {
             if (error)
-                *error = QStringLiteral("Engine 'command' needs a command in ~/.config/omaplan/config.toml: "
+                *error = QObject::tr("Engine 'command' needs a command in ~/.config/omaplan/config.toml: "
                                         "[motor]\ncommand = \"...\"");
             return nullptr;
         }
         return createCommandEngine(config.command);
     }
     if (error)
-        *error = QStringLiteral("Unknown engine '%1'. Choose vibe, claude, lokal or command.").arg(id);
+        *error = QObject::tr("Unknown engine '%1'. Choose vibe, claude, lokal or command.").arg(id);
     return nullptr;
 }
