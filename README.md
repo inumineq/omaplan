@@ -54,6 +54,7 @@ omaplan move <id> "tirsdag kl. 14:00"  ·  omaplan done <id>  ·  omaplan rm <id
 omaplan projects  ·  omaplan summary --uge --json
 omaplan undo --json
 omaplan skill install        # bundtet agent-skill i ~/.claude/skills, ~/.codex/skills, ~/.vibe/skills, ...
+omaplan skill install --force # erstat også tilpassede SKILL.md-filer
 ```
 
 ## Live
@@ -81,7 +82,8 @@ gemmer med det samme og er kun til, når brugeren har bedt om det.
 
 `omaplan skill install` lægger den bundtede skill (`src/skill/SKILL.md`) i de agent-mapper, der findes
 (`~/.claude/skills`, `~/.codex/skills`, `~/.vibe/skills`, `~/.config/opencode/skills`), så agenter ved, hvornår de
-skal bruge Omaplan. `omaplan skill uninstall` fjerner den igen.
+skal bruge Omaplan. En eksisterende tilpasset `SKILL.md` bevares med en konfliktbesked; brug
+`omaplan skill install --force` for at erstatte den. `omaplan skill uninstall` fjerner den igen.
 
 ## AI-motorer
 

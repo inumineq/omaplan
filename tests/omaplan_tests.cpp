@@ -1625,6 +1625,41 @@ private slots:
         QCOMPARE(model.data(model.index(0, 0), PlanModel::TitleRole).toString(), QStringLiteral("Fra CLI"));
     }
 
+    void cliCommandsRunHeadlessWithGtkPlatformTheme()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString db = dir.filePath(QStringLiteral("plan.db"));
+        const QString binary = QCoreApplication::applicationDirPath() + QStringLiteral("/../omaplan");
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        env.insert(QStringLiteral("QT_QPA_PLATFORMTHEME"), QStringLiteral("gtk3"));
+        env.remove(QStringLiteral("DISPLAY"));
+        env.remove(QStringLiteral("WAYLAND_DISPLAY"));
+        env.insert(QStringLiteral("OMAPLAN_DB"), db);
+
+        QProcess list;
+        list.setProcessEnvironment(env);
+        list.start(binary, {QStringLiteral("list"), QStringLiteral("--json")});
+        QVERIFY(list.waitForStarted(5000));
+        QVERIFY(list.waitForFinished(10000));
+        QCOMPARE(list.exitStatus(), QProcess::NormalExit);
+        QCOMPARE(list.exitCode(), 0);
+        QVERIFY(QJsonDocument::fromJson(list.readAllStandardOutput()).isObject());
+
+        QProcess mcp;
+        mcp.setProcessEnvironment(env);
+        mcp.start(binary, {QStringLiteral("mcp")});
+        QVERIFY(mcp.waitForStarted(5000));
+        mcp.write("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2024-11-05\"}}\n");
+        mcp.closeWriteChannel();
+        QVERIFY(mcp.waitForFinished(10000));
+        QCOMPARE(mcp.exitStatus(), QProcess::NormalExit);
+        QCOMPARE(mcp.exitCode(), 0);
+        const QJsonObject response = QJsonDocument::fromJson(mcp.readAllStandardOutput().split('\n').first()).object();
+        QCOMPARE(response.value(QStringLiteral("id")).toInt(), 1);
+        QVERIFY(response.value(QStringLiteral("result")).isObject());
+    }
+
     void skillInstallUninstallInTempHome()
     {
         QTemporaryDir homeDir;
@@ -1657,6 +1692,31 @@ private slots:
         QCOMPARE(again.installed.size(), 0);
         QCOMPARE(again.alreadyThere.size(), 2);
 
+        // Customized skill files survive an ordinary install and require --force.
+        const QString customizedPath = home + QStringLiteral("/.claude/skills/omaplan/SKILL.md");
+        QFile customized(customizedPath);
+        QVERIFY(customized.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        customized.write("customized skill\n");
+        customized.close();
+        const Skill::Result conflict = Skill::install(home);
+        QVERIFY(!conflict.ok);
+        QCOMPARE(conflict.conflicts.size(), 1);
+        QVERIFY(conflict.error.contains(QStringLiteral("--force")));
+        QVERIFY(customized.open(QIODevice::ReadOnly));
+        QCOMPARE(customized.readAll(), QByteArray("customized skill\n"));
+        customized.close();
+        QString cliOut, cliErr;
+        Store cliStore(homeDir.filePath(QStringLiteral("skill-cli.db")));
+        QCOMPARE(cli(cliStore, {QStringLiteral("skill"), QStringLiteral("install")}, &cliOut, &cliErr), 1);
+        QVERIFY(cliErr.contains(QStringLiteral("--force")));
+        QCOMPARE(cli(cliStore, {QStringLiteral("skill"), QStringLiteral("install"), QStringLiteral("--force")},
+                     &cliOut, &cliErr), 0);
+        const Skill::Result forced = Skill::install(home, true);
+        QVERIFY2(forced.ok, qPrintable(forced.error));
+        QVERIFY(customized.open(QIODevice::ReadOnly));
+        QCOMPARE(customized.readAll(), Skill::markdown().toUtf8());
+        customized.close();
+
         // Uninstall removes the files and the now-empty skill dirs.
         const Skill::Result un = Skill::uninstall(home);
         QVERIFY(un.ok);
@@ -1687,7 +1747,6 @@ private slots:
         // Through the CLI with the overridden HOME: --json and exit codes.
         Store store(homeDir.filePath(QStringLiteral("cli.db")));
         QString out, err;
-        int code = 0;
         QCOMPARE(cli(store, {QStringLiteral("skill"), QStringLiteral("install"), QStringLiteral("--json")}, &out, &err), 0);
         const QJsonObject obj = QJsonDocument::fromJson(out.toUtf8()).object();
         QCOMPARE(obj.value(QStringLiteral("ok")).toBool(), true);

@@ -1,6 +1,7 @@
 // Omaplan — plan your tasks with AI: write them in plain text, and see the
 // plan as overview, calendar, list or timeline.
 
+#include <QCoreApplication>
 #include <QGuiApplication>
 #include <QIcon>
 #include <QQmlApplicationEngine>
@@ -29,8 +30,15 @@ int main(int argc, char *argv[]) {
     // Everything except `open` (and no arguments) is a CLI command, which runs
     // without a display.
     const bool gui = args.isEmpty() || args.first() == QLatin1String("open");
-    if (!gui)
-        qputenv("QT_QPA_PLATFORM", "offscreen");
+    if (!gui) {
+        QCoreApplication app(argc, argv);
+        app.setApplicationName("omaplan");
+        app.setApplicationVersion("0.1.0");
+        Store store(dbPath);
+        QTextStream out(stdout);
+        QTextStream err(stderr);
+        return runCli(args, &store, out, err);
+    }
 
     QGuiApplication app(argc, argv);
     app.setApplicationName("omaplan");
@@ -47,13 +55,6 @@ int main(int argc, char *argv[]) {
     // re-evaluated when the Omarchy language changes.
     Translator translator;
     app.installTranslator(&translator);
-
-    if (!gui) {
-        Store store(dbPath);
-        QTextStream out(stdout);
-        QTextStream err(stderr);
-        return runCli(args, &store, out, err);
-    }
 
     registerQmlTypes();
 

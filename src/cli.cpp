@@ -36,7 +36,7 @@ static void printHelp(QTextStream &out) {
         "  projects\n"
         "  summary [--uge|--maaned]\n"
         "  add <text> [--motor ...] [--ja] [--model M] [--endpoint URL]   AI proposal; --ja stores it\n"
-        "  skill install|uninstall   install/remove the bundled agent skill\n"
+        "  skill install [--force]|uninstall   install/remove the bundled agent skill\n"
         "  mcp                   MCP server over stdio (claude mcp add omaplan -- omaplan mcp)\n"
         "  snapshot | serve ...  (not implemented yet)\n"
         "\n"
@@ -49,7 +49,8 @@ static void printHelp(QTextStream &out) {
         "  omaplan list --fra \"i dag\" --til \"næste fredag\" --json\n"
         "  omaplan move <id> \"tirsdag kl. 14:00\"\n"
         "  omaplan done <id>\n"
-        "  omaplan undo --json\n");
+        "  omaplan undo --json\n"
+        "  omaplan skill install --force   replace customized skill files\n");
 }
 
 // Splits "--flag value" pairs from positional arguments. A flag at the end, or
@@ -115,11 +116,11 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
     // Agent skill: no database needed, works off the home directory.
     if (command == QLatin1String("skill")) {
         QStringList positional;
-        parseFlags(rest, &positional);
+        const auto flags = parseFlags(rest, &positional);
         const QString sub = positional.isEmpty() ? QString() : positional.first();
         if (sub == QLatin1String("install") || sub == QLatin1String("uninstall")) {
             const Skill::Result r = sub == QLatin1String("install")
-                                        ? Skill::install(QDir::homePath())
+                                        ? Skill::install(QDir::homePath(), flags.contains(QStringLiteral("force")))
                                         : Skill::uninstall(QDir::homePath());
             if (json) {
                 QJsonObject obj;
@@ -133,6 +134,7 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
                 obj.insert(QStringLiteral("installed"), toArray(r.installed));
                 obj.insert(QStringLiteral("removed"), toArray(r.removed));
                 obj.insert(QStringLiteral("already_there"), toArray(r.alreadyThere));
+                obj.insert(QStringLiteral("conflicts"), toArray(r.conflicts));
                 if (!r.error.isEmpty())
                     obj.insert(QStringLiteral("error"), r.error);
                 printJson(out, obj);
@@ -143,12 +145,14 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
                     out << QObject::tr("Removed skill from %1").arg(dir) << "\n";
                 for (const QString &dir : r.alreadyThere)
                     out << QObject::tr("Skill already present in %1").arg(dir) << "\n";
+                for (const QString &path : r.conflicts)
+                    err << QObject::tr("Customized skill preserved in %1; use --force to replace it").arg(path) << "\n";
                 if (!r.error.isEmpty())
                     err << r.error << "\n";
             }
             return r.ok ? 0 : 1;
         }
-        err << QObject::tr("Usage: omaplan skill install|uninstall [--json]") << "\n";
+        err << QObject::tr("Usage: omaplan skill install [--force]|uninstall [--json]") << "\n";
         return 1;
     }
 
