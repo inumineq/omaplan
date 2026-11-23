@@ -32,7 +32,7 @@ Felterne følger opgavemodellen i SPEC.md. JSON-nøglerne er ASCII-versioner af 
 | `projekt` | projekt | tekst, valgfri | fx `"Blog"`, `"Kunde A"` |
 | `prioritet` | prioritet | 1–3 | 1 = høj |
 | `status` | status | `"todo"` / `"done"` | |
-| `start` | start | `"YYYY-MM-DD"` eller `"YYYY-MM-DDTHH:MM"` | lokal tid, **uden offset** |
+| `start` | start | valgfri: `"YYYY-MM-DD"`, `"YYYY-MM-DDTHH:MM"` eller `null` | lokal tid, **uden offset**. `null`/udeladt = ikke planlagt ("Uden dato") |
 | `varighed_min` | varighed | minutter, valgfri | heldagsopgave hvis tom og start uden tid |
 | `frist` | frist | dato eller dato+tid, valgfri | lokal tid uden offset, adskilt fra start |
 | `gaet` | gæt | array af `start`, `varighed_min`, `frist`, `projekt`, `prioritet` | hvilke felter AI'en har gættet |
@@ -49,10 +49,13 @@ Felterne følger opgavemodellen i SPEC.md. JSON-nøglerne er ASCII-versioner af 
 
 ### Semantik som visningerne bruger
 
-- **Forfalden**: `status == "todo"` og (`start`-dato eller `frist`-dato, hvad der kommer først) ligger før i dag.
+- **Ikke planlagt**: `start` er `null` eller udeladt. Sådan en opgave ligger i gruppen **Uden dato** (sidst) i
+  listen efter dato, og den vises **ikke** i overblik eller tidslinje (en frist vises stadig som mærke i tidslinjen).
+- **Forfalden**: `status == "todo"`, opgaven har en dato, og tidligste af `start`/`frist` ligger før i dag.
 - **Heldagsopgave**: `start` uden tid og uden `varighed_min`.
 - **Overblik** viser i dag + de næste 7 dage (8 datoer) plus forfaldne opgaver øverst.
-- **Tidslinje** dækker alle datoer fra tidligste `start`/`frist` til seneste.
+- **Tidslinje** dækker alle datoer fra tidligste `start`/`frist` til seneste. Tidsaksen går over et vindue ud fra
+  data: tidligste start til seneste slut (af opgaver med tidspunkt) afrundet til hele timer, mindst 08–18.
 - Sortering inden for en dag: opgaver med tid først (efter tidspunkt), så heldagsopgaver, så prioritet, så titel.
 
 ## Markup-kontrakten (hvordan `serve` skriver HTML)

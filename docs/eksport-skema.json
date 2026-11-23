@@ -31,7 +31,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "titel", "prioritet", "status", "start", "gaet", "kilde", "oprettet", "aendret"],
+        "required": ["id", "titel", "prioritet", "status", "gaet", "kilde", "oprettet", "aendret"],
         "additionalProperties": false,
         "properties": {
           "id": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
@@ -40,7 +40,7 @@
           "projekt": {"type": "string", "maxLength": 100},
           "prioritet": {"type": "integer", "minimum": 1, "maximum": 3, "description": "1 = høj"},
           "status": {"enum": ["todo", "done"]},
-          "start": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2})?$", "description": "ISO 8601 dato (YYYY-MM-DD) eller dato+tid (YYYY-MM-DDTHH:MM), lokal tid uden offset"},
+          "start": {"type": ["string", "null"], "pattern": "^\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2})?$", "description": "Valgfri. ISO 8601 dato (YYYY-MM-DD) eller dato+tid (YYYY-MM-DDTHH:MM), lokal tid uden offset. null eller udeladt = ikke planlagt (gruppen Uden dato)"},
           "varighed_min": {"type": "integer", "minimum": 1, "description": "Varighed i minutter; tom hvis opgaven er heldag eller kun har frist"},
           "frist": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2})?$", "description": "ISO 8601 dato eller dato+tid, lokal tid uden offset; adskilt fra start"},
           "gaet": {"type": "array", "items": {"enum": ["start", "varighed_min", "frist", "projekt", "prioritet"]}},
