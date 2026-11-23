@@ -86,6 +86,12 @@ int main(int argc, char *argv[]) {
     // plan.json for the read-only edition: written now, so it exists from the
     // first start, and again after every change made in the window.
     Snapshotter snapshotter(&store, Snapshot::path(store.path()));
+    snapshotter.setLanguage(uiLanguage.language());
+    QObject::connect(&uiLanguage, &UiLanguage::changed, &snapshotter, [&] {
+        snapshotter.setLanguage(uiLanguage.language());
+        if (storeOpen)
+            snapshotter.write();
+    });
     if (storeOpen)
         snapshotter.write();
     PlanModel planModel(&store);

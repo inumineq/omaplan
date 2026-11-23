@@ -17,6 +17,7 @@
 #include "skill.h"
 #include "store.h"
 #include "task.h"
+#include "uilanguage.h"
 
 static void printJson(QTextStream &out, const QJsonObject &object) {
     out << QString::fromUtf8(QJsonDocument(object).toJson(QJsonDocument::Compact)) << "\n";
@@ -183,6 +184,8 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
         QStringList positional;
         const auto flags = parseFlags(rest, &positional);
         PlanServer::Options options;
+        // Visitors get their browser's language; this is the fallback.
+        options.language = UiLanguage::current();
         options.snapshotPath = flags.contains(QStringLiteral("snapshot")) ? flags.value(QStringLiteral("snapshot"))
                                                                           : Snapshot::path(store->path());
         if (flags.contains(QStringLiteral("port"))) {
@@ -226,6 +229,7 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
     const QString source = QStringLiteral("cli");
     // plan.json follows every change made here (CLI and MCP alike).
     Snapshotter snapshotter(store, Snapshot::path(store->path()));
+    snapshotter.setLanguage(UiLanguage::current());
 
     if (command == QLatin1String("snapshot")) {
         QStringList positional;
@@ -235,7 +239,7 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
             err << QObject::tr("No snapshot path") << "\n";
             return 1;
         }
-        if (!Snapshot::write(store, path, &error)) {
+        if (!Snapshot::write(store, path, &error, UiLanguage::current())) {
             err << error << "\n";
             return 1;
         }
