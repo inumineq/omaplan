@@ -7,3 +7,6 @@ Makefile
 pkgbuild/pkg/
 pkgbuild/src/
 *.pkg.tar.zst
+tests/unit/ai-unit-tests
+tests/ai/ai-eval
+*.moc
