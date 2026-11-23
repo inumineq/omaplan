@@ -58,7 +58,7 @@ static void printHelp(QTextStream &out) {
         "  omaplan skill install --force   replace customized skill files\n");
 }
 
-// The flag names from before 0.1, still accepted so habits and older skill
+// The flag names of 0.1, still accepted so habits and older skill
 // files keep working. They are not in --help.
 static const QHash<QString, QString> &legacyFlags() {
     static const QHash<QString, QString> names = [] {

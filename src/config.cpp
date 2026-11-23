@@ -42,7 +42,7 @@ AppConfig AppConfig::load(const QString &path) {
             value = value.left(value.indexOf(QLatin1Char('#'))).trimmed();
         }
 
-        // Engine ids from before 0.1: "lokal" is now "local".
+        // Engine ids of 0.1: "lokal" is now "local".
         const auto engineId = [](const QString &id) {
             return id == QLatin1String("lokal") ? QStringLiteral("local") : id;
         };

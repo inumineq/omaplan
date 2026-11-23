@@ -67,7 +67,7 @@ omaplan serve                 # the read-only edition at http://127.0.0.1:8787/
 ```
 
 Global options: `--db <path>` uses another database, `--lang da|en` picks the interface language (see
-[Language](#language)). The Danish flags from before 0.1 (`--titel`, `--frist`, `--ja`, ...) still work as hidden
+[Language](#language)). The Danish flags of 0.1 (`--titel`, `--frist`, `--ja`, ...) still work as hidden
 aliases for backward compatibility.
 
 ## Live
@@ -168,7 +168,7 @@ endpoint = "http://127.0.0.1:11434"
 model = "your-choice"      # free choice -- nothing is hardcoded or built in
 ```
 
-The section and key names from before 0.1 (`[motor]`, `engine = ...`, `[motor.lokal]`, the engine id `lokal`) are
+The section and key names of 0.1 (`[motor]`, `engine = ...`, `[motor.lokal]`, the engine id `lokal`) are
 still read.
 
 `--engine`, `--model` and `--endpoint` on the command line win over the config. If there is neither a model nor an

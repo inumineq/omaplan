@@ -423,7 +423,7 @@ ActionResult Actions::propose(const QString &rawText, const QString &engineChoic
 ActionResult Actions::approve(const QJsonObject &proposalJson, const QString &captureId, const QString &source) {
     // Build and validate every task before writing any, so a bad field in
     // the third task never leaves the first two stored on their own.
-    // A proposal saved before 0.1 may still carry the Danish keys.
+    // A proposal saved in 0.1 may still carry the Danish keys.
     const QJsonArray tasks = withEnglishKeys(proposalJson).value(QStringLiteral("tasks")).toArray();
     const QDate today = QDateTime::currentDateTime().date();
     QList<Task> built;

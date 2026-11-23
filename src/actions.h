@@ -62,7 +62,7 @@ public:
     // start, duration, deadline, status), as text: dates take everything
     // parseDateTime accepts, an empty value clears a field. Shared by the
     // CLI, the MCP server and the window, so all accept exactly the same
-    // input. The Danish names from before 0.1 (titel, noter, projekt,
+    // input. The Danish names of 0.1 (titel, noter, projekt,
     // prioritet, varighed, frist) are accepted as aliases.
     using Fields = QHash<QString, QString>;
     static const QHash<QString, QString> &legacyFieldNames();

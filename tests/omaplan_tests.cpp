@@ -1569,7 +1569,7 @@ private slots:
 
     void cliAcceptsTheDanishFlagsAsHiddenAliases()
     {
-        // The flags from before 0.1 keep working (habits, older skill files),
+        // The flags of 0.1 keep working (habits, older skill files),
         // but --help shows only the English ones.
         QTemporaryDir dir;
         Store store(dir.filePath("cli.db"));
@@ -1782,7 +1782,7 @@ private slots:
         QVERIFY(none.language.isEmpty());
     }
 
-    void configReadsTheNamesFromBeforeZeroPointOne()
+    void configReadsTheNamesFromOfZeroPointOne()
     {
         QTemporaryDir dir;
         const QString path = dir.filePath("config.toml");

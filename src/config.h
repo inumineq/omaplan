@@ -21,7 +21,7 @@
 //   [snapshot]
 //   path = "~/Sync/omaplan/plan.json"  # plan.json for the read-only edition (default: next to the database)
 //
-// The names from before 0.1 are read as aliases: [motor] for [engine], its
+// The names of 0.1 are read as aliases: [motor] for [engine], its
 // key `engine` for `default`, [motor.lokal] for [engine.local] and the engine
 // id "lokal" for "local".
 struct AppConfig {

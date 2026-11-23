@@ -144,7 +144,7 @@ static void validate(const QJsonValue &value, const QJsonValue &schemaValue,
 }
 
 // ---------------------------------------------------------------------------
-// The Danish keys of the schema before 0.1, mapped to the English ones.
+// The Danish keys of the schema in 0.1, mapped to the English ones.
 // ---------------------------------------------------------------------------
 
 static QJsonObject renameKeys(const QJsonObject &obj, const QHash<QString, QString> &names)

@@ -1039,7 +1039,7 @@ private slots:
             QCOMPARE(local->modelInfo(), QStringLiteral("my-choice"));
             QCOMPARE(local->id(), QStringLiteral("local"));
 
-            // "lokal" is the engine's id from before 0.1.
+            // "lokal" is the engine's id of 0.1.
             auto alias = createEngine(QStringLiteral("lokal"), {}, {}, &error);
             QVERIFY2(alias != nullptr, qPrintable(error));
             QCOMPARE(alias->id(), QStringLiteral("local"));

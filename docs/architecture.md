@@ -10,7 +10,7 @@ shape, theme, language and conventions. This document only describes what is par
 |---|---|
 | `main.cpp` | setup; chooses CLI or GUI (`open`); global `--db` and `--lang`; gives C++ objects to QML |
 | `actions.{h,cpp}` | every action (create, edit, move, finish, delete, undo, list, summarize) in one place; CLI, MCP and QML only call through here; also the date parser (`parseDateTime`) |
-| `cli.{h,cpp}` | the command line over `actions`, like Hype's `cli.cpp`; English flags, the Danish ones from before 0.1 as hidden aliases |
+| `cli.{h,cpp}` | the command line over `actions`, like Hype's `cli.cpp`; English flags, the Danish ones of 0.1 as hidden aliases |
 | `mcp.{h,cpp}` | `omaplan mcp`: MCP over stdio (JSON-RPC), tools = `actions` |
 | `skill.{h,cpp}` + `skill/SKILL.md` | bundled agent skill and `skill install/uninstall` |
 | `config.{h,cpp}` | `~/.config/omaplan/config.toml`, parsed by hand (no TOML dependency); old Danish section names as aliases |
