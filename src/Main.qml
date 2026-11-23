@@ -150,7 +150,7 @@ ApplicationWindow {
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.bottomMargin: 16
             visible: win.liveNotice !== ""
-            color: "#161618"
+            color: Material.background
             border.color: theme.accent
             border.width: 1
             radius: Math.min(6, theme.radius)

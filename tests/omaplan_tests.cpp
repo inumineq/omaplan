@@ -1051,11 +1051,23 @@ private slots:
         // Idempotent.
         QVERIFY(Skill::uninstall(home).ok);
 
+        // The agent home exists but skills/ does not: install creates it.
+        QTemporaryDir baseOnlyHome;
+        QVERIFY(QDir().mkpath(baseOnlyHome.path() + QStringLiteral("/.config/opencode")));
+        const Skill::Result created = Skill::install(baseOnlyHome.path());
+        QVERIFY2(created.ok, qPrintable(created.error));
+        QCOMPARE(created.installed.size(), 1);
+        QVERIFY(QFile::exists(baseOnlyHome.path()
+                              + QStringLiteral("/.config/opencode/skills/omaplan/SKILL.md")));
+        QVERIFY(Skill::uninstall(baseOnlyHome.path()).ok);
+        QVERIFY(!QFile::exists(baseOnlyHome.path()
+                              + QStringLiteral("/.config/opencode/skills/omaplan/SKILL.md")));
+
         // No agent dirs at all: clear error, not ok.
         QTemporaryDir emptyHome;
         const Skill::Result none = Skill::install(emptyHome.path());
         QVERIFY(!none.ok);
-        QVERIFY(none.error.contains(QStringLiteral("~/.claude/skills")));
+        QVERIFY(none.error.contains(QStringLiteral("~/.claude")));
 
         // Through the CLI with the overridden HOME: --json and exit codes.
         Store store(homeDir.filePath(QStringLiteral("cli.db")));

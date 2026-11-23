@@ -5,10 +5,11 @@
 
 // The bundled agent skill (src/skill/SKILL.md, embedded as :/skill/SKILL.md)
 // plus `omaplan skill install/uninstall`: the skill is copied into every
-// agent directory that exists under the user's home (~/.claude/skills,
-// ~/.codex/skills, ~/.vibe/skills, ~/.config/opencode/skills), as
-// <root>/omaplan/SKILL.md. Writes are atomic (temp file + rename).
-// `home` defaults to QDir::homePath(), so HOME can be overridden in tests.
+// agent's home directory that exists under the user's home (~/.claude,
+// ~/.codex, ~/.vibe, ~/.config/opencode), as <home>/<base>/skills/omaplan/
+// SKILL.md — the skills/ subdir is created when missing. Writes are atomic
+// (temp file + rename). `home` defaults to QDir::homePath(), so HOME can be
+// overridden in tests.
 namespace Skill {
 
 struct Result {
@@ -22,7 +23,10 @@ struct Result {
 QString name();       // "omaplan"
 QString markdown();   // the bundled SKILL.md text
 
-// Existing candidate roots under `home` (only dirs that exist are returned).
+// Agent home dirs that exist under `home` (~/.claude, ~/.codex, ~/.vibe,
+// ~/.config/opencode) — install creates their skills/ subdir when missing.
+QStringList candidateBases(const QString &home);
+// Existing <base>/skills roots under `home` (used by uninstall).
 QStringList candidateRoots(const QString &home);
 
 Result install(const QString &home);

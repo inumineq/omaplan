@@ -20,19 +20,33 @@ QString markdown()
     return QString::fromUtf8(f.readAll());
 }
 
-QStringList candidateRoots(const QString &home)
+static QStringList baseNames()
+{
+    return {QStringLiteral(".claude"), QStringLiteral(".codex"), QStringLiteral(".vibe"),
+            QStringLiteral(".config/opencode")};
+}
+
+QStringList candidateBases(const QString &home)
 {
     const QDir dir(home);
-    const QStringList candidates = {
-        dir.filePath(QStringLiteral(".claude/skills")),
-        dir.filePath(QStringLiteral(".codex/skills")),
-        dir.filePath(QStringLiteral(".vibe/skills")),
-        dir.filePath(QStringLiteral(".config/opencode/skills")),
-    };
     QStringList existing;
-    for (const QString &c : candidates) {
-        if (QDir(c).exists())
-            existing.append(c);
+    for (const QString &base : baseNames()) {
+        if (dir.exists(base))
+            existing.append(dir.filePath(base));
+    }
+    return existing;
+}
+
+QStringList candidateRoots(const QString &home)
+{
+    QStringList roots;
+    for (const QString &base : candidateBases(home))
+        roots.append(QDir(base).filePath(QStringLiteral("skills")));
+    // Only roots that actually exist (uninstall must not create anything).
+    QStringList existing;
+    for (const QString &r : roots) {
+        if (QDir(r).exists())
+            existing.append(r);
     }
     return existing;
 }
@@ -50,13 +64,16 @@ Result install(const QString &home)
         r.error = QStringLiteral("The bundled skill (:/skill/SKILL.md) is missing from the binary.");
         return r;
     }
-    const QStringList roots = candidateRoots(home);
-    if (roots.isEmpty()) {
-        r.error = QStringLiteral("No agent skill directories found (looked in ~/.claude/skills, "
-                                 "~/.codex/skills, ~/.vibe/skills, ~/.config/opencode/skills).");
+    // Install into every agent home dir that exists; create its skills/
+    // subdir when missing (e.g. ~/.claude exists but ~/.claude/skills does not).
+    const QStringList bases = candidateBases(home);
+    if (bases.isEmpty()) {
+        r.error = QStringLiteral("No agent directories found (looked in ~/.claude, ~/.codex, "
+                                 "~/.vibe, ~/.config/opencode).");
         return r;
     }
-    for (const QString &root : roots) {
+    for (const QString &base : bases) {
+        const QString root = QDir(base).filePath(QStringLiteral("skills"));
         const QString target = skillFilePath(root);
         QFile existing(target);
         if (existing.exists() && existing.open(QIODevice::ReadOnly) && existing.readAll() == md.toUtf8()) {
