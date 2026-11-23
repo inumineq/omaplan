@@ -1,6 +1,7 @@
 #include "cli.h"
 
 #include <QDate>
+#include <QDir>
 #include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -8,6 +9,7 @@
 #include <QTextStream>
 
 #include "actions.h"
+#include "skill.h"
 #include "store.h"
 #include "task.h"
 
@@ -32,7 +34,8 @@ static void printHelp(QTextStream &out) {
         "  projects\n"
         "  summary [--uge|--maaned]\n"
         "  add <text> [--motor ...] [--ja] [--model M] [--endpoint URL]   AI proposal; --ja stores it\n"
-        "  snapshot | serve | mcp | skill ...   (not implemented yet)\n"
+        "  skill install|uninstall   install/remove the bundled agent skill\n"
+        "  snapshot | serve | mcp ...   (not implemented yet)\n"
         "\n"
         "Dates accept ISO (2026-12-01, 2026-12-01 14:30) and Danish/English expressions\n"
         "(\"i morgen\", \"fredag 12\", \"tomorrow\", \"next monday\", optional \"kl. 14:30\").\n"
@@ -144,9 +147,49 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
 
     const QString command = rest.takeFirst();
 
+    // Agent skill: no database needed, works off the home directory.
+    if (command == QLatin1String("skill")) {
+        QStringList positional;
+        parseFlags(rest, &positional);
+        const QString sub = positional.isEmpty() ? QString() : positional.first();
+        if (sub == QLatin1String("install") || sub == QLatin1String("uninstall")) {
+            const Skill::Result r = sub == QLatin1String("install")
+                                        ? Skill::install(QDir::homePath())
+                                        : Skill::uninstall(QDir::homePath());
+            if (json) {
+                QJsonObject obj;
+                obj.insert(QStringLiteral("ok"), r.ok);
+                auto toArray = [](const QStringList &l) {
+                    QJsonArray a;
+                    for (const QString &s : l)
+                        a.append(s);
+                    return a;
+                };
+                obj.insert(QStringLiteral("installed"), toArray(r.installed));
+                obj.insert(QStringLiteral("removed"), toArray(r.removed));
+                obj.insert(QStringLiteral("already_there"), toArray(r.alreadyThere));
+                if (!r.error.isEmpty())
+                    obj.insert(QStringLiteral("error"), r.error);
+                printJson(out, obj);
+            } else {
+                for (const QString &dir : r.installed)
+                    out << QObject::tr("Installed skill in %1").arg(dir) << "\n";
+                for (const QString &dir : r.removed)
+                    out << QObject::tr("Removed skill from %1").arg(dir) << "\n";
+                for (const QString &dir : r.alreadyThere)
+                    out << QObject::tr("Skill already present in %1").arg(dir) << "\n";
+                if (!r.error.isEmpty())
+                    err << r.error << "\n";
+            }
+            return r.ok ? 0 : 1;
+        }
+        err << QObject::tr("Usage: omaplan skill install|uninstall [--json]") << "\n";
+        return 1;
+    }
+
     // Later phases; they answer "not implemented yet" with exit 1.
     if (command == QLatin1String("snapshot") || command == QLatin1String("serve")
-        || command == QLatin1String("mcp") || command == QLatin1String("skill")) {
+        || command == QLatin1String("mcp")) {
         err << QObject::tr("Not implemented yet: %1").arg(command) << "\n";
         return 1;
     }

@@ -14,6 +14,7 @@ HEADERS += \
     src/planmodel.h \
     src/config.h \
     src/dateannotate.h \
+    src/skill.h \
     src/engine.h \
     src/prompt.h \
     src/proposal.h
@@ -29,6 +30,7 @@ SOURCES += \
     src/planmodel.cpp \
     src/config.cpp \
     src/dateannotate.cpp \
+    src/skill.cpp \
     src/engine.cpp \
     src/engine_vibe.cpp \
     src/engine_claude.cpp \
@@ -37,4 +39,4 @@ SOURCES += \
     src/prompt.cpp \
     src/proposal.cpp
 
-RESOURCES += src/resources.qrc src/ai-skema.qrc
+RESOURCES += src/resources.qrc src/ai-skema.qrc src/skill.qrc

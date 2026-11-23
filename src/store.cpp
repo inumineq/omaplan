@@ -79,6 +79,20 @@ int Store::schemaVersion() const {
     return -1;
 }
 
+int Store::dataVersion(bool *ok) const {
+    if (!m_db.isOpen()) {
+        if (ok) *ok = false;
+        return -1;
+    }
+    QSqlQuery query(m_db);
+    if (!query.exec(QStringLiteral("PRAGMA data_version")) || !query.next()) {
+        if (ok) *ok = false;
+        return -1;
+    }
+    if (ok) *ok = true;
+    return query.value(0).toInt();
+}
+
 bool Store::migrate(QString *error) {
     int version = schemaVersion();
     if (version > kSchemaVersion) {

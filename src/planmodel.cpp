@@ -1,5 +1,7 @@
 #include "planmodel.h"
 
+#include <QTimer>
+
 PlanModel::PlanModel(Store *store, QObject *parent)
     : QAbstractListModel(parent), m_store(store) {
 }
@@ -10,6 +12,35 @@ void PlanModel::reload() {
     m_tasks = m_store->tasks(&error);
     endResetModel();
     emit countChanged();
+}
+
+void PlanModel::startLivePolling(int intervalMs) {
+    if (!m_liveTimer) {
+        m_liveTimer = new QTimer(this);
+        m_liveTimer->setInterval(intervalMs);
+        connect(m_liveTimer, &QTimer::timeout, this, &PlanModel::pollExternalChanges);
+    }
+    bool ok = false;
+    m_lastDataVersion = m_store->dataVersion(&ok);
+    if (!ok)
+        m_lastDataVersion = -1;
+    m_liveTimer->start();
+}
+
+void PlanModel::pollExternalChanges() {
+    bool ok = false;
+    const int version = m_store->dataVersion(&ok);
+    if (!ok || version == m_lastDataVersion)
+        return; // nothing new from other processes (own writes come via planChanged)
+    m_lastDataVersion = version;
+    reload();
+    // Name the source of the newest change ("fra CLI" in the GUI).
+    QString error;
+    Store::Change change;
+    QString source;
+    if (m_store->lastChange(&change, &error))
+        source = change.source;
+    emit externalChange(source);
 }
 
 int PlanModel::rowCount(const QModelIndex &parent) const {

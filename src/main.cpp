@@ -71,6 +71,8 @@ int main(int argc, char *argv[]) {
     PlanModel planModel(&store);
     QObject::connect(&actions, &Actions::planChanged, &planModel, &PlanModel::reload);
     planModel.reload();
+    // Live: reload when another process (CLI, agent) commits to the database.
+    planModel.startLivePolling(500);
 
     QQmlApplicationEngine engine;
     QObject::connect(&translator, &Translator::changed, &engine, &QQmlEngine::retranslate);

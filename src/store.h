@@ -29,6 +29,10 @@ public:
     void close();
     bool isOpen() const { return m_db.isOpen(); }
     int schemaVersion() const;
+    // PRAGMA data_version: the value changes only when ANOTHER connection
+    // commits — own writes leave it alone. That is exactly what the GUI's
+    // live polling needs to detect changes from CLI/agent processes.
+    int dataVersion(bool *ok = nullptr) const;
     // Read-only handle for tests that inspect the schema directly.
     QSqlDatabase database() const { return m_db; }
 

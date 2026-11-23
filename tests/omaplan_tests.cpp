@@ -12,6 +12,7 @@
 #include "cli.h"
 #include "dateannotate.h"
 #include "planmodel.h"
+#include "skill.h"
 #include "store.h"
 #include "task.h"
 
@@ -684,7 +685,7 @@ private slots:
         QCOMPARE(cli(store, {QStringLiteral("new"), QStringLiteral("--titel"), QStringLiteral("X"), QStringLiteral("--start"), QStringLiteral("bogus")}, &out, &err), 1);
 
         // Later-phase commands answer "not implemented yet" with exit 1.
-        for (const char *cmd : {"snapshot", "serve", "mcp", "skill"}) {
+        for (const char *cmd : {"snapshot", "serve", "mcp"}) {
             err.clear();
             QCOMPARE(cli(store, {QString::fromLatin1(cmd), QStringLiteral("x")}, &out, &err), 1);
             QVERIFY2(err.contains(QStringLiteral("Not implemented yet")), qPrintable(err));
@@ -937,6 +938,125 @@ private slots:
         QVERIFY(actions.setDone(overdue.id, false, QStringLiteral("gui")).ok);
         model.reload();
         QCOMPARE(overview.data(overview.index(0, 0), PlanModel::TitleRole).toString(), QStringLiteral("Forfalden"));
+    }
+
+    void dataVersionDetectsOtherConnections()
+    {
+        // PRAGMA data_version changes only when ANOTHER connection commits,
+        // which is what the GUI's live polling relies on.
+        QTemporaryDir dir;
+        Store a(dir.filePath("test.db"));
+        Store b(dir.filePath("test.db"));
+        QString error;
+        QVERIFY(a.open(&error));
+        QVERIFY(b.open(&error));
+        bool okA = false, okB = false;
+        const int va = a.dataVersion(&okA);
+        const int vb = b.dataVersion(&okB);
+        QVERIFY(okA && okB);
+        QCOMPARE(va, vb);
+
+        // A write from connection A is visible in B's data_version...
+        Task t;
+        t.title = QStringLiteral("Fra CLI");
+        QVERIFY(!a.createTask(t, QStringLiteral("cli"), &error).isEmpty());
+        const int vb2 = b.dataVersion(&okB);
+        QVERIFY(okB);
+        QVERIFY2(vb2 != vb, qPrintable(QStringLiteral("%1 -> %2").arg(vb).arg(vb2)));
+
+        // ...but B's own write does not change B's own data_version.
+        QVERIFY(!b.createTask(t, QStringLiteral("gui"), &error).isEmpty());
+        const int vb3 = b.dataVersion(&okB);
+        QVERIFY(okB);
+        QCOMPARE(vb3, vb2);
+    }
+
+    void planModelLivePolling()
+    {
+        // The GUI polls data_version: a commit from another process reloads
+        // the model and emits externalChange with the source from `changes`.
+        QTemporaryDir dir;
+        Store guiStore(dir.filePath("test.db"));
+        QString error;
+        QVERIFY(guiStore.open(&error));
+        PlanModel model(&guiStore);
+        model.reload();
+        QCOMPARE(model.rowCount(), 0);
+        QSignalSpy spy(&model, &PlanModel::externalChange);
+        model.startLivePolling(20);
+
+        Store cliStore(dir.filePath("test.db")); // a second process, same file
+        QVERIFY(cliStore.open(&error));
+        Task t;
+        t.title = QStringLiteral("Fra CLI");
+        QVERIFY(!cliStore.createTask(t, QStringLiteral("cli"), &error).isEmpty());
+
+        QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 1, 3000);
+        QCOMPARE(model.rowCount(), 1);
+        QCOMPARE(spy.first().first().toString(), QStringLiteral("cli"));
+        QCOMPARE(model.data(model.index(0, 0), PlanModel::TitleRole).toString(), QStringLiteral("Fra CLI"));
+    }
+
+    void skillInstallUninstallInTempHome()
+    {
+        QTemporaryDir homeDir;
+        QVERIFY(homeDir.isValid());
+        const QString home = homeDir.path();
+        // Two of the candidate agent dirs exist; the others do not.
+        QVERIFY(QDir().mkpath(home + QStringLiteral("/.claude/skills")));
+        QVERIFY(QDir().mkpath(home + QStringLiteral("/.vibe/skills")));
+
+        const QByteArray oldHome = qgetenv("HOME");
+        qputenv("HOME", home.toLocal8Bit());
+
+        // The bundled skill is embedded in the binary.
+        QVERIFY(!Skill::markdown().isEmpty());
+        QVERIFY(Skill::markdown().contains(QStringLiteral("name: omaplan")));
+        QCOMPARE(Skill::candidateRoots(home).size(), 2);
+
+        // Install writes <root>/omaplan/SKILL.md atomically.
+        const Skill::Result inst = Skill::install(home);
+        QVERIFY2(inst.ok, qPrintable(inst.error));
+        QCOMPARE(inst.installed.size(), 2);
+        for (const QString &root : inst.installed) {
+            QFile f(QDir(root).filePath(QStringLiteral("omaplan/SKILL.md")));
+            QVERIFY(f.open(QIODevice::ReadOnly));
+            QCOMPARE(QString::fromUtf8(f.readAll()), Skill::markdown());
+        }
+        // Installing again is a no-op ("already there").
+        const Skill::Result again = Skill::install(home);
+        QVERIFY(again.ok);
+        QCOMPARE(again.installed.size(), 0);
+        QCOMPARE(again.alreadyThere.size(), 2);
+
+        // Uninstall removes the files and the now-empty skill dirs.
+        const Skill::Result un = Skill::uninstall(home);
+        QVERIFY(un.ok);
+        QCOMPARE(un.removed.size(), 2);
+        for (const QString &root : un.removed)
+            QVERIFY(!QFile::exists(QDir(root).filePath(QStringLiteral("omaplan/SKILL.md"))));
+        // Idempotent.
+        QVERIFY(Skill::uninstall(home).ok);
+
+        // No agent dirs at all: clear error, not ok.
+        QTemporaryDir emptyHome;
+        const Skill::Result none = Skill::install(emptyHome.path());
+        QVERIFY(!none.ok);
+        QVERIFY(none.error.contains(QStringLiteral("~/.claude/skills")));
+
+        // Through the CLI with the overridden HOME: --json and exit codes.
+        Store store(homeDir.filePath(QStringLiteral("cli.db")));
+        QString out, err;
+        int code = 0;
+        QCOMPARE(cli(store, {QStringLiteral("skill"), QStringLiteral("install"), QStringLiteral("--json")}, &out, &err), 0);
+        const QJsonObject obj = QJsonDocument::fromJson(out.toUtf8()).object();
+        QCOMPARE(obj.value(QStringLiteral("ok")).toBool(), true);
+        QCOMPARE(obj.value(QStringLiteral("installed")).toArray().size(), 2);
+        QCOMPARE(cli(store, {QStringLiteral("skill"), QStringLiteral("uninstall"), QStringLiteral("--json")}, &out, &err), 0);
+        QCOMPARE(cli(store, {QStringLiteral("skill"), QStringLiteral("bogus")}, &out, &err), 1);
+        QVERIFY(err.contains(QStringLiteral("Usage: omaplan skill")));
+
+        qputenv("HOME", oldHome);
     }
 };
 

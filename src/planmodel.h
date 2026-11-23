@@ -8,8 +8,10 @@
 #include "task.h"
 
 // The task list as a QAbstractListModel over the store; QML never touches the
-// database directly. reload() re-reads everything (the GUI also reloads when
-// another process changes the database — trin 5 polls data_version).
+// database directly. reload() re-reads everything. startLivePolling() polls
+// PRAGMA data_version (default every 500 ms), so changes committed by other
+// processes (CLI, agents) reload the model and emit externalChange() with the
+// source from the newest `changes` entry ("cli", "mcp", ...).
 class PlanModel : public QAbstractListModel {
     Q_OBJECT
     Q_PROPERTY(int count READ rowCount NOTIFY countChanged)
@@ -37,6 +39,8 @@ public:
     explicit PlanModel(Store *store, QObject *parent = nullptr);
 
     Q_INVOKABLE void reload();
+    // Starts polling the database for changes from other processes.
+    Q_INVOKABLE void startLivePolling(int intervalMs = 500);
 
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
@@ -44,10 +48,18 @@ public:
 
 signals:
     void countChanged();
+    // Emitted when another process committed: source is from `changes`
+    // ("cli", "mcp", "gui", ...), empty when unknown.
+    void externalChange(const QString &source);
+
+private slots:
+    void pollExternalChanges();
 
 private:
     Store *m_store;
     QList<Task> m_tasks;
+    class QTimer *m_liveTimer = nullptr;
+    int m_lastDataVersion = -1;
 };
 
 // Base for the view proxies: dynamic sort/filter, and sort once the source is

@@ -24,6 +24,7 @@ ApplicationWindow {
     property bool inputOpen: false
     property bool proposalOpen: false
     property bool proposing: false
+    property string liveNotice: ""
 
     Shortcut { sequence: "1"; context: Qt.ApplicationShortcut; onActivated: win.currentView = 0 }
     Shortcut { sequence: "2"; context: Qt.ApplicationShortcut; onActivated: win.currentView = 1 }
@@ -128,6 +129,39 @@ ApplicationWindow {
                 win.proposing = false
                 win.proposalOpen = true
                 proposalView.showError(message)
+            }
+        }
+
+        // Brief notice when another process (CLI, agent) changed the plan.
+        Connections {
+            target: planModel
+            function onExternalChange(source) {
+                win.liveNotice = qsTr("Changed from %1").arg(source.toUpperCase())
+                liveToastTimer.restart()
+            }
+        }
+        Timer {
+            id: liveToastTimer
+            interval: 2500
+            onTriggered: win.liveNotice = ""
+        }
+        Rectangle {
+            anchors.bottom: parent.bottom
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.bottomMargin: 16
+            visible: win.liveNotice !== ""
+            color: "#161618"
+            border.color: theme.accent
+            border.width: 1
+            radius: Math.min(6, theme.radius)
+            width: liveToastLabel.width + 24
+            height: liveToastLabel.height + 12
+            Label {
+                id: liveToastLabel
+                anchors.centerIn: parent
+                text: win.liveNotice
+                color: Material.foreground
+                font.pixelSize: 13
             }
         }
     }
