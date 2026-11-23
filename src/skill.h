@@ -17,6 +17,7 @@ struct Result {
     QStringList installed; // install: dirs written; uninstall: not used
     QStringList removed;   // uninstall: dirs cleaned
     QStringList alreadyThere; // install: unchanged; uninstall: nothing to remove
+    QStringList conflicts; // install: customized files preserved unless forced
     QString error;
 };
 
@@ -29,7 +30,7 @@ QStringList candidateBases(const QString &home);
 // Existing <base>/skills roots under `home` (used by uninstall).
 QStringList candidateRoots(const QString &home);
 
-Result install(const QString &home);
+Result install(const QString &home, bool force = false);
 Result uninstall(const QString &home);
 
 } // namespace Skill

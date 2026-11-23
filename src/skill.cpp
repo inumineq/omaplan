@@ -56,7 +56,7 @@ static QString skillFilePath(const QString &root)
     return QDir(root).filePath(name() + QStringLiteral("/SKILL.md"));
 }
 
-Result install(const QString &home)
+Result install(const QString &home, bool force)
 {
     Result r;
     const QString md = markdown();
@@ -76,26 +76,47 @@ Result install(const QString &home)
         const QString root = QDir(base).filePath(QStringLiteral("skills"));
         const QString target = skillFilePath(root);
         QFile existing(target);
-        if (existing.exists() && existing.open(QIODevice::ReadOnly) && existing.readAll() == md.toUtf8()) {
-            r.alreadyThere.append(root);
-            continue;
+        if (existing.exists()) {
+            if (!existing.open(QIODevice::ReadOnly)) {
+                r.error = QStringLiteral("Could not read %1: %2").arg(target, existing.errorString());
+                return r;
+            }
+            if (existing.readAll() == md.toUtf8()) {
+                r.alreadyThere.append(root);
+                continue;
+            }
+            if (!force) {
+                r.conflicts.append(target);
+                continue;
+            }
         }
         // Atomic write: QSaveFile writes a temp file and renames on commit.
-        QDir().mkpath(QFileInfo(target).absolutePath());
+        if (!QDir().mkpath(QFileInfo(target).absolutePath())) {
+            r.error = QStringLiteral("Could not create directory for %1").arg(target);
+            return r;
+        }
         QSaveFile out(target);
         if (!out.open(QIODevice::WriteOnly)) {
             r.error = QStringLiteral("Could not write %1: %2").arg(target, out.errorString());
             return r;
         }
-        out.write(md.toUtf8());
+        const QByteArray content = md.toUtf8();
+        if (out.write(content) != content.size()) {
+            r.error = QStringLiteral("Could not write %1: %2").arg(target, out.errorString());
+            out.cancelWriting();
+            return r;
+        }
         if (!out.commit()) {
             r.error = QStringLiteral("Could not write %1: %2").arg(target, out.errorString());
             return r;
         }
         r.installed.append(root);
     }
-    r.ok = !r.installed.isEmpty() || !r.alreadyThere.isEmpty();
-    if (!r.ok)
+    r.ok = r.conflicts.isEmpty() && ( !r.installed.isEmpty() || !r.alreadyThere.isEmpty());
+    if (!r.conflicts.isEmpty())
+        r.error = QStringLiteral("Customized skill files were preserved; rerun with --force to replace them: %1")
+                      .arg(r.conflicts.join(QStringLiteral(", ")));
+    if (!r.ok && r.conflicts.isEmpty())
         r.error = QStringLiteral("No agent skill directories found under the home directory.");
     return r;
 }
