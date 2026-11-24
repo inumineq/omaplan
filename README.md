@@ -115,7 +115,7 @@ database instead, unless `OMAPLAN_SNAPSHOT` is set.
 server-rendered page with overview, list and timeline, plus `/plan.json`. It only reads `plan.json` (never the
 database), cannot write, and the page works without JavaScript. It binds to `127.0.0.1:8787`; share it on your
 tailnet with `tailscale serve`, so access to the page equals access to the tailnet. It answers only to `localhost`,
-IP addresses and the machine's own name (also as the first part of its tailnet name); add other names with
+IP addresses, the machine's own name, `<machine>.local` and `<machine>.<tailnet>.ts.net`; add other names with
 `--host`, so a web page cannot read the plan by pointing its own name at `127.0.0.1`:
 
 ```sh

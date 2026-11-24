@@ -442,16 +442,23 @@ private slots:
         options.hosts = {QStringLiteral("plan.example.ts.net")};
         PlanServer server(options);
         QVERIFY(server.listen());
+        const QByteArray self = QHostInfo::localHostName().toLower().toUtf8();
         const auto status = [&](const QByteArray &host) {
             return http(server.port(), "GET /plan.json HTTP/1.1\r\nHost: " + host + "\r\n\r\n").status;
         };
         for (const QByteArray &host : {QByteArrayLiteral("localhost"), QByteArrayLiteral("localhost:8787"),
                                        QByteArrayLiteral("127.0.0.1:8787"), QByteArrayLiteral("[::1]:8787"),
                                        QByteArrayLiteral("192.0.2.10"), QByteArrayLiteral("plan.example.ts.net"),
-                                       QByteArrayLiteral("PLAN.example.ts.net:443"), QHostInfo::localHostName().toUtf8()})
+                                       QByteArrayLiteral("PLAN.example.ts.net:443"), self, self + ".local",
+                                       self + ".example.ts.net", self.toUpper() + ".Example.TS.net:443"})
             QVERIFY2(status(host) == 200, host.constData());
-        for (const QByteArray &host : {QByteArrayLiteral("evil.example"), QByteArrayLiteral("evil.example:8787"),
-                                       QByteArrayLiteral("localhost.evil.example"), QByteArrayLiteral("")})
+        // The machine's name as the first label of someone else's domain is
+        // no proof of anything: such a name can resolve to 127.0.0.1 too.
+        for (const QByteArray &host :
+             {QByteArrayLiteral("evil.example"), QByteArrayLiteral("evil.example:8787"),
+              QByteArrayLiteral("localhost.evil.example"), QByteArrayLiteral(""), self + ".evil.example",
+              self + ".local.evil.example", self + ".ts.net", self + ".a.b.ts.net", self + ".example.ts.net.evil.example",
+              "x" + self + ".example.ts.net"})
             QVERIFY2(status(host) == 421, host.constData());
     }
 

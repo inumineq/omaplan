@@ -3,6 +3,7 @@
 #include <QFile>
 #include <QHostInfo>
 #include <QJsonDocument>
+#include <QRegularExpression>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTimer>
@@ -125,8 +126,14 @@ bool PlanServer::hostAllowed(const QByteArray &header) const {
     if (!QHostAddress(host).isNull() || host == QLatin1String("localhost"))
         return true;
     const QString self = QHostInfo::localHostName().toLower();
-    if (!self.isEmpty() && (host == self || host.startsWith(self + QLatin1Char('.'))))
-        return true;
+    if (!self.isEmpty() && host.startsWith(self)) {
+        // The machine itself, on the local network, or on its tailnet
+        // (<name>.<tailnet>.ts.net); <name>.<any domain> could be anyone's.
+        const QString rest = host.mid(self.size());
+        static const QRegularExpression own(QStringLiteral("^(|\\.local|\\.[a-z0-9-]+\\.ts\\.net)$"));
+        if (own.match(rest).hasMatch())
+            return true;
+    }
     for (const QString &allowed : m_options.hosts)
         if (host == allowed.trimmed().toLower())
             return true;
