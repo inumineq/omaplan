@@ -1,5 +1,6 @@
 #include "skill.h"
 
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -56,6 +57,20 @@ static QString skillFilePath(const QString &root)
     return QDir(root).filePath(name() + QStringLiteral("/SKILL.md"));
 }
 
+// SHA-256 of every SKILL.md an earlier release bundled. A file equal to one
+// of them was never edited, so an upgrade replaces it without --force. Add
+// the outgoing text's hash here whenever src/skill/SKILL.md changes.
+static bool wasBundled(const QByteArray &text) {
+    static const QByteArrayList released = {
+        "84ee6058c8e97366ed9458ed86771a567ec3cc2d5a100df79fa8e03bc96f53d7",
+        "6eac4cf7073004d35e146481b4b64a552ddd6b4ef731d3a426372ec9b5700221",
+        "827619b7f5fa1e2a439a9b91a0e68cae74f2b9c15549a71dc4b05b304b95c803",
+        "335860ffa5fffc2650255053cd00003b1f15e76c75829241bdbecb0ecec3cdb5",
+        "9a5d827c6aca394ddd680d522c2b9aa2a9f18f65faf129acc3207cd44ea9f9dd",
+    };
+    return released.contains(QCryptographicHash::hash(text, QCryptographicHash::Sha256).toHex());
+}
+
 Result install(const QString &home, bool force)
 {
     Result r;
@@ -81,11 +96,12 @@ Result install(const QString &home, bool force)
                 r.error = QStringLiteral("Could not read %1: %2").arg(target, existing.errorString());
                 return r;
             }
-            if (existing.readAll() == md.toUtf8()) {
+            const QByteArray current = existing.readAll();
+            if (current == md.toUtf8()) {
                 r.alreadyThere.append(root);
                 continue;
             }
-            if (!force) {
+            if (!force && !wasBundled(current)) {
                 r.conflicts.append(target);
                 continue;
             }

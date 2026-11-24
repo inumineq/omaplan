@@ -142,7 +142,7 @@ QJsonObject build(const QList<Task> &tasks, const QDateTime &exported, const QJs
     }
     QJsonObject plan;
     plan["format"] = QStringLiteral("omaplan-plan");
-    plan["version"] = 2;
+    plan["version"] = 3;
     plan["exported"] = withOffset(exported);
     const QString zone = QString::fromUtf8(QTimeZone::systemTimeZoneId());
     plan["timezone"] = zone.isEmpty() ? QStringLiteral("UTC") : zone;

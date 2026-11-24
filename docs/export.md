@@ -12,7 +12,7 @@ An invented example lives in `web/example/plan.json`; `web/test.mjs` validates i
 | Key | Type | Note |
 |---|---|---|
 | `format` | `"omaplan-plan"` | constant, so the file can be recognised |
-| `version` | integer | format version; this edition is `2` |
+| `version` | integer | format version; this edition is `3` (2 had no `clock`, `project_colors` or palette slots in `theme`) |
 | `exported` | ISO 8601 **with offset** | time of the export, e.g. `2026-11-23T13:57:00+01:00` |
 | `timezone` | IANA name | local time zone, e.g. `Europe/Copenhagen` |
 | `language` | BCP 47 | the app's user interface language, e.g. `en` or `da` |

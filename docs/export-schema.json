@@ -7,7 +7,7 @@
   "additionalProperties": false,
   "properties": {
     "format": {"const": "omaplan-plan"},
-    "version": {"const": 2, "description": "Format version; 2 is this edition (English keys)"},
+    "version": {"const": 3, "description": "Format version; 3 is this edition (2 plus clock, project_colors and the palette slots in theme)"},
     "exported": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}[+-]\\d{2}:\\d{2}$", "description": "ISO 8601 with offset, the time of the export"},
     "timezone": {"type": "string", "description": "IANA name of the local time zone, e.g. Europe/Copenhagen"},
     "language": {"type": "string", "pattern": "^[a-z]{2}(-[A-Z]{2})?$", "description": "BCP 47 code of the app's user interface language, e.g. en or da"},

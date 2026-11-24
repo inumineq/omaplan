@@ -276,7 +276,7 @@ private slots:
         QStringList errors;
         validateSchema(plan, readJsonFile(repoFile(QStringLiteral("docs/export-schema.json"))), QStringLiteral("$"), &errors);
         QVERIFY2(errors.isEmpty(), qPrintable(errors.join('\n')));
-        QCOMPARE(plan.value("version").toInt(), 2);
+        QCOMPARE(plan.value("version").toInt(), 3);
         QCOMPARE(plan.value("language").toString(), QStringLiteral("en"));
         QCOMPARE(plan.value("tasks").toArray().size(), 3);
         QHash<QString, QJsonObject> byId;
@@ -3829,6 +3829,22 @@ private slots:
                      &cliOut, &cliErr), 0);
         const Skill::Result forced = Skill::install(home, true);
         QVERIFY2(forced.ok, qPrintable(forced.error));
+        QVERIFY(customized.open(QIODevice::ReadOnly));
+        QCOMPARE(customized.readAll(), Skill::markdown().toUtf8());
+        customized.close();
+
+        // An unchanged skill from an earlier release is not "customized": it is
+        // replaced by the new one without --force.
+        QFile previous(QStringLiteral(OMAPLAN_SRC "/../tests/fixtures/skill-main.md"));
+        QVERIFY(previous.open(QIODevice::ReadOnly));
+        const QByteArray previousText = previous.readAll();
+        QVERIFY(previousText != Skill::markdown().toUtf8());
+        QVERIFY(customized.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        customized.write(previousText);
+        customized.close();
+        const Skill::Result upgraded = Skill::install(home);
+        QVERIFY2(upgraded.ok, qPrintable(upgraded.error));
+        QCOMPARE(upgraded.conflicts.size(), 0);
         QVERIFY(customized.open(QIODevice::ReadOnly));
         QCOMPARE(customized.readAll(), Skill::markdown().toUtf8());
         customized.close();

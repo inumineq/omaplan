@@ -105,7 +105,7 @@ section('plan.json against docs/export-schema.json');
 const schemaErrors = [];
 validate(plan, schema, 'plan', schemaErrors);
 check(schemaErrors.length === 0, 'schema validation without errors' + (schemaErrors.length ? ':\n    ' + schemaErrors.join('\n    ') : ''));
-check(plan.version === 2, 'format version 2');
+check(plan.version === 3, 'format version 3');
 check(plan.tasks.length >= 15 && plan.tasks.length <= 30, 'the example has 15-30 tasks (' + plan.tasks.length + ')');
 
 // ---------- 2. semantics of the example ----------
