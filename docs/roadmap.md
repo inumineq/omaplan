@@ -6,7 +6,7 @@ the approach can be agreed first.
 1. **A package in omarchy-pkgs.** The recipe builds from a tagged source with CMake and lives there, not here. Once
    it is published, the shared CI workflow can install the dependencies and run `bin/test` on every pull request.
 2. **More interface languages.** English and Danish are complete. A new language is one JSON catalog
-   (`docs/translating.md`); regional catalogs such as `pt-BR` need `UiLanguage` to keep the region.
+   (`docs/translating.md`), regional ones such as `pt-BR` included.
 3. **Paired machines' local models.** The `local` engine asks the model Omarchy runs on this machine. A model
    pinned on a paired machine (`host/recipe`) is passed over for now.
 4. **Smaller fixes from the audit:**

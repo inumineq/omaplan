@@ -5,7 +5,8 @@
 #include <QObject>
 #include <QString>
 #include <QStringList>
-#include <QTemporaryFile>
+#include <QFile>
+#include <QTemporaryDir>
 #include <QTimer>
 #include <memory>
 
@@ -54,6 +55,8 @@ public:
 
     QString language() const { return m_language; }
     QString localeName() const { return formatLocale(m_language).name(); }
+    // The file the Translator reads the resolved choice from.
+    QString choiceFile() const { return m_pick ? m_pick->fileName() : QString(); }
 
     // The language picked last by any UiLanguage in this process, or, when
     // none was made, the one the sources give without a flag. For code that
@@ -90,7 +93,8 @@ private:
     bool m_watch;
     // The Translator reads its language from a file, so the pick is written
     // to a private one, and a new Translator made for each pick.
-    std::unique_ptr<QTemporaryFile> m_pick;
+    std::unique_ptr<QTemporaryDir> m_pickDirectory;
+    std::unique_ptr<QFile> m_pick;
     std::unique_ptr<Translator> m_translator;
     QFileSystemWatcher m_watcher;
     QTimer m_debounce;

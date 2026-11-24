@@ -3496,10 +3496,39 @@ private slots:
         QCOMPARE(UiLanguage::resolve(S{{}, {}, {}, {QStringLiteral("de-DE"), QStringLiteral("da-DK")}}, available),
                  QStringLiteral("da"));
         QCOMPARE(UiLanguage::resolve(S{{}, {}, {}, {QStringLiteral("de-DE")}}, available), QStringLiteral("en"));
-        // Locale spellings name their language.
-        QCOMPARE(UiLanguage::normalize(QStringLiteral("da_DK.UTF-8")), QStringLiteral("da"));
+        // Locale spellings name their language, and keep the region (L3).
+        QCOMPARE(UiLanguage::normalize(QStringLiteral("da_DK.UTF-8")), QStringLiteral("da-DK"));
+        QCOMPARE(UiLanguage::normalize(QStringLiteral("zh-tw")), QStringLiteral("zh-TW"));
         QCOMPARE(UiLanguage::normalize(QStringLiteral("DA")), QStringLiteral("da"));
         QCOMPARE(UiLanguage::normalize(QStringLiteral("not a language")), QString());
+        // A region with no catalog of its own is its language's catalog...
+        QCOMPARE(UiLanguage::resolve(S{{}, {}, QStringLiteral("da_DK"), {}}, available), QStringLiteral("da"));
+        QCOMPARE(UiLanguage::resolve(S{{}, QStringLiteral("en-US"), {}, {}}, available), QStringLiteral("en"));
+        // ...a regional catalog is chosen by its full code, also by the system locale...
+        const QStringList regional{QStringLiteral("en"), QStringLiteral("da"), QStringLiteral("pt-BR")};
+        QCOMPARE(UiLanguage::resolve(S{{}, {}, QStringLiteral("pt_BR.UTF-8"), {}}, regional), QStringLiteral("pt-BR"));
+        QCOMPARE(UiLanguage::resolve(S{{}, {}, {}, {QStringLiteral("pt-BR")}}, regional), QStringLiteral("pt-BR"));
+        QCOMPARE(UiLanguage::resolve(S{{}, {}, {}, {QStringLiteral("pt-PT")}}, regional), QStringLiteral("en"));
+        // ...and a chosen region without any catalog keeps its region, for its formats.
+        QCOMPARE(UiLanguage::resolve(S{{}, {}, QStringLiteral("zh-TW"), {}}, available), QStringLiteral("zh-TW"));
+    }
+
+    // L4: the file the shared Translator reads the choice from, and whose
+    // folder it watches, is in a folder of Omaplan's own, not the shared /tmp.
+    void languageChoiceFileIsInAPrivateFolder() {
+        QTemporaryDir dir;
+        const QString file = dir.filePath(QStringLiteral("language"));
+        QFile f(file);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("da\n");
+        f.close();
+        UiLanguage language(nullptr, {}, false, file);
+        const QFileInfo choice(language.choiceFile());
+        QVERIFY(choice.exists());
+        QVERIFY(choice.absolutePath() != QDir::tempPath());
+        QCOMPARE(QDir(choice.absolutePath()).entryList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot | QDir::Hidden).size(), 1);
+        QCOMPARE(QFileInfo(choice.absolutePath()).permissions() & (QFile::ReadGroup | QFile::WriteGroup | QFile::ReadOther | QFile::WriteOther),
+                 QFile::Permissions());
     }
 
     void danishTranslationIsEmbeddedAndInstalled() {
