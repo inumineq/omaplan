@@ -3,6 +3,7 @@
 #include <QFile>
 #include <QJsonDocument>
 #include <QProcess>
+#include <QHostInfo>
 #include <QTcpSocket>
 #include <QRegularExpression>
 #include <QJsonObject>
@@ -423,6 +424,33 @@ private slots:
         QVERIFY(day(QStringLiteral("2026-11-27")).contains(QStringLiteral("data-id=\"deadline-only\"")));
         QVERIFY(page.contains(QStringLiteral("data-group=\"date:2026-11-27\"")));
         QVERIFY(!page.contains(QStringLiteral("data-group=\"no-date\"")));
+    }
+
+    // DNS rebinding: a page on evil.example whose name resolves to 127.0.0.1
+    // must not read the plan. Only loopback names, IP addresses, the
+    // machine's own name and the --host names are served.
+    void serveChecksTheHostHeader() {
+        QTemporaryDir dir;
+        const QString snapshot = dir.filePath(QStringLiteral("plan.json"));
+        QVERIFY(QFile::copy(repoFile(QStringLiteral("web/example/plan.json")), snapshot));
+        PlanServer::Options options;
+        options.snapshotPath = snapshot;
+        options.port = 0;
+        options.themeDirectory = dir.filePath(QStringLiteral("no-theme"));
+        options.hosts = {QStringLiteral("plan.example.ts.net")};
+        PlanServer server(options);
+        QVERIFY(server.listen());
+        const auto status = [&](const QByteArray &host) {
+            return http(server.port(), "GET /plan.json HTTP/1.1\r\nHost: " + host + "\r\n\r\n").status;
+        };
+        for (const QByteArray &host : {QByteArrayLiteral("localhost"), QByteArrayLiteral("localhost:8787"),
+                                       QByteArrayLiteral("127.0.0.1:8787"), QByteArrayLiteral("[::1]:8787"),
+                                       QByteArrayLiteral("100.64.0.1"), QByteArrayLiteral("plan.example.ts.net"),
+                                       QByteArrayLiteral("PLAN.example.ts.net:443"), QHostInfo::localHostName().toUtf8()})
+            QVERIFY2(status(host) == 200, host.constData());
+        for (const QByteArray &host : {QByteArrayLiteral("evil.example"), QByteArrayLiteral("evil.example:8787"),
+                                       QByteArrayLiteral("localhost.evil.example"), QByteArrayLiteral("")})
+            QVERIFY2(status(host) == 421, host.constData());
     }
 
     void serveOverLoopback() {

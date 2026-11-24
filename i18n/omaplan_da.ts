@@ -892,7 +892,7 @@ Commands:
   skill install [--force]|uninstall   install/remove the bundled agent skill
   mcp                   MCP server over stdio (claude mcp add omaplan -- omaplan mcp)
   snapshot [path]       write plan.json for the read-only edition (also automatic after every change)
-  serve [--port N] [--bind ADDR] [--snapshot PATH]   read-only web page (default 127.0.0.1:8787)
+  serve [--port N] [--bind ADDR] [--host NAME,...] [--snapshot PATH]   read-only web page (default 127.0.0.1:8787)
 
 Dates accept ISO (2026-12-01, 2026-12-01 14:30) and English/Danish expressions
 (&quot;tomorrow&quot;, &quot;friday 12&quot;, &quot;next monday&quot;, optional &quot;at 14:30&quot;; &quot;i morgen&quot;, &quot;kl. 14:30&quot;).
@@ -925,7 +925,7 @@ Kommandoer:
   skill install [--force]|uninstall   installér/fjern den bundtede agent-skill
   mcp                   MCP-server over stdio (claude mcp add omaplan -- omaplan mcp)
   snapshot [sti]        skriv plan.json til læseudgaven (sker også automatisk efter hver ændring)
-  serve [--port N] [--bind ADR] [--snapshot STI]   læseudgave som webside (standard 127.0.0.1:8787)
+  serve [--port N] [--bind ADR] [--host NAVN,...] [--snapshot STI]   læseudgave som webside (standard 127.0.0.1:8787)
 
 Datoer accepterer ISO (2026-12-01, 2026-12-01 14:30) og danske/engelske udtryk
 (&quot;i morgen&quot;, &quot;fredag 12&quot;, &quot;kl. 14:30&quot;; &quot;tomorrow&quot;, &quot;next monday&quot;, &quot;at 14:30&quot;).

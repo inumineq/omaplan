@@ -110,10 +110,12 @@ database instead, unless `OMAPLAN_SNAPSHOT` is set.
 
 `omaplan snapshot [path]` writes it at once (e.g. the first time, or to another path).
 
-`omaplan serve [--port N] [--bind ADDR] [--snapshot PATH]` shows the snapshot as a small, server-rendered page with
-overview, list and timeline, plus `/plan.json`. It only reads `plan.json` (never the database), cannot write, and
-the page works without JavaScript. It binds to `127.0.0.1:8787`; share it on your tailnet with `tailscale serve`, so
-access to the page equals access to the tailnet:
+`omaplan serve [--port N] [--bind ADDR] [--host NAME,...] [--snapshot PATH]` shows the snapshot as a small,
+server-rendered page with overview, list and timeline, plus `/plan.json`. It only reads `plan.json` (never the
+database), cannot write, and the page works without JavaScript. It binds to `127.0.0.1:8787`; share it on your
+tailnet with `tailscale serve`, so access to the page equals access to the tailnet. It answers only to `localhost`,
+IP addresses and the machine's own name (also as the first part of its tailnet name); add other names with
+`--host`, so a web page cannot read the plan by pointing its own name at `127.0.0.1`:
 
 ```sh
 omaplan serve &                  # http://127.0.0.1:8787/

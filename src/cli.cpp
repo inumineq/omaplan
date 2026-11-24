@@ -44,7 +44,7 @@ static void printHelp(QTextStream &out) {
         "  skill install [--force]|uninstall   install/remove the bundled agent skill\n"
         "  mcp                   MCP server over stdio (claude mcp add omaplan -- omaplan mcp)\n"
         "  snapshot [path]       write plan.json for the read-only edition (also automatic after every change)\n"
-        "  serve [--port N] [--bind ADDR] [--snapshot PATH]   read-only web page (default 127.0.0.1:8787)\n"
+        "  serve [--port N] [--bind ADDR] [--host NAME,...] [--snapshot PATH]   read-only web page (default 127.0.0.1:8787)\n"
         "\n"
         "Dates accept ISO (2026-12-01, 2026-12-01 14:30) and English/Danish expressions\n"
         "(\"tomorrow\", \"friday 12\", \"next monday\", optional \"at 14:30\"; \"i morgen\", \"kl. 14:30\").\n"
@@ -208,6 +208,7 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
             }
             options.port = quint16(port);
         }
+        options.hosts = flags.value(QStringLiteral("host")).split(QLatin1Char(','), Qt::SkipEmptyParts);
         if (flags.contains(QStringLiteral("bind")) && !options.address.setAddress(flags.value(QStringLiteral("bind")))) {
             err << QObject::tr("Invalid address: %1").arg(flags.value(QStringLiteral("bind"))) << "\n";
             return 1;
