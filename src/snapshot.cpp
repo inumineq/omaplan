@@ -182,6 +182,9 @@ bool write(Store *store, const QString &path, QString *error, const QString &lan
     }
     // Owner only: the plan is private, whatever the umask.
     QSaveFile file(path);
+    // A folder no temp file can be made in fails the save; the old plan.json
+    // is never truncated and rewritten in place.
+    file.setDirectWriteFallback(false);
     if (!file.open(QIODevice::WriteOnly) || !file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner)
         || file.write(bytes) != bytes.size() || !file.commit()) {
         if (error) *error = QStringLiteral("%1: %2").arg(path, file.errorString());

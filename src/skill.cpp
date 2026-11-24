@@ -112,6 +112,7 @@ Result install(const QString &home, bool force)
             return r;
         }
         QSaveFile out(target);
+        out.setDirectWriteFallback(false);
         if (!out.open(QIODevice::WriteOnly)) {
             r.error = QStringLiteral("Could not write %1: %2").arg(target, out.errorString());
             return r;
