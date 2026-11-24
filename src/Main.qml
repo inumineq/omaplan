@@ -164,6 +164,9 @@ ApplicationWindow {
     // --- Header: the four views as tabs, the main action and a quiet ? -------
     // One bar in the window's own colour with a 1 px divider, as in Folio.
     header: Rectangle {
+        // The header sits outside keySink, so it mirrors on its own.
+        LayoutMirroring.enabled: Application.layoutDirection === Qt.RightToLeft
+        LayoutMirroring.childrenInherit: true
         height: 48
         color: theme.background
         Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: theme.border }

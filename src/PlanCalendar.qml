@@ -215,6 +215,9 @@ Item {
 
             Row {
                 Layout.fillWidth: true
+                // The grid below places days by x, left to right in every
+                // language, so the headers above it must not mirror.
+                LayoutMirroring.enabled: false
                 Item { width: cal.gutter; height: 1 }
                 Repeater {
                     model: 7
@@ -457,6 +460,9 @@ Item {
 
             Row {
                 Layout.fillWidth: true
+                // The grid below places days by x, left to right in every
+                // language, so the headers above it must not mirror.
+                LayoutMirroring.enabled: false
                 Repeater {
                     model: 7
                     delegate: Text {
