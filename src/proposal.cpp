@@ -534,12 +534,13 @@ QJsonObject ProposedTask::toJson() const
         o.insert(QStringLiteral("priority"), priority);
     if (start.isValid())
         o.insert(QStringLiteral("start"),
-                 startHasTime ? start.toString(Qt::ISODate) : start.date().toString(Qt::ISODate));
+                 startHasTime ? start.toString(QStringLiteral("yyyy-MM-ddTHH:mm")) : start.date().toString(Qt::ISODate));
     if (durationMin > 0)
         o.insert(QStringLiteral("duration_min"), durationMin);
     if (deadline.isValid())
         o.insert(QStringLiteral("deadline"),
-                 deadlineHasTime ? deadline.toString(Qt::ISODate) : deadline.date().toString(Qt::ISODate));
+                 deadlineHasTime ? deadline.toString(QStringLiteral("yyyy-MM-ddTHH:mm"))
+                                 : deadline.date().toString(Qt::ISODate));
     if (!guessed.isEmpty()) {
         QJsonArray g;
         for (const QString &field : guessed)

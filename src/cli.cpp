@@ -97,6 +97,31 @@ static QHash<QString, QString> parseFlags(const QStringList &args, QStringList *
     return flags;
 }
 
+// The options each command takes (after the 0.1 names are mapped); any other
+// is an error, so a typo (list --statsu done) never silently means "all".
+static const QHash<QString, QStringList> &commandFlags() {
+    static const QHash<QString, QStringList> flags = [] {
+        const QStringList fields = {QStringLiteral("title"), QStringLiteral("notes"), QStringLiteral("project"),
+                                    QStringLiteral("priority"), QStringLiteral("start"), QStringLiteral("duration"),
+                                    QStringLiteral("deadline"), QStringLiteral("status")};
+        QHash<QString, QStringList> map;
+        map.insert(QStringLiteral("new"), fields);
+        map.insert(QStringLiteral("edit"), fields);
+        map.insert(QStringLiteral("list"), {QStringLiteral("from"), QStringLiteral("to"), QStringLiteral("project"),
+                                            QStringLiteral("status")});
+        map.insert(QStringLiteral("add"), {QStringLiteral("engine"), QStringLiteral("yes"), QStringLiteral("model"),
+                                           QStringLiteral("endpoint")});
+        map.insert(QStringLiteral("skill"), {QStringLiteral("force")});
+        map.insert(QStringLiteral("serve"), {QStringLiteral("port"), QStringLiteral("bind"), QStringLiteral("host"),
+                                             QStringLiteral("snapshot")});
+        map.insert(QStringLiteral("summary"), {QStringLiteral("week"), QStringLiteral("month")});
+        for (const char *command : {"show", "move", "done", "undone", "rm", "undo", "redo", "projects", "mcp", "snapshot"})
+            map.insert(QLatin1String(command), {});
+        return map;
+    }();
+    return flags;
+}
+
 static bool parseDateFlag(const QString &text, QDateTime *when, bool *hasTime, QTextStream &err) {
     if (text.isEmpty()) { // an empty value clears the field
         *when = QDateTime();
@@ -145,6 +170,16 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
     }
 
     const QString command = rest.takeFirst();
+
+    if (commandFlags().contains(command)) {
+        QStringList ignored;
+        const QStringList allowed = commandFlags().value(command);
+        for (const QString &flag : parseFlags(rest, &ignored).keys())
+            if (!allowed.contains(flag)) {
+                err << QObject::tr("Unknown option --%1 for %2; see omaplan --help").arg(flag, command) << "\n";
+                return 1;
+            }
+    }
 
     // Agent skill: no database needed, works off the home directory.
     if (command == QLatin1String("skill")) {
@@ -409,6 +444,10 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
         QJsonObject patch;
         if (!Actions::patchFromFields(flags, &patch, &error)) {
             err << error << "\n";
+            return 1;
+        }
+        if (patch.isEmpty()) {
+            err << QObject::tr("Nothing to change: give at least one field") << "\n";
             return 1;
         }
         ActionResult result = actions.update(positional.first(), patch, source);

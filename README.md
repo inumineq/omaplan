@@ -46,7 +46,7 @@ timeline, dragging the right edge of a bar changes the duration.
 
 ## Command line
 
-Every command takes `--json`, exits 0/1 and writes errors on stderr. Dates accept ISO
+Every command except `serve` and `mcp` takes `--json`, exits 0/1 and writes errors on stderr. Dates accept ISO
 (`2026-12-01`, `2026-12-01 14:30`) and English or Danish expressions (`"tomorrow"`, `"friday 12"`,
 `"next monday"`, optionally `"at 14:30"`; `"i morgen"`, `"kl. 14:30"`). An empty value clears a field:
 `--project ""`.

@@ -945,6 +945,10 @@ Eksempler:
 </translation>
     </message>
     <message>
+        <source>Unknown option --%1 for %2; see omaplan --help</source>
+        <translation>Ukendt tilvalg --%1 til %2; se omaplan --help</translation>
+    </message>
+    <message>
         <source>Installed skill in %1</source>
         <translation>Installerede skill i %1</translation>
     </message>
@@ -1021,6 +1025,10 @@ Eksempler:
         <translation>Brug: omaplan edit &lt;id&gt; [felter]</translation>
     </message>
     <message>
+        <source>Nothing to change: give at least one field</source>
+        <translation>Intet at ændre: angiv mindst ét felt</translation>
+    </message>
+    <message>
         <source>Usage: omaplan move &lt;id&gt; &lt;when&gt;</source>
         <translation>Brug: omaplan move &lt;id&gt; &lt;tidspunkt&gt;</translation>
     </message>
@@ -1083,6 +1091,10 @@ command = &quot;...&quot;</translation>
     <message>
         <source>title is longer than 200 characters</source>
         <translation>titlen er længere end 200 tegn</translation>
+    </message>
+    <message>
+        <source>project is longer than 100 characters</source>
+        <translation>projekt er længere end 100 tegn</translation>
     </message>
     <message>
         <source>priority must be 1..3, got %1</source>

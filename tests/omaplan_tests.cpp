@@ -22,6 +22,7 @@
 #include "dateannotate.h"
 #include "mcp.h"
 #include "planmodel.h"
+#include "proposal.h"
 #include "render.h"
 #include "server.h"
 #include "snapshot.h"
@@ -1371,6 +1372,42 @@ private slots:
         QCOMPARE(listed.size(), 0);
         QCOMPARE(QJsonDocument::fromJson(runOmaplan(db, {QStringLiteral("list"), QStringLiteral("--json")}).toUtf8())
                      .object()[QStringLiteral("tasks")].toArray().size(), 1);
+    }
+
+    // Smaller promises of the docs and schemas.
+    void smallDocumentedRules()
+    {
+        QTemporaryDir dir;
+        Store store(dir.filePath(QStringLiteral("s.db")));
+        QVERIFY(store.open());
+        QString out, err;
+        int code = -1;
+        const QString id = cliJson(store, {QStringLiteral("new"), QStringLiteral("--title"), QStringLiteral("Blog"),
+                                           QStringLiteral("--json")}, &err, &code)[QStringLiteral("task")].toObject()
+                               [QStringLiteral("id")].toString();
+        // An unknown flag is an error, not ignored (list --statsu done).
+        err.clear();
+        QCOMPARE(cli(store, {QStringLiteral("list"), QStringLiteral("--statsu"), QStringLiteral("done")}, &out, &err), 1);
+        QVERIFY2(err.contains(QStringLiteral("--statsu")), qPrintable(err));
+        err.clear();
+        QCOMPARE(cli(store, {QStringLiteral("summary"), QStringLiteral("--weak")}, &out, &err), 1);
+        QVERIFY2(err.contains(QStringLiteral("--weak")), qPrintable(err));
+        // The 0.1 names still work.
+        QCOMPARE(cli(store, {QStringLiteral("list"), QStringLiteral("--fra"), QStringLiteral("today")}, &out, &err), 0);
+        // edit without fields is an error on the CLI too (as in MCP).
+        err.clear();
+        QCOMPARE(cli(store, {QStringLiteral("edit"), id}, &out, &err), 1);
+        QVERIFY(!err.isEmpty());
+        // A project over 100 characters breaks docs/export-schema.json.
+        err.clear();
+        QCOMPARE(cli(store, {QStringLiteral("edit"), id, QStringLiteral("--project"), QString(101, QLatin1Char('p'))}, &out, &err), 1);
+        QVERIFY2(err.contains(QStringLiteral("100")), qPrintable(err));
+        // Proposals give times as THH:MM, as docs/ai-schema.json asks.
+        ProposedTask proposed;
+        proposed.title = QStringLiteral("Blog");
+        proposed.start = QDateTime(QDate(2026, 12, 1), QTime(14, 30));
+        proposed.startHasTime = true;
+        QCOMPARE(proposed.toJson()[QStringLiteral("start")].toString(), QStringLiteral("2026-12-01T14:30"));
     }
 
     // MCP holds callers to the tool schemas: enums, types and unknown keys
@@ -2920,8 +2957,10 @@ private slots:
         const Skill::Result un = Skill::uninstall(home);
         QVERIFY(un.ok);
         QCOMPARE(un.removed.size(), 2);
-        for (const QString &root : un.removed)
+        for (const QString &root : un.removed) {
             QVERIFY(!QFile::exists(QDir(root).filePath(QStringLiteral("omaplan/SKILL.md"))));
+            QVERIFY2(!QFileInfo::exists(QDir(root).filePath(QStringLiteral("omaplan"))), qPrintable(root));
+        }
         // Idempotent.
         QVERIFY(Skill::uninstall(home).ok);
 
