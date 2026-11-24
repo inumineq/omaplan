@@ -22,6 +22,8 @@ Rectangle {
     property bool showProject: true
     readonly property bool done: status === "done"
     readonly property bool selected: win.selectedId === taskId
+    // The project's colour from the settings (a palette slot), "" without one.
+    readonly property string projectColor: theme.palette[settings.projectColors[project] || ""] || ""
     readonly property var today: { planModel.today; return Fmt.startOfDay(new Date()) }
     readonly property bool overdue: !done && (Fmt.valid(deadline) ? Fmt.daysBetween(today, deadline) < 0
                                                                    : Fmt.valid(start) && Fmt.daysBetween(today, start) < 0)
@@ -105,7 +107,7 @@ Rectangle {
         Tag {
             visible: row.showProject && row.project !== ""
             text: row.project
-            tint: theme.muted
+            tint: row.projectColor !== "" ? row.projectColor : theme.muted
         }
         Tag {
             visible: row.priority < 3 && !row.done

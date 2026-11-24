@@ -54,6 +54,9 @@ Item {
         return out
     }
 
+    // A task's colour: its project's (a palette slot from the settings), else the accent.
+    function tintOf(t) { return theme.palette[settings.projectColors[t.project] || ""] || theme.accent }
+
     function chipText(t) {
         return (t.startHasTime ? Fmt.time(t.start) + "  " : "") + (t.deadlineOnly ? "⚑ " : "") + t.title
     }
@@ -147,16 +150,18 @@ Item {
         property var task
         readonly property bool done: task.status === "done"
         readonly property bool selected: win.selectedId === task.taskId
+        // The project's colour (settings), else the accent.
+        readonly property color tint: cal.tintOf(task)
         height: 20
         radius: Math.min(3, theme.radius)
-        color: done ? theme.surface : task.deadlineOnly ? Qt.alpha(theme.danger, 0.16) : Qt.alpha(theme.accent, 0.22)
+        color: done ? theme.surface : task.deadlineOnly ? Qt.alpha(theme.danger, 0.16) : Qt.alpha(chip.tint, 0.22)
         border.color: selected ? theme.accent : done ? theme.border : "transparent"
         opacity: drag.dragging ? 0.35 : 1
         Rectangle {
             width: 3
             height: parent.height
             radius: 1
-            color: chip.task.priority === 1 ? theme.danger : theme.accent
+            color: chip.task.priority === 1 ? theme.danger : chip.tint
             visible: !chip.done
         }
         Text {
@@ -383,15 +388,16 @@ Item {
                             width: (cal.weekCol - 4) / modelData.lanes - 2
                             height: Math.max(20, modelData.minutes / 60 * cal.hourHeight - 2)
                             radius: Math.min(4, theme.radius)
-                            color: done ? theme.surface : Qt.alpha(theme.accent, 0.24)
-                            border.color: selected ? theme.accent : done ? theme.border : Qt.alpha(theme.accent, 0.5)
+                            readonly property color tint: cal.tintOf(task)
+                            color: done ? theme.surface : Qt.alpha(block.tint, 0.24)
+                            border.color: selected ? theme.accent : done ? theme.border : Qt.alpha(block.tint, 0.5)
                             border.width: selected ? 2 : 1
                             opacity: blockDrag.dragging ? 0.35 : 1
                             clip: true
                             Rectangle {
                                 width: 3
                                 height: parent.height
-                                color: block.task.priority === 1 ? theme.danger : theme.accent
+                                color: block.task.priority === 1 ? theme.danger : block.tint
                                 visible: !block.done
                             }
                             Column {

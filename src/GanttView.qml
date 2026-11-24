@@ -24,6 +24,8 @@ Item {
     function goToday() { anchorDate = Fmt.startOfDay(new Date()) }
     function zoom(step) { zoomIndex = Math.max(0, Math.min(zoomLevels.length - 1, zoomIndex + step)) }
     function taskIds() { return bars.map(b => b.task.taskId) }
+    // A task's project colour (a palette slot from the settings), "" without one.
+    function projectColorOf(t) { return theme.palette[settings.projectColors[t.project] || ""] || "" }
 
     CalendarModel {
         id: rangeModel
@@ -228,6 +230,8 @@ Item {
                         readonly property var task: modelData.task
                         readonly property bool done: task.status === "done"
                         readonly property bool selected: win.selectedId === task.taskId
+                        readonly property string projectColor: gantt.projectColorOf(task)
+                        readonly property color tint: projectColor !== "" ? projectColor : theme.accent
                         x: modelData.x
                         y: 8 + modelData.lane * 34
                         width: modelData.w
@@ -238,7 +242,7 @@ Item {
                             anchors.fill: parent
                             radius: Math.min(4, theme.radius)
                             color: barItem.done ? theme.surface
-                                 : barItem.task.startHasTime ? theme.accent : Qt.alpha(theme.accent, 0.28)
+                                 : barItem.task.startHasTime ? barItem.tint : Qt.alpha(barItem.tint, 0.28)
                             border.color: barItem.selected ? theme.foreground : barItem.done ? theme.border : "transparent"
                             border.width: barItem.selected ? 2 : 1
                             Rectangle {
@@ -262,7 +266,10 @@ Item {
                                 const t = barItem.task
                                 return (t.startHasTime ? Fmt.time(t.start) + "  " : "") + t.title
                             }
-                            color: inside && barItem.task.startHasTime && !barItem.done ? theme.accentForeground
+                            // On a project colour (lifted to read on the background) the
+                            // background reads in turn.
+                            color: inside && barItem.task.startHasTime && !barItem.done
+                                   ? (barItem.projectColor !== "" ? theme.background : theme.accentForeground)
                                  : barItem.done ? theme.muted : theme.foreground
                             font.strikeout: barItem.done
                             font.pixelSize: 12

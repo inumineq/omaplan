@@ -5,6 +5,7 @@
 #include <QObject>
 #include <QProcess>
 #include <QTimer>
+#include <QVariantMap>
 
 class Theme : public QObject {
     Q_OBJECT
@@ -29,6 +30,9 @@ class Theme : public QObject {
     // family. Followed live once followSystemFont() is called; until then,
     // the generic monospace.
     Q_PROPERTY(QString fontFamily READ fontFamily NOTIFY fontChanged)
+    // Every palette slot ("blue", "bright_red") -> paletteColor(slot), for
+    // bindings: theme.palette[slot] re-evaluates on a theme switch.
+    Q_PROPERTY(QVariantMap palette READ palette NOTIFY changed)
 
 public:
     explicit Theme(const QString &currentDirectory = {}, QObject *parent = nullptr, const QString &hyprctl = {});
@@ -58,6 +62,7 @@ public:
     // colours until it reads on the background. Empty for an unknown slot.
     // Project colours name these, so they follow a theme switch.
     Q_INVOKABLE QString paletteColor(const QString &slot) const;
+    QVariantMap palette() const;
 
     // Follows Omarchy's font from now on, as the application's font and
     // through fontFamily: omarchy-font-set rewrites

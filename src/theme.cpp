@@ -169,6 +169,13 @@ QString Theme::paletteColor(const QString &slot) const {
     return m_palette.value(ConfigKeys::paletteSlot(slot));
 }
 
+QVariantMap Theme::palette() const {
+    QVariantMap map;
+    for (auto it = m_palette.cbegin(); it != m_palette.cend(); ++it)
+        map.insert(it.key(), it.value());
+    return map;
+}
+
 // Black or white, whichever reads on the accent.
 QString Theme::accentForeground() const { return luminance(QColor(m_accent)) > .179 ? "black" : "white"; }
 
