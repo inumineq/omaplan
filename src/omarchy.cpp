@@ -45,7 +45,10 @@ QString defaultAgent() { return firstLine(home() + QStringLiteral("/.config/omar
 
 QString defaultEngine() {
     const QString agent = defaultAgent();
-    if (agent == QLatin1String("claude") || agent == QLatin1String("local"))
+    if (agent == QLatin1String("claude"))
+        return agent;
+    // Without local models set up there would be nothing to ask.
+    if (agent == QLatin1String("local") && hasLocalModels())
         return agent;
     return {};
 }

@@ -214,7 +214,11 @@ std::unique_ptr<AiEngine> createEngine(const QString &id, const QString &modelOv
         const QString endpoint = !endpointOverride.isEmpty() ? endpointOverride : config.localEndpoint;
         // An endpoint on the command line is the user's own server, not Omarchy's.
         const bool omarchy = config.localApi == QLatin1String("omarchy") && endpointOverride.isEmpty();
-        engine = createLocalEngine(omarchy ? QString() : endpoint, pick(config.localModel), config.localApi);
+        // With that endpoint, an API the user never chose is Ollama's, as it
+        // was before Omarchy's model became a default.
+        const QString api = !endpointOverride.isEmpty() && !config.localApiSet ? QStringLiteral("ollama")
+                                                                               : config.localApi;
+        engine = createLocalEngine(omarchy ? QString() : endpoint, pick(config.localModel), api);
     } else if (id == QLatin1String("command")) {
         if (config.command.isEmpty()) {
             if (error)

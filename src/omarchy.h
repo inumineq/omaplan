@@ -18,8 +18,8 @@ QString home();
 QString defaultAgent();
 
 // The Omaplan engine that default agent stands for: "claude" for claude,
-// "local" for Omarchy's local model, and empty for an agent Omaplan has no
-// engine for (or none picked).
+// "local" for Omarchy's local model when local models are set up, and empty
+// for an agent Omaplan has no engine for (or none picked).
 QString defaultEngine();
 
 // Whether Omarchy's local models are set up for this user: their private API

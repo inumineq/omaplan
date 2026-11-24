@@ -145,7 +145,8 @@ QString AppConfig::defaultLocalApi(const QString &endpoint) {
 
 AppConfig AppConfig::load(const QString &path) {
     AppConfig config;
-    bool engineSet = false, localApiSet = false;
+    bool engineSet = false;
+    bool &localApiSet = config.localApiSet;
     // What the file leaves open follows Omarchy: its default agent, and its
     // own local model when no endpoint is given.
     const auto withDefaults = [&] {

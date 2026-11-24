@@ -1141,6 +1141,34 @@ private slots:
         qunsetenv("OMAPLAN_OMARCHY_HOME");
     }
 
+    // L1: an endpoint on the command line is the user's own server. Unless the
+    // config says otherwise it is asked as before, with Ollama's API, also on
+    // a machine where Omarchy's models make "omarchy" the default.
+    void endpointOverrideKeepsOllamasApi()
+    {
+        FakeHttpServer srv;
+        srv.responseBody = "{}";
+        QVERIFY(srv.listen());
+        QTemporaryDir home;
+        writeOmarchyHome(home.path(), QStringLiteral("http://127.0.0.1:11435/v1"), QStringLiteral("active"));
+        qputenv("OMAPLAN_OMARCHY_HOME", home.path().toLocal8Bit());
+        qputenv("OMAPLAN_CONFIG", home.filePath(QStringLiteral("config.toml")).toLocal8Bit());
+        QString error;
+        auto engine = createEngine(QStringLiteral("local"), QStringLiteral("m"), srv.endpoint(), &error);
+        QVERIFY2(engine, qPrintable(error));
+        runEngine(*engine, QStringLiteral("x"), nullptr, &error);
+        QVERIFY2(srv.requestLine.startsWith("POST /api/chat"), qPrintable(srv.requestLine));
+        QVERIFY(!srv.requestHeaders.contains("authorization"));
+
+        // An API the user chose stays.
+        writeFile(home.filePath(QStringLiteral("config.toml")), "[engine.local]\napi = \"openai\"\n");
+        engine = createEngine(QStringLiteral("local"), QStringLiteral("m"), srv.endpoint(), &error);
+        runEngine(*engine, QStringLiteral("x"), nullptr, &error);
+        QVERIFY2(srv.requestLine.startsWith("POST /v1/chat/completions"), qPrintable(srv.requestLine));
+        qunsetenv("OMAPLAN_OMARCHY_HOME");
+        qputenv("OMAPLAN_CONFIG", "");
+    }
+
     void unsetEngineChoicesFollowOmarchy()
     {
         QTemporaryDir home;
@@ -1156,13 +1184,16 @@ private slots:
         // omarchy default agent: claude and local have an engine here.
         writeFile(agent, "claude\n");
         QCOMPARE(AppConfig::load(config).engine, QStringLiteral("claude"));
-        writeFile(agent, "local\n");
-        QCOMPARE(AppConfig::load(config).engine, QStringLiteral("local"));
         writeFile(agent, "codex\n");
+        QCOMPARE(AppConfig::load(config).engine, QStringLiteral("vibe"));
+        // M3: local is only followed when Omarchy has local models; without
+        // them the engine would have nothing to ask.
+        writeFile(agent, "local\n");
         QCOMPARE(AppConfig::load(config).engine, QStringLiteral("vibe"));
 
         // Omarchy's local models set up: the local engine uses them...
         writeOmarchyHome(home.path(), QStringLiteral("http://127.0.0.1:11435/v1"), QStringLiteral("active"));
+        QCOMPARE(AppConfig::load(config).engine, QStringLiteral("local"));
         QCOMPARE(AppConfig::load(config).localApi, QStringLiteral("omarchy"));
         // ...unless the user points it at a server of their own.
         writeFile(config, "[engine.local]\nendpoint = \"http://127.0.0.1:11434\"\n");

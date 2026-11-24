@@ -61,6 +61,7 @@ struct AppConfig {
     // runs). Unset, it is omarchy when Omarchy's local models are set up and
     // no endpoint is given, and ollama otherwise.
     QString localApi = QStringLiteral("ollama");
+    bool localApiSet = false;                 // the file names an API
     QString localEndpoint;
     QString localModel;
     // [dates]; empty = the interface language's convention.
