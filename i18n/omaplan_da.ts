@@ -276,8 +276,8 @@ Råt svar:
 %2</translation>
     </message>
     <message>
-        <source>Could not create a temporary file for the system prompt.</source>
-        <translation>Kunne ikke oprette en midlertidig fil til systemprompten.</translation>
+        <source>Could not create a temporary file for the prompt.</source>
+        <translation>Kunne ikke oprette en midlertidig fil til prompten.</translation>
     </message>
 </context>
 <context>

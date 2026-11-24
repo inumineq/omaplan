@@ -18,7 +18,7 @@ shape, theme, language and conventions. This document only describes what is par
 | `store.{h,cpp}` | SQLite via Qt SQL (`QSQLITE`), schema version and migration, transactions; the only place that writes data |
 | `planmodel.{h,cpp}` | `QAbstractListModel` over the tasks with roles; filtering/grouping via proxy models per view |
 | `engine.{h,cpp}` | abstract `AiEngine` (asynchronous `propose(text, context)` → proposal or error), timeout and cancel |
-| `engine_vibe.cpp` | Mistral via `vibe --prompt-file /dev/stdin --output json --max-turns 1 --system-prompt-file …`, tools disabled (the Pro quota; no key in the app) |
+| `engine_vibe.cpp` | Mistral via `vibe --prompt-file <private temp file> --output json --max-turns 1 --system-prompt-file …`, tools disabled (the Pro quota; no key in the app) |
 | `engine_claude.cpp` | Claude via `claude -p --output-format json` with the prompt on stdin and no tools, MCP servers, settings files or slash commands |
 | `engine_local.cpp` | a local model over HTTP: Ollama's `/api/chat` or an OpenAI-compatible `/v1/chat/completions` |
 | `engine_command.cpp` | any command: prompt on stdin, JSON on stdout |
