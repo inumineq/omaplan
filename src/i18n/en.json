@@ -167,6 +167,7 @@
   "Now: %1 · 12.12 is %2 · the week starts on %3 · %4. Automatic follows the language.": "Now: %1 · 12.12 is %2 · the week starts on %3 · %4. Automatic follows the language.",
   "Omarchy has no local text model named %1. See the ones set up with: omarchy models status": "Omarchy has no local text model named %1. See the ones set up with: omarchy models status",
   "Omarchy has no local text model set up. Set one up with: omarchy models use <recipe>": "Omarchy has no local text model set up. Set one up with: omarchy models use <recipe>",
+  "Omarchy's (%1)": "Omarchy's (%1)",
   "Omarchy's local model %1 has no endpoint on this machine (%2).": "Omarchy's local model %1 has no endpoint on this machine (%2).",
   "Omarchy's local model %1 is not running. Start it with: omarchy models start %1": "Omarchy's local model %1 is not running. Start it with: omarchy models start %1",
   "Omarchy's local model key could not be read (~/.config/omarchy/agent-local/key).": "Omarchy's local model key could not be read (~/.config/omarchy/agent-local/key).",

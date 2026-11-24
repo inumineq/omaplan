@@ -240,6 +240,33 @@ private slots:
         QCOMPARE(focusName(), QStringLiteral("field:engine.claude.model"));
     }
 
+    // A chosen default engine can be given back: the first choice follows
+    // Omarchy's default agent again by taking the line out of the file.
+    void defaultEngineCanFollowOmarchyAgain() {
+        const QByteArray before = fileText().toUtf8();
+        ConfigFile file(m_cfg);
+        file.set(QStringLiteral("engine"), QStringLiteral("default"), QStringLiteral("claude"));
+        QVERIFY(file.save());
+        m_settings->reload();
+        pump();
+        openPanel();
+        QQuickItem *choice = item(QStringLiteral("choice:engine.default"));
+        QVERIFY(choice);
+        QCOMPARE(choice->property("value").toString(), QStringLiteral("claude"));
+        choice->forceActiveFocus();
+        key(Qt::Key_Left);
+        QCOMPARE(AppConfig::load(m_cfg).engine, QStringLiteral("vibe"));
+        QVERIFY(fileText().contains(QStringLiteral("default =")));
+        key(Qt::Key_Left);
+        QCOMPARE(choice->property("value").toString(), QStringLiteral("auto"));
+        QVERIFY2(!fileText().contains(QStringLiteral("default =")), qPrintable(fileText()));
+        // And back to a choice of one's own.
+        key(Qt::Key_Right);
+        QCOMPARE(choice->property("value").toString(), QStringLiteral("vibe"));
+        QVERIFY(fileText().contains(QStringLiteral("default =")));
+        writeConfig(before);
+    }
+
     // M1: the first click on Test after typing in a field runs the test.
     void firstClickOnTestRunsIt() {
         openPanel();

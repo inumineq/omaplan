@@ -217,6 +217,7 @@ Rectangle {
     // A choice setting as a row of buttons.
     component ConfigChoice: Segmented {
         property string key
+        objectName: "choice:" + key
         focusable: true
         keyInline: true
         maxWidth: flick.width
@@ -285,8 +286,11 @@ Rectangle {
                     Heading { text: qsTr("Default engine").toUpperCase() }
                     ConfigChoice {
                         key: "engine.default"
-                        options: panel.engineInfo.engines.map(e => [e.id, e.name])
-                        value: panel.engineInfo.default || "vibe"
+                        // The first choice takes the line out of the file: the
+                        // engine then follows Omarchy's default agent, and
+                        // the choice names the engine that gives right now.
+                        options: [["auto", qsTr("Omarchy's (%1)").arg(panel.engine(panel.engineInfo.default || "vibe").name)]]
+                                 .concat(panel.engineInfo.engines.map(e => [e.id, e.name]))
                     }
                     Repeater {
                         // A fixed list: a saved field updates the card's
