@@ -60,7 +60,7 @@ Rectangle {
             BusyIndicator { Layout.alignment: Qt.AlignHCenter; running: parent.visible }
             Text {
                 Layout.alignment: Qt.AlignHCenter
-                text: qsTr("Waiting for %1 …").arg(column.info.engine)
+                text: qsTr("Waiting for %1…").arg(column.info.engine)
                 color: theme.muted
             }
             Item { Layout.fillHeight: true }

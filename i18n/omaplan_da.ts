@@ -204,6 +204,14 @@
         <translation>Den valgte kommando er ikke installeret eller ikke på PATH.</translation>
     </message>
     <message>
+        <source>Local</source>
+        <translation>Lokal</translation>
+    </message>
+    <message>
+        <source>Local (%1)</source>
+        <translation>Lokal (%1)</translation>
+    </message>
+    <message>
         <source>The local engine needs a model and an endpoint. Example config (~/.config/omaplan/config.toml):
 
 [engine.local]
@@ -796,8 +804,8 @@ Råt svar:
         <translation>Ctrl+%1 godkender</translation>
     </message>
     <message>
-        <source>Waiting for %1 …</source>
-        <translation>Venter på %1 …</translation>
+        <source>Waiting for %1…</source>
+        <translation>Venter på %1…</translation>
     </message>
     <message>
         <source>+ Add task</source>
