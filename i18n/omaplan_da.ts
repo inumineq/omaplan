@@ -606,8 +606,8 @@ Råt svar:
         <translation>Ny opgave</translation>
     </message>
     <message>
-        <source>Keys</source>
-        <translation>Taster</translation>
+        <source>Keyboard shortcuts</source>
+        <translation>Tastaturgenveje</translation>
     </message>
     <message>
         <source>1 task added · Ctrl+Z takes it back</source>
