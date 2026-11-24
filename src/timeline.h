@@ -3,9 +3,10 @@
 #include <QList>
 
 // Where the timeline's titles go and which lane each task takes, so that every
-// title can be read: inside its bar when it fits; else after the bar (before
-// its deadline mark, or after the mark); else before the bar; else shortened
-// on the side with the most room. Tasks are then packed into lanes by
+// title can be read: inside its bar when it fits; else after the bar (up to
+// its deadline mark); else before the bar; else after the mark; else
+// shortened on the side with the most room. The first three keep a title
+// next to its bar. Tasks are then packed into lanes by
 // everything they occupy (bar, title, mark), so no two of them overlap.
 //
 // One axis in any unit: pixels in the window (GanttView.qml), rem at a week's

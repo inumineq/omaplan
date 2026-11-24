@@ -78,7 +78,8 @@ inline TaskSpan taskSpan(const Task &task) {
             span.end = span.allDay ? span.start.addDays(std::max(1, (task.durationMinutes + 1439) / 1440))
                                    : span.start.addSecs(qint64(task.durationMinutes) * 60);
         } else if (due.isValid() && task.deadline.date() > task.start.date()) {
-            span.end = due;
+            // Whole days run to the end of the deadline's day, whatever its time.
+            span.end = span.allDay ? QDateTime(task.deadline.date().addDays(1), QTime(0, 0)) : due;
             span.toDeadline = true;
         } else {
             span.end = span.allDay ? span.start.addDays(1) : span.start.addSecs(30 * 60);

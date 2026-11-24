@@ -631,8 +631,9 @@ private slots:
             "<span class=\"group-title\">No project</span>",
             // Timeline
             "<section id=\"timeline\" class=\"view\" aria-label=\"Timeline\">",
-            "<div class=\"gantt\" style=\"--from:8;--to:18\">",
-            "<section class=\"gantt-day today\" data-date=\"2026-11-23\">",
+            "<div class=\"gantt\">",
+            "<section class=\"gantt-week\" data-week=\"2026-11-23\">",
+            "<h3 class=\"gantt-date today\"><time datetime=\"2026-11-23\">",
             "<div class=\"bar bar-all-day\"",
             "class=\"bar-label\"",
             "class=\"deadline-mark\"",
@@ -2368,6 +2369,10 @@ private slots:
         s = task(midnight, false, 0, QDateTime(mon.addDays(4), QTime(0, 0)), false);
         QVERIFY(s.toDeadline);
         QCOMPARE(s.end, QDateTime(mon.addDays(5), QTime(0, 0)));
+        // ... also when the deadline has a time: whole days, and no mark.
+        s = task(midnight, false, 0, QDateTime(mon.addDays(4), QTime(12, 0)), true);
+        QCOMPARE(s.end, QDateTime(mon.addDays(5), QTime(0, 0)));
+        QVERIFY(!s.mark.isValid());
         // A duration wins; the later deadline becomes a mark.
         s = task(QDateTime(mon, QTime(10, 0)), true, 120, QDateTime(mon.addDays(2), QTime(0, 0)), false);
         QVERIFY(!s.toDeadline);

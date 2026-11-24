@@ -20,12 +20,12 @@ Placement place(const Item &item, const Geometry &g) {
     } else if (item.barEnd + g.gap + w <= afterLimit) {
         p.side = Side::AfterBar;
         p.labelStart = item.barEnd + g.gap;
-    } else if (item.hasMark && item.markEnd + g.gap + w <= g.total) {
-        p.side = Side::AfterMark;
-        p.labelStart = item.markEnd + g.gap;
     } else if (item.barStart - g.gap - w >= 0) {
         p.side = Side::Before;
         p.labelStart = item.barStart - g.gap - w;
+    } else if (item.hasMark && item.markEnd + g.gap + w <= g.total) {
+        p.side = Side::AfterMark;
+        p.labelStart = item.markEnd + g.gap;
     } else {
         // Shortened, on the side with the most room (the first of equals).
         struct Room {

@@ -224,58 +224,146 @@ check(list.lastIndexOf('data-group="date:') < list.indexOf('data-group="no-date"
 check(list.includes('>No date</span>') && list.includes('>no date</span>'), 'No date shows with its title and "no date"');
 
 section('rendering: timeline');
-const timeline = app.renderTimeline(plan, today, en, '');
-const ganttDays = [...timeline.matchAll(/<section class="gantt-day[^"]*" data-date="([^"]+)"/g)].map((m) => m[1]);
-const allDates = new Set();
-for (const o of plan.tasks) {
-  if (o.start) allDates.add(o.start.slice(0, 10));
-  if (o.deadline) allDates.add(o.deadline.slice(0, 10));
+const unescape = (s) => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+// What a rendered week draws, read back from the markup, in rem at the week's minimum width.
+function timelineWeeks(html) {
+  const W = app.WEEK_REM;
+  const g = app.TIMELINE_GEOMETRY;
+  return html.split('<section class="gantt-week" data-week="').slice(1).map((chunk) => {
+    const week = chunk.slice(0, 10);
+    const parts = [];
+    for (const m of chunk.matchAll(/<(div|span) class="([^"]+)" style="([^"]+)"(?: data-id="([^"]+)")?[^>]*>(?:<span class="bar-title">([^<]*)<\/span>)?([^<]*)/g)) {
+      const cls = m[2].split(' ');
+      const style = Object.fromEntries(m[3].split(';').map((kv) => kv.split(':')).map(([k, v]) => [k, Number(v)]));
+      const x = (style['--x'] / 100) * W;
+      const part = { kind: cls[0], cls, lane: style['--lane'], id: m[4], inside: m[5], text: m[6] };
+      if (part.kind === 'bar') Object.assign(part, { start: x, end: Math.max(x + (style['--w'] / 100) * W, x + 0.35) });
+      else if (part.kind === 'deadline-mark') Object.assign(part, { start: x - 0.3, end: x + 0.3 });
+      else if (part.kind === 'bar-label') {
+        const width = '--max' in style ? style['--max'] : unescape(part.text).length * app.CHAR_REM;
+        // a title before its bar is anchored by its right edge
+        Object.assign(part, cls.includes('bar-label-before') ? { start: x - width, end: x } : { start: x, end: x + width }, { max: style['--max'] });
+      }
+      else continue; // the line to a mark is drawn under the title
+      parts.push(part);
+    }
+    return { week, parts, lanes: Number((/--lanes:(\d+)/.exec(chunk) || [])[1]), g };
+  });
 }
-const all = [...allDates].sort();
-const min = all[0];
-const max = all[all.length - 1];
-check(ganttDays[0] === min && ganttDays[ganttDays.length - 1] === max, 'the timeline spans ' + min + '..' + max + ' (' + ganttDays.length + ' days)');
-const barCount = [...timeline.matchAll(/<div class="bar[ "]/g)].length;
-const started = plan.tasks.filter((o) => o.start);
-check(barCount === started.length, 'one bar per task with a start (' + barCount + ' of ' + plan.tasks.length + ')');
-check(plan.tasks.filter((o) => !o.start).every((o) => !new RegExp('<div class="bar[^"]*"[^>]*data-id="' + o.id + '"').test(timeline)), 'tasks without a start have no bar in the timeline');
-const day23 = timeline.split('data-date="2026-11-23"')[1].split('</section>')[0];
-check(day23.includes('--tracks:3'), 'the overlap day 2026-11-23 has 3 tracks');
-check((day23.match(/--track:2/g) || []).length >= 1, 'the overlapping task is in track 2');
-const deadlineMarks = [...timeline.matchAll(/<div class="deadline-mark/g)].length;
-const expectedDeadlines = plan.tasks.filter((o) => o.deadline).length;
-check(deadlineMarks === expectedDeadlines, 'deadline marks for every task with a deadline (' + deadlineMarks + ')');
-check(timeline.includes('bar-all-day'), 'all-day bars have bar-all-day');
-
-// time window from the data: earliest start to latest end rounded to whole hours, at least 08-18
-let from = 8, to = 18;
-const timed = started.filter((o) => o.start.includes('T')).map((o) => {
-  const t = app.parseStart(o.start).time;
-  const start = Number(t.slice(0, 2)) + Number(t.slice(3, 5)) / 60;
-  return { start, end: start + (o.duration_min ? o.duration_min / 60 : 0.5) };
-});
-if (timed.length) {
-  from = Math.min(8, Math.floor(Math.min(...timed.map((b) => b.start))));
-  to = Math.max(18, Math.ceil(Math.max(...timed.map((b) => b.end))));
-}
-check(timeline.includes('<div class="gantt" style="--from:' + from + ';--to:' + to + '">'), 'the time window is set on .gantt (--from:' + from + ';--to:' + to + ')');
-const step = to - from > 12 ? 3 : to - from > 8 ? 2 : 1;
-let expectedHours = 0;
-for (let h = Math.ceil(from / step) * step; h <= to; h += step) expectedHours++;
-const hourCount = (timeline.match(/<div class="gantt-hours">.*?<\/div>/s) || [''])[0].match(/<span style="--hour:/g)?.length || 0;
-check(hourCount === expectedHours, 'the hour axis has ' + hourCount + ' labels (step ' + step + ' h)');
-check(timeline.includes('bar-all-day" style="--start:' + from + ';--length:' + (to - from)), 'an all-day bar spans the whole window');
-// the title beside the bar when it cannot fit (Meeting with Client A: 21 characters in 0.75 h of the window 8-18)
-check(/<span class="bar-label"[^>]*title="[^"]*"[^>]*>Meeting with Client A<\/span>/.test(timeline), 'a short bar gets its title beside it (bar-label with title)');
-check(/<div class="bar bar-all-day"[^>]*><span class="bar-title">/.test(timeline), 'a long bar has its title inside');
-// no title is clipped in a bar that is too short: bar-title only appears when the estimate says it fits
-{
-  const CHARS_PER_DAY = 64;
-  const tooShort = [];
-  for (const m of timeline.matchAll(/<div class="bar[^"]*" style="--start:([^;]+);--length:([^;]+);--track:\d+"[^>]*><span class="bar-title">([^<]*)</g)) {
-    if (m[3].length > (Number(m[2]) * CHARS_PER_DAY) / (to - from)) tooShort.push(m[3]);
+// Every week of a rendered timeline keeps its titles readable: no bar, mark or title meets another task's in its lane
+// (at the minimum width, so at any width), a title is inside its bar exactly when it fits, a title outside is not
+// on its own bar or mark, nothing leaves the week, and a title is shortened only when no side has room.
+function checkTimelineReadable(html, what) {
+  const problems = [];
+  const eps = 0.02; // two decimals of a percentage of 48rem
+  for (const { week, parts, g } of timelineWeeks(html)) {
+    for (const p of parts) {
+      if (p.kind === 'bar-label' && (p.start < -eps || p.end > app.WEEK_REM + eps)) problems.push(week + ': title off the week: ' + p.text);
+      if (p.kind === 'bar') {
+        const title = p.inside !== undefined ? unescape(p.inside) : null;
+        const label = parts.find((q) => q.kind === 'bar-label' && q.id === p.id);
+        const width = (title ?? unescape(label ? label.text : '')).length * app.CHAR_REM;
+        const fits = width + 2 * g.pad <= p.end - p.start + eps;
+        if ((title !== null) !== fits && !(label && label.max !== undefined)) problems.push(week + ': inside iff it fits: ' + (title ?? label?.text));
+      }
+    }
+    for (let a = 0; a < parts.length; a++) {
+      for (let b = a + 1; b < parts.length; b++) {
+        const [p, q] = [parts[a], parts[b]];
+        if (p.lane !== q.lane) continue;
+        const apart = p.end <= q.start + eps || q.end <= p.start + eps;
+        if (p.id !== q.id) {
+          if (!(p.end + g.spacing <= q.start + eps || q.end + g.spacing <= p.start + eps)) problems.push(week + ': ' + p.kind + ' and ' + q.kind + ' of two tasks meet in lane ' + p.lane + ' (' + (p.text || p.inside || '') + ' / ' + (q.text || q.inside || '') + ')');
+        } else if ((p.kind === 'bar-label' || q.kind === 'bar-label') && !apart) {
+          problems.push(week + ': a title on its own ' + (p.kind === 'bar-label' ? q.kind : p.kind) + ': ' + (p.text || q.text));
+        }
+      }
+    }
   }
-  check(tooShort.length === 0, 'no title inside a bar where it cannot fit (' + tooShort.join(', ') + ')');
+  check(problems.length === 0, what + (problems.length ? ' (' + problems.slice(0, 4).join('; ') + ')' : ''));
+}
+
+const timeline = app.renderTimeline(plan, today, en, '');
+const weeks = timelineWeeks(timeline);
+const allDates = [];
+for (const o of plan.tasks) {
+  const s = app.taskSpan(o);
+  if (s.start) allDates.push(s.start.date, s.end.min === 0 ? app.addDays(s.end.date, -1) : s.end.date);
+  if (s.mark) allDates.push(s.mark.date);
+}
+allDates.sort();
+const mondayOf = (d) => app.addDays(d, -((new Date(d + 'T12:00').getDay() + 6) % 7));
+check(weeks[0].week === mondayOf(allDates[0]) && weeks[weeks.length - 1].week === mondayOf(allDates[allDates.length - 1]),
+  'the timeline runs from the week of ' + allDates[0] + ' to the week of ' + allDates[allDates.length - 1] + ' (' + weeks.length + ' weeks)');
+check(weeks.every((w, i) => i === 0 || w.week === app.addDays(weeks[i - 1].week, 7)), 'every week in between is there, empty ones too');
+check(weeks.every((w) => (timeline.split('data-week="' + w.week + '"')[1].match(/<h3 class="gantt-date/g) || []).length >= 7), 'each week has seven day headings');
+check(timeline.includes('<h3 class="gantt-date today"><time datetime="' + today + '">'), 'today\'s heading has the class today');
+const started = plan.tasks.filter((o) => o.start);
+check(started.every((o) => timeline.includes('class="bar') && new RegExp('<div class="bar[^"]*"[^>]*data-id="' + o.id + '"').test(timeline)), 'every task with a start has a bar');
+check(plan.tasks.filter((o) => !o.start).every((o) => !new RegExp('<div class="bar[^"]*"[^>]*data-id="' + o.id + '"').test(timeline)), 'tasks without a start have no bar in the timeline');
+check(plan.tasks.filter((o) => !o.start && o.deadline).every((o) => new RegExp('<div class="deadline-mark[^"]*"[^>]*data-id="' + o.id + '"').test(timeline)), 'a task with only a deadline is a mark');
+check(plan.tasks.filter((o) => !o.start && !o.deadline).every((o) => !timeline.includes('data-id="' + o.id + '"')), 'undated tasks are not in the timeline');
+// "Draft the newsletter": 24/11 10:00 for an hour, deadline 26/11 17:00 -- a bar, a line and a mark in one lane
+{
+  const o = plan.tasks.find((x) => x.title === 'Draft the newsletter');
+  const mine = weeks.flatMap((w) => w.parts).filter((p) => p.id === o.id);
+  const bar = mine.find((p) => p.kind === 'bar');
+  const mark = mine.find((p) => p.kind === 'deadline-mark');
+  check(bar && mark && bar.lane === mark.lane && mark.start > bar.end && timeline.includes('<div class="deadline-line"'), 'a deadline after the bar is a mark at the end of a line, in the bar\'s lane');
+}
+check(timeline.includes('bar-all-day'), 'all-day bars have bar-all-day');
+check(/<span class="bar-label"[^>]*>Meeting with Client A<\/span>/.test(timeline), 'a short bar gets its title beside it');
+check(/<div class="bar[^"]*"[^>]*><span class="bar-title">/.test(timeline), 'a long bar has its title inside');
+checkTimelineReadable(timeline, 'the example\'s titles are readable (no overlap, inside iff it fits)');
+check(timeline.includes('a day runs from 8 to 18'), 'the description names the hours of a day');
+
+// spans: a whole working week, a span over a weekend into the next week, a timed span over two days
+{
+  const mini = {
+    tasks: [
+      { id: 'week', title: 'Write the long feature article about the city budget', status: 'todo', priority: 2, start: '2026-11-23', deadline: '2026-11-27' },
+      { id: 'over', title: 'Trip', status: 'todo', priority: 2, start: '2026-11-28', duration_min: 4 * 1440 },
+      { id: 'timed', title: 'Conference', status: 'todo', priority: 2, start: '2026-11-24T08:00', duration_min: 3000 },
+    ],
+  };
+  const html = app.renderTimeline(mini, '2026-11-23', en, '');
+  const parts = timelineWeeks(html);
+  const bars = (id) => parts.flatMap((w) => w.parts.filter((p) => p.kind === 'bar' && p.id === id).map((p) => Object.assign({ week: w.week }, p)));
+  const week = bars('week');
+  check(week.length === 1 && Math.abs(week[0].start) < 0.02 && Math.abs(week[0].end - (5 / 7) * app.WEEK_REM) < 0.02, 'Monday to a Friday deadline: one bar over five days');
+  check(week[0].inside === 'Write the long feature article about the city budget', 'a long title sits inside a long span');
+  const over = bars('over');
+  check(over.length === 2 && over[0].cls.includes('bar-cut-end') && over[1].cls.includes('bar-cut-start'), 'a span into the next week is a bar in each week, cut where it goes on');
+  check(Math.abs(over[1].end - (2 / 7) * app.WEEK_REM) < 0.02, 'Saturday for four days ends with Tuesday');
+  const timed = bars('timed');
+  // 08:00 on Tuesday to 10:00 on Thursday, in the window 8-18
+  check(timed.length === 1 && Math.abs(timed[0].start - (1 / 7) * app.WEEK_REM) < 0.02 && Math.abs(timed[0].end - ((3 + 0.2) / 7) * app.WEEK_REM) < 0.02, 'a timed span runs from its start to its end two days later');
+  check(!/--x:-|--w:-/.test(html), 'no negative positions');
+}
+
+// generated plans of 1, 10 and 40 tasks: always readable
+{
+  const words = ['Draft the newsletter', 'Review the pull request', 'Book train tickets', 'Update the website', 'Pay the invoice',
+    'Write the long feature article about the city budget', 'Call Client A about the draft', 'Record video', 'Team lunch', 'Read the contract'];
+  let seed = 7;
+  const rand = (n) => ((seed = (seed * 1103515245 + 12345) % 2147483648) % n);
+  for (const count of [1, 10, 40]) {
+    const tasks = [];
+    for (let i = 0; i < count; i++) {
+      const day = app.addDays('2026-11-23', rand(14));
+      const hour = String(8 + rand(9)).padStart(2, '0') + ':' + ['00', '15', '30', '45'][rand(4)];
+      const o = { id: 'g' + i, title: words[rand(words.length)], status: rand(4) ? 'todo' : 'done', priority: 2 };
+      switch (i % 6) {
+        case 0: Object.assign(o, { start: day, deadline: app.addDays(day, 1 + rand(5)) }); break;
+        case 1: Object.assign(o, { deadline: day }); break;
+        case 2: Object.assign(o, { start: day, duration_min: rand(2) ? 2880 : undefined }); break;
+        case 3: Object.assign(o, { start: day + 'T' + hour, duration_min: 60, deadline: app.addDays(day, 2) }); break;
+        default: Object.assign(o, { start: day + 'T' + hour, duration_min: 15 + 15 * rand(8) });
+      }
+      tasks.push(o);
+    }
+    checkTimelineReadable(app.renderTimeline({ tasks }, '2026-11-23', en, ''), count + ' generated tasks: titles readable');
+  }
 }
 
 // ---------- 4. languages ----------

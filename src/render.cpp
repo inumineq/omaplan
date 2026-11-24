@@ -12,14 +12,14 @@
 #include <algorithm>
 #include <cmath>
 
+#include "timeline.h"
+
 // Kept in step with web/app.js function by function, under the same names.
 // Page texts come from the dictionary (web/i18n/<language>.json).
 
 namespace Render {
 
 namespace {
-
-const double kCharsPerDay = 64; // CHARS_PER_DAY: characters across a whole-day bar at the column's minimum width
 
 // One dictionary, web/i18n/<language>.json.
 struct Texts {
@@ -171,7 +171,6 @@ QString num(double x) {
         s.chop(1);
     return s == QLatin1String("-0") ? QStringLiteral("0") : s;
 }
-double hours(const QString &time) { return time.left(2).toInt() + time.mid(3, 2).toInt() / 60.0; }
 
 // The rule of src/task.h (effectiveDate, isOverdue), as planDate/isOverdue/
 // overdueDate/agendaDate in app.js.
@@ -199,7 +198,6 @@ QString agendaDate(const Item &o, const QString &today) {
     const QString d = planDate(o);
     return !d.isEmpty() && d < today && o.status == QLatin1String("todo") ? today : d;
 }
-QString startDate(const Item &o) { return parseWhen(o.start).date; }
 
 // sortTasks: dated first (by date, timed before all-day, by time), then
 // undated; then priority, then title (collated in the page's language).
@@ -389,150 +387,223 @@ QString renderListByProject(const QList<Item> &items, const Texts &t, const QStr
            + "  </section>";
 }
 
-struct Bar {
-    Item o;
-    When s;
-    double start = 0, length = 0;
-    bool allDay = false;
-    int track = 0;
+// ---------- timeline (Gantt) ----------
+
+// A moment as written in plan.json: a date and minutes into the day (0-1439), wall time.
+struct Moment {
+    QString date;
+    int min = 0;
+    bool valid() const { return !date.isEmpty(); }
+};
+int minutesOf(const QString &time) { return time.left(2).toInt() * 60 + time.mid(3, 2).toInt(); }
+Moment addMinutes(const Moment &m, int n) {
+    const int total = m.min + n;
+    return {addDays(m.date, int(std::floor(total / 1440.0))), total % 1440};
+}
+int compareMoments(const Moment &a, const Moment &b) {
+    return a.date < b.date ? -1 : a.date > b.date ? 1 : a.min - b.min;
+}
+int daysBetween(const QString &a, const QString &b) { return int(dateOf(a).daysTo(dateOf(b))); }
+QString mondayOf(const QString &date) { return addDays(date, 1 - dateOf(date).dayOfWeek()); }
+QString timeOf(int min) {
+    return QStringLiteral("%1:%2").arg(min / 60, 2, 10, QLatin1Char('0')).arg(min % 60, 2, 10, QLatin1Char('0'));
+}
+
+// taskSpan: the rule of taskSpan in task.h, over plan.json's fields.
+struct Span {
+    Moment start, end;
+    bool allDay = false, toDeadline = false;
+    Moment mark;
+    bool markAllDay = false;
+};
+Span taskSpan(const Item &o) {
+    const When s = parseWhen(o.start);
+    const When d = parseWhen(o.deadline);
+    const Moment due = d.date.isEmpty() ? Moment{}
+                       : !d.time.isEmpty() ? Moment{d.date, minutesOf(d.time)}
+                                           : Moment{addDays(d.date, 1), 0};
+    Span span;
+    if (!s.date.isEmpty()) {
+        span.allDay = s.time.isEmpty();
+        span.start = {s.date, span.allDay ? 0 : minutesOf(s.time)};
+        if (o.duration > 0) {
+            span.end = span.allDay ? Moment{addDays(s.date, std::max(1, int(std::ceil(o.duration / 1440.0)))), 0}
+                                   : addMinutes(span.start, o.duration);
+        } else if (due.valid() && d.date > s.date) {
+            span.end = span.allDay ? Moment{addDays(d.date, 1), 0} : due;
+            span.toDeadline = true;
+        } else {
+            span.end = span.allDay ? Moment{addDays(s.date, 1), 0} : addMinutes(span.start, 30);
+        }
+    }
+    if (due.valid() && (!span.end.valid() || compareMoments(due, span.end) > 0)) {
+        span.mark = {d.date, d.time.isEmpty() ? 0 : minutesOf(d.time)};
+        span.markAllDay = d.time.isEmpty();
+    }
+    return span;
+}
+
+// WEEK_REM, CHAR_REM, BAR_MIN_REM, MARK_REM and TIMELINE_GEOMETRY in app.js.
+const double kWeekRem = 48;
+const double kCharRem = 0.47;
+const double kBarMinRem = 0.35;
+const double kMarkRem = 0.6;
+const Timeline::Geometry kTimelineGeometry{kWeekRem, 0.3, 0.3, 0.9};
+
+// spanText: "Mon 23/11 14:00–15:30", "Mon 23/11 (all day)", "Mon 23/11 – Fri 27/11", ...
+QString spanText(const Texts &t, const Span &s) {
+    if (s.allDay) {
+        const QString last = addDays(s.end.date, -1);
+        return last == s.start.date ? formatDateShort(t, s.start.date) + " (" + t["allDay"] + ")"
+                                    : formatDateShort(t, s.start.date) + u(" – ") + formatDateShort(t, last);
+    }
+    const auto at = [&](const Moment &m) { return formatDateShort(t, m.date) + ' ' + clockTime(t, timeOf(m.min)); };
+    const bool sameDay = s.end.date == s.start.date || (s.end.min == 0 && s.end.date == addDays(s.start.date, 1));
+    return sameDay ? at(s.start) + u("–") + clockTime(t, timeOf(s.end.min)) : at(s.start) + u(" – ") + at(s.end);
+}
+
+struct Shown {
+    const Item *o = nullptr;
+    Span span;
+    bool hasBar = false, hasMark = false, cutStart = false, cutEnd = false;
+    double barStart = 0, barEnd = 0, markX = 0;
 };
 
 QString renderTimeline(const QList<Item> &items, const QString &today, const Texts &t, const QString &active) {
-    QStringList dates;
+    QList<QPair<const Item *, Span>> tasks;
     for (const Item &o : items) {
-        if (!startDate(o).isEmpty())
-            dates << o.start.left(10);
-        if (!parseWhen(o.deadline).date.isEmpty())
-            dates << o.deadline.left(10);
+        const Span span = taskSpan(o);
+        if (span.start.valid() || span.mark.valid())
+            tasks.append({&o, span});
     }
-    dates.removeDuplicates();
-    std::sort(dates.begin(), dates.end());
-    if (dates.isEmpty())
-        dates << today;
-    QStringList days;
-    for (QString d = dates.first(); d <= dates.last(); d = addDays(d, 1))
-        days << d;
-
-    QHash<QString, QList<Bar>> raw;
-    for (const QString &day : days) {
-        QList<Bar> bars;
-        for (const Item &o : items) {
-            if (startDate(o) != day)
-                continue;
-            Bar b{o, parseWhen(o.start)};
-            if (b.s.time.isEmpty()) {
-                b.allDay = true;
-            } else {
-                b.start = hours(b.s.time);
-                b.length = o.duration ? o.duration / 60.0 : 0.5;
-            }
-            bars << b;
-        }
-        raw.insert(day, bars);
-    }
-
-    // Window from the timed tasks: earliest start to latest end, whole hours, at least 08-18.
-    int from = 8, to = 18;
-    bool any = false;
-    double minStart = 0, maxEnd = 0;
-    for (const auto &bars : std::as_const(raw))
-        for (const Bar &b : bars)
-            if (!b.allDay) {
-                minStart = any ? std::min(minStart, b.start) : b.start;
-                maxEnd = any ? std::max(maxEnd, b.start + b.length) : b.start + b.length;
-                any = true;
-            }
-    if (any) {
-        from = std::min(8, int(std::floor(minStart)));
-        to = std::max(18, int(std::ceil(maxEnd)));
-    }
-    for (auto &bars : raw)
-        for (Bar &b : bars)
-            if (b.allDay) {
-                b.start = from;
-                b.length = to - from;
-            }
-
-    const int step = to - from > 12 ? 3 : to - from > 8 ? 2 : 1;
-    QString hourLabels;
-    for (int h = int(std::ceil(double(from) / step)) * step; h <= to; h += step)
-        hourLabels += QStringLiteral("<span style=\"--hour:%1\">%1</span>").arg(h);
-
     const QCollator coll = collator(t.language());
-    QStringList dayParts;
-    for (const QString &day : days) {
-        QList<Bar> bars = raw.value(day);
-        std::stable_sort(bars.begin(), bars.end(), [&](const Bar &a, const Bar &b) {
-            if (a.start != b.start)
-                return a.start < b.start;
-            if (a.length != b.length)
-                return a.length > b.length;
-            return coll.compare(a.o.title, b.o.title) < 0;
-        });
-        QList<double> trackEnd;
-        for (Bar &b : bars) {
-            int track = -1;
-            for (int i = 0; i < trackEnd.size(); ++i)
-                if (trackEnd[i] <= b.start + 1e-9) {
-                    track = i;
-                    break;
-                }
-            if (track == -1) {
-                trackEnd << 0;
-                track = trackEnd.size() - 1;
+    std::stable_sort(tasks.begin(), tasks.end(), [&](const auto &a, const auto &b) {
+        const int c = compareMoments(a.second.start.valid() ? a.second.start : a.second.mark,
+                                     b.second.start.valid() ? b.second.start : b.second.mark);
+        if (c != 0)
+            return c < 0;
+        return coll.compare(a.first->title, b.first->title) < 0;
+    });
+
+    // The hours of a day: the tasks with a time, from their start to their end on the same day, at least 08-18.
+    int from = 8, to = 18;
+    for (const auto &x : std::as_const(tasks)) {
+        const Span &s = x.second;
+        if (!s.start.valid() || s.allDay)
+            continue;
+        from = std::min(from, s.start.min / 60);
+        const int end = s.end.date == s.start.date ? s.end.min : s.start.min + 30;
+        to = std::max(to, std::min(24, int(std::ceil(end / 60.0))));
+    }
+
+    QStringList dates;
+    for (const auto &x : std::as_const(tasks)) {
+        const Span &s = x.second;
+        if (s.start.valid())
+            dates << s.start.date << (s.end.min == 0 ? addDays(s.end.date, -1) : s.end.date);
+        if (s.mark.valid())
+            dates << s.mark.date;
+    }
+    std::sort(dates.begin(), dates.end());
+    const QString first = mondayOf(dates.isEmpty() ? today : dates.first());
+    const QString last = mondayOf(dates.isEmpty() ? today : dates.last());
+
+    const auto pct = [](double rem) { return num(rem / kWeekRem * 100); };
+    QStringList weeks;
+    for (QString week = first; week <= last; week = addDays(week, 7)) {
+        const Moment weekStart{week, 0}, weekEnd{addDays(week, 7), 0};
+        // rem from the week's start; `edge`: a whole-day boundary
+        const auto at = [&](const Moment &m, bool edge) {
+            const int day = daysBetween(week, m.date);
+            if (day < 0)
+                return 0.0;
+            if (day >= 7)
+                return kWeekRem;
+            const double within = edge ? 0 : std::max(0.0, std::min(1.0, (m.min / 60.0 - from) / (to - from)));
+            return (day + within) / 7 * kWeekRem;
+        };
+        QList<Shown> shown;
+        QList<Timeline::Item> layoutItems;
+        for (const auto &x : std::as_const(tasks)) {
+            const Span &s = x.second;
+            Shown b;
+            b.o = x.first;
+            b.span = s;
+            if (s.start.valid() && compareMoments(s.start, weekEnd) < 0 && compareMoments(s.end, weekStart) > 0) {
+                b.hasBar = true;
+                b.cutStart = compareMoments(s.start, weekStart) < 0;
+                b.cutEnd = compareMoments(s.end, weekEnd) > 0;
+                b.barStart = b.cutStart ? 0 : at(s.start, s.allDay);
+                b.barEnd = b.cutEnd ? kWeekRem : at(s.end, s.allDay);
+                b.barEnd = std::max(b.barEnd, std::min(kWeekRem, b.barStart + kBarMinRem));
             }
-            trackEnd[track] = b.start + b.length;
-            b.track = track;
-        }
-        const int tracks = std::max<int>(1, trackEnd.size());
-        QStringList lines;
-        for (const Bar &b : bars) {
-            const QString title = b.o.title + u(" – ") + formatDateShort(t, day)
-                                  + (b.s.time.isEmpty() ? " (" + t["allDay"] + ")"
-                                                        : ' ' + clockTime(t, b.s.time)
-                                                              + (b.o.duration ? u("–") + clockTime(t, endTime(b.s.time, b.o.duration))
-                                                                              : QString()));
-            const QString pos = "--start:" + num(b.start) + ";--length:" + num(b.length) + ";--track:"
-                                + QString::number(b.track);
-            const QString bar = "        <div class=\"bar" + QString(b.allDay ? " bar-all-day" : "")
-                                + QString(b.o.status == QLatin1String("done") ? " status-done" : "") + "\" style=\""
-                                + pos + "\" data-id=\"" + esc(b.o.id) + "\"" + colorAttr(t, b.o) + " title=\""
-                                + esc(title) + "\">";
-            // The title goes beside the bar when it cannot fit inside it. A
-            // bar's pixel width shrinks with the window (to - from); at the
-            // column's minimum width (34rem) about 64 characters fit across a
-            // whole-day bar. Estimate conservatively: a title behind the
-            // estimate would be clipped by overflow:hidden.
-            const double len = b.o.title.size();
-            const bool fitsIn = len <= b.length * kCharsPerDay / (to - from);
-            if (fitsIn) {
-                lines << bar + "<span class=\"bar-title\">" + esc(b.o.title) + "</span></div>";
-            } else {
-                lines << bar + "</div>";
-                lines << "        <span class=\"bar-label\" style=\"" + pos + "\" data-id=\"" + esc(b.o.id)
-                             + "\" title=\"" + esc(title) + "\">" + esc(b.o.title) + "</span>";
+            if (s.mark.valid() && s.mark.date >= week && s.mark.date < weekEnd.date) {
+                b.hasMark = true;
+                double c = s.markAllDay ? at({addDays(s.mark.date, 1), 0}, true) - 0.4 : at(s.mark, false);
+                c = std::max(kMarkRem / 2, std::min(kWeekRem - kMarkRem / 2, c));
+                if (b.hasBar)
+                    c = std::max(c, b.barEnd + kMarkRem / 2);
+                b.markX = c;
             }
-        }
-        for (const Item &o : items) {
-            const When f = parseWhen(o.deadline);
-            if (f.date != day || f.date.isEmpty())
+            if (!b.hasBar && !b.hasMark)
                 continue;
-            const double start = f.time.isEmpty() ? to : hours(f.time);
-            const bool inWindow = !f.time.isEmpty() && start < to;
-            const QString title = fill(t["deadlineTitle"], {{QStringLiteral("date"), formatDeadline(t, o.deadline)},
-                                                            {QStringLiteral("title"), o.title}});
-            lines << "        <div class=\"deadline-mark" + QString(inWindow ? "" : " deadline-mark-edge")
-                         + "\" style=\"--start:" + num(std::min(start, double(to))) + "\" data-id=\"" + esc(o.id)
-                         + "\" title=\"" + esc(title) + "\"></div>";
+            if (!b.hasBar)
+                b.barStart = b.barEnd = b.markX - kMarkRem / 2;
+            shown << b;
+            layoutItems << Timeline::Item{b.barStart, b.barEnd, b.hasMark, b.markX - kMarkRem / 2, b.markX + kMarkRem / 2,
+                                          b.o->title.size() * kCharRem};
         }
-        dayParts << "    <section class=\"gantt-day" + QString(day == today ? " today" : "") + "\" data-date=\"" + day
-                        + "\">\n"
-                        + "      <h3 class=\"gantt-date\"><time datetime=\"" + day + "\">" + esc(formatDateShort(t, day))
-                        + "</time></h3>\n"
-                        + "      <div class=\"tracks\" style=\"--tracks:" + QString::number(tracks) + "\">\n"
-                        + lines.join('\n') + "\n"
-                        + "      </div>\n"
-                        + "    </section>";
+        const QList<Timeline::Placement> placed = Timeline::layout(layoutItems, kTimelineGeometry);
+        QStringList lines;
+        int lanes = 1;
+        for (int i = 0; i < shown.size(); ++i) {
+            const Shown &b = shown[i];
+            const Timeline::Placement &p = placed[i];
+            const Item &o = *b.o;
+            const Span &s = b.span;
+            lanes = std::max(lanes, p.lane + 1);
+            const QString lane = ";--lane:" + QString::number(p.lane);
+            const QString done = o.status == QLatin1String("done") ? QStringLiteral(" status-done") : QString();
+            const QString markTitle = s.mark.valid() ? fill(t["deadlineTitle"], {{QStringLiteral("date"), formatDeadline(t, o.deadline)},
+                                                                                {QStringLiteral("title"), o.title}})
+                                                     : QString();
+            const QString title = s.start.valid() ? o.title + u(" – ") + spanText(t, s) : markTitle;
+            if (b.hasBar)
+                lines << "          <div class=\"bar" + QString(s.allDay ? " bar-all-day" : "") + done
+                             + QString(b.cutStart ? " bar-cut-start" : "") + QString(b.cutEnd ? " bar-cut-end" : "")
+                             + "\" style=\"--x:" + pct(b.barStart) + ";--w:" + pct(b.barEnd - b.barStart) + lane
+                             + "\" data-id=\"" + esc(o.id) + "\"" + colorAttr(t, o) + " title=\"" + esc(title) + "\">"
+                             + (p.side == Timeline::Side::Inside ? "<span class=\"bar-title\">" + esc(o.title) + "</span>" : QString())
+                             + "</div>";
+            if (b.hasBar && b.hasMark)
+                lines << "          <div class=\"deadline-line\" style=\"--x:" + pct(b.barEnd) + ";--w:" + pct(b.markX - b.barEnd)
+                             + lane + "\"></div>";
+            if (b.hasMark)
+                lines << "          <div class=\"deadline-mark" + done + "\" style=\"--x:" + pct(b.markX) + lane + "\" data-id=\""
+                             + esc(o.id) + "\" title=\"" + esc(markTitle) + "\"></div>";
+            // A title before its bar is anchored by its right edge, so it stays at the bar on a wider page.
+            if (p.side != Timeline::Side::Inside && p.labelWidth > 0) {
+                const bool before = p.side == Timeline::Side::Before;
+                lines << "          <span class=\"bar-label" + QString(before ? " bar-label-before" : "") + done
+                             + "\" style=\"--x:" + pct(before ? p.labelStart + p.labelWidth : p.labelStart) + lane
+                             + (p.shortened ? ";--max:" + num(p.labelWidth) : QString()) + "\" data-id=\"" + esc(o.id)
+                             + "\" title=\"" + esc(title) + "\">" + esc(o.title) + "</span>";
+            }
+        }
+        QStringList days;
+        for (int i = 0; i < 7; ++i) {
+            const QString day = addDays(week, i);
+            days << "          <h3 class=\"gantt-date" + QString(day == today ? " today" : "") + "\"><time datetime=\"" + day
+                        + "\">" + esc(formatDateShort(t, day)) + "</time></h3>";
+        }
+        weeks << "      <section class=\"gantt-week\" data-week=\"" + week + "\">\n"
+                     + "        <div class=\"gantt-days\">\n"
+                     + days.join('\n') + "\n"
+                     + "        </div>\n"
+                     + "        <div class=\"lanes\" style=\"--lanes:" + QString::number(lanes) + "\">\n"
+                     + (lines.isEmpty() ? QString() : lines.join('\n') + "\n")
+                     + "        </div>\n"
+                     + "      </section>";
     }
     const QString description = fill(t["timelineDescription"], {{QStringLiteral("from"), QString::number(from)},
                                                                 {QStringLiteral("to"), QString::number(to)}});
@@ -540,14 +611,8 @@ QString renderTimeline(const QList<Item> &items, const QString &today, const Tex
            + "\">\n"
            + "    <h2>" + esc(t["timeline"]) + "</h2>\n"
            + "    <p class=\"description\">" + esc(description) + "</p>\n"
-           + "    <div class=\"gantt\" style=\"--from:" + QString::number(from) + ";--to:" + QString::number(to) + "\">\n"
-           + "      <div class=\"gantt-head\" aria-hidden=\"true\">\n"
-           + "        <div class=\"gantt-date gantt-date-empty\"></div>\n"
-           + "        <div class=\"gantt-hours\">" + hourLabels + "</div>\n"
-           + "      </div>\n"
-           + "      <div class=\"gantt-rows\">\n"
-           + dayParts.join('\n') + "\n"
-           + "      </div>\n"
+           + "    <div class=\"gantt\">\n"
+           + weeks.join('\n') + "\n"
            + "    </div>\n"
            + "  </section>";
 }
