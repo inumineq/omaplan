@@ -26,8 +26,28 @@
         "border": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
         "danger": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
         "ok": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
-        "font": {"type": "string", "pattern": "^[A-Za-z0-9 ._-]{1,64}$", "description": "Omarchy's font family (fontconfig's monospace); the page falls back to monospace"}
+        "font": {"type": "string", "pattern": "^[A-Za-z0-9 ._-]{1,64}$", "description": "Omarchy's font family (fontconfig's monospace); the page falls back to monospace"},
+        "red": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "The palette slots project colours name, each lifted to read on bg"},
+        "orange": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
+        "yellow": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
+        "green": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
+        "cyan": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
+        "blue": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
+        "magenta": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
+        "brown": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
+        "bright_red": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
+        "bright_yellow": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
+        "bright_green": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
+        "bright_cyan": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
+        "bright_blue": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
+        "bright_magenta": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"}
       }
+    },
+    "clock": {"enum": ["24h", "12h"], "description": "Optional. How the page writes times: 14:30 (24h, the default) or 2:30 PM (12h); dates.clock in config.toml"},
+    "project_colors": {
+      "type": "object",
+      "description": "Optional. A project's colour as a slot of the theme palette, for the projects in tasks ([projects] in config.toml)",
+      "additionalProperties": {"enum": ["red", "orange", "yellow", "green", "cyan", "blue", "magenta", "brown", "bright_red", "bright_yellow", "bright_green", "bright_cyan", "bright_blue", "bright_magenta"]}
     },
     "tasks": {
       "type": "array",

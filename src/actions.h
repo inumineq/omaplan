@@ -52,7 +52,7 @@ public:
     ActionResult list(const ListFilter &filter);
     ActionResult show(const QString &id);
     ActionResult projects();
-    ActionResult summary(bool week); // true = this week (Monday start), false = this month
+    ActionResult summary(bool week); // true = this week (from dates.week_start), false = this month
 
     // Pure date parsing, no I/O: ISO dates and datetimes plus Danish/English
     // expressions ("i morgen", "fredag 12", "tomorrow", "next monday", with an

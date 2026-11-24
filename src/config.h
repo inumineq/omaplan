@@ -34,8 +34,8 @@
 //   clock = "24h"              # 24h | 12h
 //
 //   [projects]                 # a project's colour: a slot of the theme palette
-//   Blog = "color4"
-//   "Client A" = "color2"
+//   Blog = "blue"              # (colors.toml's names; color4 etc. as aliases)
+//   "Client A" = "green"
 //
 //   [snapshot]
 //   path = "~/Sync/omaplan/plan.json"  # plan.json for the read-only edition (default: next to the database)
@@ -60,7 +60,7 @@ struct AppConfig {
     QString localModel;
     // [dates]; empty = the interface language's convention.
     QString dateOrder, dateDotted, weekStart, clock;
-    QMap<QString, QString> projectColors;     // [projects] name -> "colorN"
+    QMap<QString, QString> projectColors;     // [projects] name -> palette slot ("blue")
     QString snapshotPath;                     // [snapshot] path, ~ expanded; empty = default
 
     // Empty path = default location; OMAPLAN_CONFIG overrides it (tests).
@@ -84,7 +84,12 @@ namespace ConfigKeys {
 const QList<ConfigKey> &all();
 // The key for a dotted name, including "projects.<name>"; false when unknown.
 bool find(const QString &name, ConfigKey *out);
-// The palette slots a project colour may name: color1 .. color15.
+// The palette slots a project colour may name, as Omarchy's colors.toml
+// names them: red, orange, ..., bright_magenta (not black or white).
+const QStringList &paletteSlots();
+// The slot a value names: a slot name, or a terminal colour number as an
+// alias (color4 = blue, color9 = bright_red); empty when it names none.
+QString paletteSlot(const QString &value);
 bool isPaletteSlot(const QString &value);
 // Checks a value for a key; returns an English error, or empty when fine.
 // An empty value always passes (it means "unset").

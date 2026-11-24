@@ -68,6 +68,10 @@ function validate(node, schema, at, errors) {
       for (const key of Object.keys(node)) {
         if (!schema.properties || !(key in schema.properties)) errors.push(at + ': unknown key "' + key + '"');
       }
+    } else if (schema.additionalProperties && typeof schema.additionalProperties === 'object') {
+      for (const key of Object.keys(node)) {
+        if (!schema.properties || !(key in schema.properties)) validate(node[key], schema.additionalProperties, at + '.' + key, errors);
+      }
     }
     for (const [key, sub] of Object.entries(schema.properties || {})) {
       if (key in node) validate(node[key], sub, at + '.' + key, errors);
@@ -131,6 +135,23 @@ for (const o of plan.tasks) {
   }
 }
 check(overlap, 'there are overlapping tasks on the same day');
+check(Object.keys(plan.project_colors || {}).length >= 1 && plan.tasks.some((o) => o.project && !(o.project in plan.project_colors)),
+  'some projects have a colour and some do not');
+
+section('project colours and the 12-hour clock');
+{
+  const ov = app.renderOverview(plan, today, en, '');
+  check(/data-project="Podcast" data-color="magenta"/.test(ov), 'a task of a coloured project carries data-color');
+  check(!/data-project="Blog" data-color/.test(ov), 'a project without a colour carries none');
+  check(/class="bar[^"]*"[^>]*data-color="green"/.test(app.renderTimeline(plan, today, en, '')), 'timeline bars carry the colour too');
+  const bad = Object.assign({}, plan, { project_colors: { Podcast: 'url(x)', Blog: 'color4' } });
+  check(!/data-color/.test(app.renderOverview(bad, today, en, '')), 'only palette slot names get through');
+  const twelve = Object.assign({}, plan, { clock: '12h' });
+  const list = app.renderListByDate(twelve, en, '');
+  check(list.includes('>2:00 PM–') && list.includes('>10:00 AM'), '12h writes 2:00 PM and 10:00 AM');
+  check(!app.renderListByDate(plan, en, '').includes(' PM'), '24h is the default');
+  check(app.renderMeta(twelve, en).includes('1:57 PM'), 'the export time follows the clock');
+}
 
 // ---------- 3. rendering the views (English) ----------
 

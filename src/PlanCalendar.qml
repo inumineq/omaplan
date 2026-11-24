@@ -15,9 +15,9 @@ Item {
     readonly property bool canPage: true
     readonly property var today: { planModel.today; return Fmt.startOfDay(new Date()) }
     property var anchorDate: Fmt.startOfDay(new Date())
-    readonly property var weekStart: Fmt.mondayOf(anchorDate)
+    readonly property var weekStart: Fmt.weekStartOf(anchorDate)
     readonly property var monthStart: new Date(anchorDate.getFullYear(), anchorDate.getMonth(), 1)
-    readonly property var gridStart: Fmt.mondayOf(monthStart)
+    readonly property var gridStart: Fmt.weekStartOf(monthStart)
     readonly property var rangeStart: mode === "week" ? weekStart : gridStart
     readonly property int rangeDays: mode === "week" ? 7 : 42
 

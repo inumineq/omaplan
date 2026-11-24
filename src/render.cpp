@@ -27,7 +27,25 @@ struct Texts {
     QString operator[](const char *key) const { return json.value(QLatin1String(key)).toString(); }
     QString item(const char *list, int i) const { return json.value(QLatin1String(list)).toArray().at(i).toString(); }
     QString language() const { return (*this)["language"]; }
+    // pageTexts: the plan's clock and project colours on top of the dictionary.
+    bool clock12 = false;
+    QJsonObject projectColors;
 };
+
+Texts pageTexts(const QJsonObject &plan, const Texts &dictionary) {
+    Texts t = dictionary;
+    t.clock12 = plan.value("clock").toString() == QLatin1String("12h");
+    t.projectColors = plan.value("project_colors").toObject();
+    return t;
+}
+
+// clockTime: "14:30", or "2:30 PM" when the plan's clock is 12h
+QString clockTime(const Texts &t, const QString &time) {
+    if (!t.clock12)
+        return time;
+    const int h = time.left(2).toInt();
+    return QString::number((h + 11) % 12 + 1) + ':' + time.mid(3, 2) + (h < 12 ? QStringLiteral(" AM") : QStringLiteral(" PM"));
+}
 
 const Texts &texts(const QString &language) {
     static QHash<QString, Texts> cache;
@@ -115,7 +133,8 @@ QString formatDateShort(const Texts &t, const QString &date) { return fill(t["da
 QString formatDeadline(const Texts &t, const QString &deadline) {
     const When w = parseWhen(deadline);
     const QString date = fill(t["dateInText"], dateVars(t, w.date));
-    return w.time.isEmpty() ? date : fill(t["atTime"], {{QStringLiteral("date"), date}, {QStringLiteral("time"), w.time}});
+    return w.time.isEmpty() ? date
+                            : fill(t["atTime"], {{QStringLiteral("date"), date}, {QStringLiteral("time"), clockTime(t, w.time)}});
 }
 // formatTimestamp: "23 November 2026 at 13:57", wall time as written
 QString formatTimestamp(const Texts &t, const QString &iso) {
@@ -123,7 +142,7 @@ QString formatTimestamp(const Texts &t, const QString &iso) {
     if (w.date.isEmpty())
         return iso;
     Vars vars = dateVars(t, w.date);
-    vars.insert(QStringLiteral("time"), w.time);
+    vars.insert(QStringLiteral("time"), clockTime(t, w.time));
     return fill(t["timestamp"], vars);
 }
 // formatDuration: "45 min", "2 h", "2 h 30 min"
@@ -200,6 +219,15 @@ QList<Item> sortTasks(QList<Item> items, const Texts &t) {
     return items;
 }
 
+// colorAttr: ' data-color="blue"' when the task's project has a colour (a
+// slot of the theme palette), else ''
+QString colorAttr(const Texts &t, const Item &o) {
+    static const QRegularExpression slot(
+        QStringLiteral("^(red|orange|yellow|green|cyan|blue|magenta|brown|bright_(red|yellow|green|cyan|blue|magenta))$"));
+    const QString value = o.project.isEmpty() ? QString() : t.projectColors.value(o.project).toString();
+    return slot.match(value).hasMatch() ? " data-color=\"" + value + "\"" : QString();
+}
+
 QString renderTask(const Item &o, const Texts &t) {
     const When s = parseWhen(o.start);
     QString timeText, timeClass = QStringLiteral("time");
@@ -207,7 +235,8 @@ QString renderTask(const Item &o, const Texts &t) {
         timeText = t["timeNone"];
         timeClass += QStringLiteral(" time-none");
     } else if (!s.time.isEmpty()) {
-        timeText = o.duration ? s.time + u("–") + endTime(s.time, o.duration) : s.time;
+        timeText = o.duration ? clockTime(t, s.time) + u("–") + clockTime(t, endTime(s.time, o.duration))
+                              : clockTime(t, s.time);
     } else {
         timeText = t["allDay"];
         timeClass += QStringLiteral(" time-all-day");
@@ -237,7 +266,7 @@ QString renderTask(const Item &o, const Texts &t) {
                                             : "\n    <details class=\"notes\"><summary>" + esc(t["notes"])
                                                   + "</summary><p>" + esc(o.notes) + "</p></details>";
     return "<li class=\"task status-" + esc(o.status) + "\" data-id=\"" + esc(o.id) + "\" data-priority=\"" + p + "\""
-           + projectAttr + ">\n"
+           + projectAttr + colorAttr(t, o) + ">\n"
            + "    <p class=\"task-row\"><span class=\"" + timeClass + "\">" + esc(timeText)
            + "</span><span class=\"task-title\">" + esc(o.title) + "</span></p>\n"
            + "    <p class=\"task-meta\">" + meta + "</p>" + notes + "\n"
@@ -457,14 +486,15 @@ QString renderTimeline(const QList<Item> &items, const QString &today, const Tex
         for (const Bar &b : bars) {
             const QString title = b.o.title + u(" – ") + formatDateShort(t, day)
                                   + (b.s.time.isEmpty() ? " (" + t["allDay"] + ")"
-                                                        : ' ' + b.s.time
-                                                              + (b.o.duration ? u("–") + endTime(b.s.time, b.o.duration)
+                                                        : ' ' + clockTime(t, b.s.time)
+                                                              + (b.o.duration ? u("–") + clockTime(t, endTime(b.s.time, b.o.duration))
                                                                               : QString()));
             const QString pos = "--start:" + num(b.start) + ";--length:" + num(b.length) + ";--track:"
                                 + QString::number(b.track);
             const QString bar = "        <div class=\"bar" + QString(b.allDay ? " bar-all-day" : "")
                                 + QString(b.o.status == QLatin1String("done") ? " status-done" : "") + "\" style=\""
-                                + pos + "\" data-id=\"" + esc(b.o.id) + "\" title=\"" + esc(title) + "\">";
+                                + pos + "\" data-id=\"" + esc(b.o.id) + "\"" + colorAttr(t, b.o) + " title=\""
+                                + esc(title) + "\">";
             // The title goes beside the bar when it cannot fit inside it. A
             // bar's pixel width shrinks with the window (to - from); at the
             // column's minimum width (34rem) about 64 characters fit across a
@@ -608,7 +638,7 @@ QString esc(const QString &text) {
 
 QString page(const QJsonObject &plan, const QDate &today, const QString &language, const QString &htmlStyle,
              const QString &activeView) {
-    const Texts &t = texts(language);
+    const Texts t = pageTexts(plan, texts(language));
     const QList<Item> items = itemsOf(plan);
     const QString todayIso = today.toString(Qt::ISODate);
     const QString active = isView(activeView) ? activeView : QString();

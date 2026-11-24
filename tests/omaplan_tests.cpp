@@ -22,6 +22,7 @@
 #include "cli.h"
 #include "config.h"
 #include "dateannotate.h"
+#include "datewords.h"
 #include "mcp.h"
 #include "planmodel.h"
 #include "proposal.h"
@@ -33,6 +34,13 @@
 #include "task.h"
 #include "theme.h"
 #include "uilanguage.h"
+
+// Sets the active date convention for one test and puts the old one back.
+struct ConventionGuard {
+    DateConvention saved = DateConvention::active();
+    explicit ConventionGuard(const DateConvention &c) { DateConvention::setActive(c); }
+    ~ConventionGuard() { DateConvention::setActive(saved); }
+};
 
 // Runs the CLI in-process against an already-constructed store, capturing
 // stdout and stderr.
@@ -93,6 +101,8 @@ static void validateSchema(const QJsonValue &node, const QJsonObject &schema, co
                 validateSchema(it.value(), properties.value(it.key()).toObject(), at + "." + it.key(), errors);
             else if (schema.value("additionalProperties") == QJsonValue(false))
                 *errors << at + ": extra " + it.key();
+            else if (schema.value("additionalProperties").isObject())
+                validateSchema(it.value(), schema.value("additionalProperties").toObject(), at + "." + it.key(), errors);
         }
     }
     if (node.isArray() && schema.contains("items")) {
@@ -368,7 +378,9 @@ private slots:
         const QJsonObject theme = Snapshot::omarchyTheme(dir.path());
         QCOMPARE(theme.value("accent").toString(), QStringLiteral("#7aa2f7"));
         QCOMPARE(theme.value("bg").toString(), QStringLiteral("#1a1b26"));
-        QCOMPARE(theme.size() - theme.contains("font"), 10);
+        // Ten colours and the 14 palette slots of project colours.
+        QCOMPARE(theme.size() - theme.contains("font"), 10 + int(ConfigKeys::paletteSlots().size()));
+        QVERIFY(Snapshot::themeStyle(theme).contains("--bright-magenta:#"));
         const QString style = Snapshot::themeStyle(theme);
         QVERIFY(style.contains(QStringLiteral("--accent:#7aa2f7")));
         QVERIFY(style.contains(QStringLiteral("--bg:#1a1b26")));
@@ -450,6 +462,40 @@ private slots:
                     QFAIL(qPrintable(QStringLiteral("line %1:\n  C++: %2\n  JS:  %3").arg(i + 1).arg(a.value(i), e.value(i))));
         }
         QCOMPARE(actual, expected);
+    }
+
+    // The same 12-hour and project colour cases as web/test.mjs.
+    void renderFollowsClockAndProjectColors() {
+        QJsonObject plan = readJsonFile(repoFile(QStringLiteral("web/example/plan.json")));
+        QVERIFY(!plan.isEmpty());
+        const QString normal = Render::page(plan, QDate(2026, 11, 23), "en");
+        QVERIFY(normal.contains("data-project=\"Podcast\" data-color=\"magenta\""));
+        QVERIFY(!normal.contains("data-project=\"Blog\" data-color"));
+        QVERIFY(!normal.contains(" PM"));
+        plan["clock"] = "12h";
+        plan["project_colors"] = QJsonObject{{"Podcast", "url(x)"}, {"Blog", "color4"}};
+        const QString twelve = Render::page(plan, QDate(2026, 11, 23), "en");
+        QVERIFY(twelve.contains(">2:00 PM–"));
+        QVERIFY(twelve.contains(">10:00 AM"));
+        QVERIFY(twelve.contains("1:57 PM"));
+        QVERIFY(!twelve.contains("data-color"));
+    }
+
+    void snapshotCarriesClockProjectColorsAndPalette() {
+        Task blog;
+        blog.title = "Post";
+        blog.project = "Blog";
+        Task other;
+        other.title = "Call";
+        other.project = "Client A";
+        const QMap<QString, QString> colors{{"Blog", "blue"}, {"Unused", "red"}};
+        const QJsonObject plan = Snapshot::build({blog, other}, QDateTime::currentDateTime(), {}, "en", "12h", colors);
+        QCOMPARE(plan.value("clock").toString(), QStringLiteral("12h"));
+        // Only projects in the plan.
+        QCOMPARE(plan.value("project_colors").toObject(), (QJsonObject{{"Blog", "blue"}}));
+        QVERIFY(!Snapshot::build({}, QDateTime::currentDateTime(), {}, "en").contains("project_colors"));
+        // The palette as CSS variables for serve.
+        QVERIFY(Snapshot::themeStyle({{"bright_blue", "#7da6ff"}, {"blue", "javascript:"}}) == "--bright-blue:#7da6ff");
     }
 
     // The page follows src/task.h like web/app.js (web/test.mjs has the same
@@ -2077,6 +2123,99 @@ private slots:
         QCOMPARE(actions.show(id).payload["task"].toObject()["title"].toString(), QStringLiteral("Titel"));
     }
 
+    void dateConventionsFollowLanguageAndConfig()
+    {
+        // Danish and (British) English: D/M, 12.12 is a time, Monday, 24 h.
+        const DateConvention da = DateConvention::forLanguage("da");
+        QVERIFY(da.dayFirst && da.dottedIsTime && da.weekStart == 1 && da.clock24);
+        QVERIFY(DateConvention::forLanguage("en") == da);
+        // [dates] overrides key by key; empty keeps the language's.
+        AppConfig config;
+        config.dateOrder = "mdy";
+        config.clock = "12h";
+        const DateConvention us = DateConvention::resolve(config, "en");
+        QVERIFY(!us.dayFirst && us.dottedIsTime && us.weekStart == 1 && !us.clock24);
+        config.weekStart = "sunday";
+        config.dateDotted = "date";
+        const DateConvention all = DateConvention::resolve(config, "da");
+        QCOMPARE(all.weekStart, 7);
+        QVERIFY(!all.dottedIsTime);
+        QCOMPARE(all.weekStartOf(QDate(2026, 11, 25)), QDate(2026, 11, 22)); // Wednesday -> Sunday
+        QCOMPARE(da.weekStartOf(QDate(2026, 11, 22)), QDate(2026, 11, 16));  // Sunday -> Monday before
+    }
+
+    void dateParsingFollowsTheConvention()
+    {
+        const QDate today(2026, 11, 23); // Monday
+        QDateTime out;
+        bool hasTime = false;
+        QString error;
+        DateConvention c;
+
+        {
+            ConventionGuard guard(c); // the default: Danish
+            QVERIFY(Actions::parseDateTime("12/11", today, &out, &hasTime, &error));
+            QCOMPARE(out.date(), QDate(2027, 11, 12));
+            QVERIFY(Actions::parseDateTime("12.12", today, &out, &hasTime, &error));
+            QCOMPARE(out, QDateTime(today, QTime(12, 12)));
+            QVERIFY(hasTime);
+            // "12.12." with the final dot is a date in every convention.
+            QVERIFY(Actions::parseDateTime("12.12.", today, &out, &hasTime, &error));
+            QCOMPARE(out.date(), QDate(2026, 12, 12));
+            QVERIFY(!hasTime);
+            QVERIFY(Actions::parseDateTime("fredag 14.30", today, &out, &hasTime, &error));
+            QCOMPARE(out, QDateTime(QDate(2026, 11, 27), QTime(14, 30)));
+            // 2pm in any language and convention.
+            QVERIFY(Actions::parseDateTime("tomorrow 2pm", today, &out, &hasTime, &error));
+            QCOMPARE(out, QDateTime(today.addDays(1), QTime(14, 0)));
+            QVERIFY(Actions::parseDateTime("friday at 12:30 am", today, &out, &hasTime, &error));
+            QCOMPARE(out.time(), QTime(0, 30));
+            QVERIFY(Actions::parseDateTime("12 pm", today, &out, &hasTime, &error));
+            QCOMPARE(out.time(), QTime(12, 0));
+            QVERIFY(!Actions::parseDateTime("14pm", today, &out, &hasTime, &error));
+        }
+        {
+            c.dayFirst = false; // M/D
+            ConventionGuard guard(c);
+            QVERIFY(Actions::parseDateTime("12/11", today, &out, &hasTime, &error));
+            QCOMPARE(out.date(), QDate(2026, 12, 11));
+            QVERIFY(Actions::parseDateTime("11/30 9:15", today, &out, &hasTime, &error));
+            QCOMPARE(out, QDateTime(QDate(2026, 11, 30), QTime(9, 15)));
+            QVERIFY(!Actions::parseDateTime("30/11", today, &out, &hasTime, &error)); // month 30
+        }
+        {
+            c = DateConvention();
+            c.dottedIsTime = false; // 12.12 is a date
+            ConventionGuard guard(c);
+            QVERIFY(Actions::parseDateTime("12.12", today, &out, &hasTime, &error));
+            QCOMPARE(out.date(), QDate(2026, 12, 12));
+            QVERIFY(!hasTime);
+            QVERIFY(Actions::parseDateTime("24.12 14:30", today, &out, &hasTime, &error));
+            QCOMPARE(out, QDateTime(QDate(2026, 12, 24), QTime(14, 30)));
+            // A time with a colon stays a time.
+            QVERIFY(Actions::parseDateTime("fredag 14:30", today, &out, &hasTime, &error));
+            QCOMPARE(out.time(), QTime(14, 30));
+            QVERIFY(!Actions::parseDateTime("fredag 14.30", today, &out, &hasTime, &error));
+            QCOMPARE(annotateDates("deadline 24.12", today), QStringLiteral("deadline 24.12 [Thursday 2026-12-24]"));
+        }
+        {
+            c = DateConvention();
+            c.weekStart = 7; // Sunday
+            ConventionGuard guard(c);
+            QVERIFY(Actions::parseDateTime("next week", today, &out, &hasTime, &error));
+            QCOMPARE(out.date(), QDate(2026, 11, 29)); // Sunday
+            // In a period (a filter) "saturday" is this week's: Sunday 22 to Saturday 28.
+            QDate filter;
+            QVERIFY(Actions::parseFilterDate("sunday", today, &filter, &error));
+            QCOMPARE(filter, QDate(2026, 11, 22));
+            QVERIFY(Actions::parseFilterDate("saturday", today, &filter, &error));
+            QCOMPARE(filter, QDate(2026, 11, 28));
+        }
+        // The annotation follows the default convention too.
+        QCOMPARE(annotateDates("ring kl. 14.30", today), QStringLiteral("ring kl. 14.30 [14:30]"));
+        QCOMPARE(annotateDates("call at 3pm", today), QStringLiteral("call at 3pm [15:00]"));
+    }
+
     void planModelAndProxies()
     {
         QTemporaryDir dir;
@@ -2509,8 +2648,8 @@ private slots:
         file.set("engine", "default", "claude");
         file.set("engine", "timeout", "120");
         file.set("engine.claude", "model", "sonnet");
-        file.set("projects", "Client A", "color2");
-        file.set("projects", "Blog", "color4");
+        file.set("projects", "Client A", "green");
+        file.set("projects", "Blog", "color4"); // the terminal number of blue
         file.set("engine", "command", "tool --flag \"quoted\" back\\slash");
         file.unset("", "language");
         QVERIFY(file.save());
@@ -2520,7 +2659,7 @@ private slots:
         QVERIFY2(text.contains("engine = \"claude\"   # the default engine"), qPrintable(text));
         QVERIFY(text.contains("custom = \"keep me\""));
         QVERIFY(text.contains("# where the snapshot goes\n[snapshot]"));
-        QVERIFY(text.contains("\"Client A\" = \"color2\""));
+        QVERIFY(text.contains("\"Client A\" = \"green\""));
         QVERIFY(!text.contains("language"));
         // A new key lands in its section (here the old [motor]), not at the end.
         QVERIFY(text.indexOf("timeout = 120") < text.indexOf("[snapshot]"));
@@ -2531,14 +2670,14 @@ private slots:
         QCOMPARE(config.timeoutSeconds, 120);
         QCOMPARE(config.claudeModel, QStringLiteral("sonnet"));
         QCOMPARE(config.command, QStringLiteral("tool --flag \"quoted\" back\\slash"));
-        QCOMPARE(config.projectColors.value("Client A"), QStringLiteral("color2"));
-        QCOMPARE(config.projectColors.value("Blog"), QStringLiteral("color4"));
+        QCOMPARE(config.projectColors.value("Client A"), QStringLiteral("green"));
+        QCOMPARE(config.projectColors.value("Blog"), QStringLiteral("blue"));
         QVERIFY(config.language.isEmpty());
         QCOMPARE(file.keys("projects"), (QStringList{"Client A", "Blog"}));
 
         // Setting a value again replaces it in place.
         ConfigFile again(path);
-        again.set("projects", "Blog", "color9");
+        again.set("projects", "Blog", "bright_red");
         QCOMPARE(again.text().count("Blog"), 1);
 
         // A file that does not exist yet is created with the section.
@@ -2564,8 +2703,12 @@ private slots:
         QVERIFY(!ConfigKeys::validate(key, "vibe").isEmpty());
         QVERIFY(ConfigKeys::find("projects.Client A", &key));
         QCOMPARE(key.key, QStringLiteral("Client A"));
-        QVERIFY(ConfigKeys::validate(key, "color15").isEmpty());
-        QVERIFY(!ConfigKeys::validate(key, "color16").isEmpty());
+        QVERIFY(ConfigKeys::validate(key, "bright_magenta").isEmpty());
+        QVERIFY(ConfigKeys::validate(key, "color14").isEmpty());
+        QCOMPARE(ConfigKeys::paletteSlot("color14"), QStringLiteral("bright_cyan"));
+        QCOMPARE(ConfigKeys::paletteSlot("Blue"), QStringLiteral("blue"));
+        QVERIFY(!ConfigKeys::validate(key, "color15").isEmpty()); // white: no text colour
+        QVERIFY(!ConfigKeys::validate(key, "color0").isEmpty());
         QVERIFY(!ConfigKeys::validate(key, "#ff0000").isEmpty());
         QVERIFY(ConfigKeys::validate(key, "").isEmpty()); // unset
         QVERIFY(!ConfigKeys::find("engine.nothing", &key));
@@ -3011,10 +3154,16 @@ private slots:
             f.write(palette);
             f.close();
             Theme theme(dir.path());
-            for (const QString &text : {theme.muted(), theme.danger(), theme.success(), theme.accentText()}) {
+            QStringList texts{theme.muted(), theme.danger(), theme.success(), theme.accentText()};
+            // Project colours: every palette slot, also those the theme lacks.
+            for (const QString &slot : ConfigKeys::paletteSlots())
+                texts << theme.paletteColor(slot);
+            for (const QString &text : texts) {
                 QVERIFY2(Theme::contrast(text, theme.background()) >= 4.5, qPrintable(palette + text));
                 QVERIFY2(Theme::contrast(text, theme.surface()) >= 4.5, qPrintable(palette + text));
             }
+            QCOMPARE(theme.paletteColor("color1"), theme.paletteColor("red"));
+            QVERIFY(theme.paletteColor("white").isEmpty());
             // Secondary text stays quieter than the foreground.
             QVERIFY(Theme::contrast(theme.muted(), theme.background())
                     < Theme::contrast(theme.foreground(), theme.background()));

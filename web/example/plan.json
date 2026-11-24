@@ -17,6 +17,11 @@
     "ok": "#9ece6a",
     "font": "JetBrainsMono Nerd Font"
   },
+  "clock": "24h",
+  "project_colors": {
+    "Podcast": "magenta",
+    "Client A": "green"
+  },
   "tasks": [
     {
       "id": "7c9e6a11-3f2b-4d5e-9a8c-1b2d3e4f5001",

@@ -53,6 +53,11 @@ public:
     QString success() const { return m_success; }
     QString accentText() const { return m_accentText; }
     QString fontFamily() const { return m_fontFamily; }
+    // A palette slot of colors.toml ("blue", "bright_red"; "color4" as an
+    // alias) as a text colour: the theme's own, lifted like the other text
+    // colours until it reads on the background. Empty for an unknown slot.
+    // Project colours name these, so they follow a theme switch.
+    Q_INVOKABLE QString paletteColor(const QString &slot) const;
 
     // Follows Omarchy's font from now on, as the application's font and
     // through fontFamily: omarchy-font-set rewrites
@@ -86,6 +91,7 @@ private:
     QProcess m_roundingProcess;
     QTimer m_roundingPoll, m_roundingTimeout;
     QString m_muted, m_danger, m_success, m_accentText;
+    QHash<QString, QString> m_palette; // slot -> readable colour
     QString m_fontFamily = "monospace";
     bool m_followingFont = false;
     QFileSystemWatcher m_fontWatcher;

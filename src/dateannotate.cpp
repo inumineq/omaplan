@@ -35,11 +35,14 @@ bool isBareNumber(const QString &word) {
     return re.match(word).hasMatch();
 }
 
+// "kl. 14:30", "14.30" (when dotted numbers are times), "2pm".
 bool isTimeOnlyPhrase(const QString &phrase) {
-    static const QRegularExpression re(
-        QStringLiteral("^(?:%1)?\\s*\\d{1,2}(?:[:.]\\d{2})?$").arg(DateVocabulary::timePrefixPattern()),
-        QRegularExpression::CaseInsensitiveOption);
-    return re.match(phrase.trimmed()).hasMatch();
+    static const QString pattern = QStringLiteral("^(?:%1)?\\s*\\d{1,2}(?:%2\\d{2})?\\s*(?:am|pm|a\\.m\\.|p\\.m\\.)?$");
+    static const QRegularExpression dotted(pattern.arg(DateVocabulary::timePrefixPattern(), QStringLiteral("[:.]")),
+                                           QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression colon(pattern.arg(DateVocabulary::timePrefixPattern(), QStringLiteral(":")),
+                                          QRegularExpression::CaseInsensitiveOption);
+    return (DateConvention::active().dottedIsTime ? dotted : colon).match(phrase.trimmed()).hasMatch();
 }
 
 QString annotationFor(const QString &phrase, const QDate &today) {

@@ -3,6 +3,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QHash>
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QStandardPaths>
@@ -195,8 +196,8 @@ AppConfig AppConfig::load(const QString &path) {
             else if (key == QLatin1String("clock"))
                 config.clock = v;
         } else if (section == QLatin1String("projects")) {
-            if (ConfigKeys::isPaletteSlot(value.toLower()))
-                config.projectColors.insert(key, value.toLower());
+            if (const QString slot = ConfigKeys::paletteSlot(value); !slot.isEmpty())
+                config.projectColors.insert(key, slot);
         } else if (section == QLatin1String("snapshot")) {
             if (key == QLatin1String("path"))
                 config.snapshotPath = value.startsWith(QLatin1String("~/")) ? QDir::homePath() + value.mid(1) : value;
@@ -260,16 +261,39 @@ bool find(const QString &name, ConfigKey *out) {
     static const QString prefix = QStringLiteral("projects.");
     if (name.startsWith(prefix) && name.size() > prefix.size()) {
         *out = {name, QStringLiteral("projects"), name.mid(prefix.size()), {}, {},
-                QStringLiteral("The project's colour: a slot of the theme palette, color1 to color15.")};
+                QStringLiteral("The project's colour: a slot of the theme palette (red, orange, yellow, green, cyan, "
+                               "blue, magenta, brown, or bright_ before red, yellow, green, cyan, blue, magenta).")};
         return true;
     }
     return false;
 }
 
-bool isPaletteSlot(const QString &value) {
-    static const QRegularExpression slot(QStringLiteral("^color([1-9]|1[0-5])$"));
-    return slot.match(value).hasMatch();
+const QStringList &paletteSlots() {
+    static const QStringList names = {
+        QStringLiteral("red"),        QStringLiteral("orange"),        QStringLiteral("yellow"),
+        QStringLiteral("green"),      QStringLiteral("cyan"),          QStringLiteral("blue"),
+        QStringLiteral("magenta"),    QStringLiteral("brown"),         QStringLiteral("bright_red"),
+        QStringLiteral("bright_yellow"), QStringLiteral("bright_green"), QStringLiteral("bright_cyan"),
+        QStringLiteral("bright_blue"), QStringLiteral("bright_magenta")};
+    return names;
 }
+
+QString paletteSlot(const QString &value) {
+    const QString v = value.trimmed().toLower();
+    if (paletteSlots().contains(v))
+        return v;
+    // The terminal's numbering (ANSI): 1-6 and their bright 9-14.
+    static const QHash<QString, QString> numbers = {
+        {QStringLiteral("color1"), QStringLiteral("red")},           {QStringLiteral("color2"), QStringLiteral("green")},
+        {QStringLiteral("color3"), QStringLiteral("yellow")},        {QStringLiteral("color4"), QStringLiteral("blue")},
+        {QStringLiteral("color5"), QStringLiteral("magenta")},       {QStringLiteral("color6"), QStringLiteral("cyan")},
+        {QStringLiteral("color9"), QStringLiteral("bright_red")},    {QStringLiteral("color10"), QStringLiteral("bright_green")},
+        {QStringLiteral("color11"), QStringLiteral("bright_yellow")}, {QStringLiteral("color12"), QStringLiteral("bright_blue")},
+        {QStringLiteral("color13"), QStringLiteral("bright_magenta")}, {QStringLiteral("color14"), QStringLiteral("bright_cyan")}};
+    return numbers.value(v);
+}
+
+bool isPaletteSlot(const QString &value) { return !paletteSlot(value).isEmpty(); }
 
 QString validate(const ConfigKey &key, const QString &value) {
     if (value.isEmpty())
@@ -297,7 +321,7 @@ QString validate(const ConfigKey &key, const QString &value) {
             return QStringLiteral("language must be a two-letter code such as da or en");
     }
     if (key.section == QLatin1String("projects") && !isPaletteSlot(value))
-        return QStringLiteral("a project colour must be a palette slot, color1 to color15");
+        return QStringLiteral("a project colour must be a palette slot: %1").arg(paletteSlots().join(QStringLiteral(", ")));
     return {};
 }
 

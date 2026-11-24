@@ -30,7 +30,8 @@ HEADERS += \
     src/mcp.h \
     src/render.h \
     src/snapshot.h \
-    src/server.h
+    src/server.h \
+    src/settings.h
 
 SOURCES += \
     src/main.cpp \
@@ -55,7 +56,8 @@ SOURCES += \
     src/mcp.cpp \
     src/render.cpp \
     src/snapshot.cpp \
-    src/server.cpp
+    src/server.cpp \
+    src/settings.cpp
 
 RESOURCES += src/resources.qrc src/ai-schema.qrc src/skill.qrc src/web.qrc
 

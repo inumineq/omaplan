@@ -18,7 +18,7 @@ Item {
     readonly property int dayCount: zoomLevels[zoomIndex]
     readonly property var today: { planModel.today; return Fmt.startOfDay(new Date()) }
     property var anchorDate: Fmt.startOfDay(new Date())
-    readonly property var rangeStart: dayCount >= 7 ? Fmt.mondayOf(anchorDate) : anchorDate
+    readonly property var rangeStart: dayCount >= 7 ? Fmt.weekStartOf(anchorDate) : anchorDate
 
     function page(step) { anchorDate = Fmt.addDays(anchorDate, step * Math.min(dayCount, 7)) }
     function goToday() { anchorDate = Fmt.startOfDay(new Date()) }

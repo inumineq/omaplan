@@ -16,7 +16,9 @@ An invented example lives in `web/example/plan.json`; `web/test.mjs` validates i
 | `exported` | ISO 8601 **with offset** | time of the export, e.g. `2026-11-23T13:57:00+01:00` |
 | `timezone` | IANA name | local time zone, e.g. `Europe/Copenhagen` |
 | `language` | BCP 47 | the app's user interface language, e.g. `en` or `da` |
-| `theme` | object, optional | theme colours `#RRGGBB`: `accent`, `accent_fg`, `accent_text`, `bg`, `bg_raised`, `fg`, `muted`, `border`, `danger`, `ok`; and `font`, Omarchy's font family (fontconfig's `monospace`) |
+| `theme` | object, optional | theme colours `#RRGGBB`: `accent`, `accent_fg`, `accent_text`, `bg`, `bg_raised`, `fg`, `muted`, `border`, `danger`, `ok`; the palette slots project colours name (`red`, `orange`, `yellow`, `green`, `cyan`, `blue`, `magenta`, `brown`, `bright_red`, `bright_yellow`, `bright_green`, `bright_cyan`, `bright_blue`, `bright_magenta`), each lifted to read on `bg`; and `font`, Omarchy's font family (fontconfig's `monospace`) |
+| `clock` | `"24h"` / `"12h"`, optional | how the page writes times (`dates.clock` in `config.toml`); `24h` when absent |
+| `project_colors` | object, optional | project name → palette slot (`[projects]` in `config.toml`), only for projects in `tasks` |
 | `tasks` | array | every task, see below |
 
 The read-only edition does not use `language` to pick its own language: `omaplan serve` follows the browser's

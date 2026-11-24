@@ -11,6 +11,7 @@
 #include <QTimeZone>
 
 #include "config.h"
+#include "datewords.h"
 #include "store.h"
 #include "theme.h"
 
@@ -56,6 +57,9 @@ QJsonObject omarchyTheme(const QString &directory) {
     colors["border"] = hex(theme.border());
     colors["danger"] = hex(theme.danger());
     colors["ok"] = hex(theme.success());
+    // The palette slots project colours name, lifted to read as text.
+    for (const QString &slot : ConfigKeys::paletteSlots())
+        colors[slot] = hex(theme.paletteColor(slot));
     // Omarchy's font, when fontconfig knows a real family for monospace.
     const QString font = Theme::resolveFamily(QStringLiteral("monospace"));
     if (isFontFamily(font) && font.compare(QLatin1String("monospace"), Qt::CaseInsensitive) != 0)
@@ -69,12 +73,17 @@ QString themeStyle(const QJsonObject &theme) {
                                           {"accent_fg", "--accent-fg"}, {"accent_text", "--accent-text"},
                                           {"danger", "--danger"}, {"ok", "--ok"}};
     QStringList parts;
-    for (const auto &key : keys) {
-        const QString value = theme.value(QLatin1String(key[0])).toString();
-        // Only #rrggbb gets through: the value lands inside a style attribute.
+    // Only #rrggbb gets through: the value lands inside a style attribute.
+    const auto add = [&](const QString &key, const QString &variable) {
+        const QString value = theme.value(key).toString();
         if (value.size() == 7 && value.startsWith('#') && QColor::isValidColorName(value))
-            parts << QLatin1String(key[1]) + ':' + value.toLower();
-    }
+            parts << variable + ':' + value.toLower();
+    };
+    for (const auto &key : keys)
+        add(QLatin1String(key[0]), QLatin1String(key[1]));
+    // blue -> --blue, bright_red -> --bright-red
+    for (const QString &slot : ConfigKeys::paletteSlots())
+        add(slot, QStringLiteral("--") + QString(slot).replace(QLatin1Char('_'), QLatin1Char('-')));
     const QString font = theme.value(QLatin1String("font")).toString();
     if (isFontFamily(font))
         parts << QStringLiteral("--font:'") + font + '\'';
@@ -105,7 +114,7 @@ static QString guessKey(const QString &field) {
 }
 
 QJsonObject build(const QList<Task> &tasks, const QDateTime &exported, const QJsonObject &theme,
-                  const QString &language) {
+                  const QString &language, const QString &clock, const QMap<QString, QString> &projectColors) {
     QJsonArray items;
     for (const Task &task : tasks) {
         QJsonObject o;
@@ -140,6 +149,15 @@ QJsonObject build(const QList<Task> &tasks, const QDateTime &exported, const QJs
     plan["language"] = language;
     if (!theme.isEmpty())
         plan["theme"] = theme;
+    if (!clock.isEmpty())
+        plan["clock"] = clock;
+    // Only the colours of projects in the plan.
+    QJsonObject colors;
+    for (const Task &task : tasks)
+        if (projectColors.contains(task.project))
+            colors[task.project] = projectColors.value(task.project);
+    if (!colors.isEmpty())
+        plan["project_colors"] = colors;
     plan["tasks"] = items;
     return plan;
 }
@@ -151,7 +169,11 @@ bool write(Store *store, const QString &path, QString *error, const QString &lan
         if (error) *error = readError;
         return false;
     }
-    const QByteArray bytes = QJsonDocument(build(tasks, QDateTime::currentDateTime(), omarchyTheme(), language)).toJson();
+    const AppConfig config = AppConfig::load();
+    const QString clock = DateConvention::resolve(config, language).clockName();
+    const QByteArray bytes =
+        QJsonDocument(build(tasks, QDateTime::currentDateTime(), omarchyTheme(), language, clock, config.projectColors))
+            .toJson();
     const QString dir = QFileInfo(path).absolutePath();
     if (!Store::makePrivateDirectory(dir)) {
         if (error) *error = QStringLiteral("cannot create directory %1").arg(dir);
