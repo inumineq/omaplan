@@ -105,6 +105,9 @@ it in `config.toml` or with `OMAPLAN_SNAPSHOT`:
 path = "~/Sync/omaplan/plan.json"
 ```
 
+The configured path belongs to the standard database; with `--db` or `OMAPLAN_DB` the snapshot goes next to that
+database instead, unless `OMAPLAN_SNAPSHOT` is set.
+
 `omaplan snapshot [path]` writes it at once (e.g. the first time, or to another path).
 
 `omaplan serve [--port N] [--bind ADDR] [--snapshot PATH]` shows the snapshot as a small, server-rendered page with

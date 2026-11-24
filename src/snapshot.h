@@ -16,8 +16,9 @@ class Store;
 namespace Snapshot {
 
 // Where the snapshot goes: OMAPLAN_SNAPSHOT, else `path` under [snapshot]
-// in config.toml, else plan.json beside the database (by default
-// ~/.local/share/omaplan/plan.json). Empty for an in-memory database.
+// in config.toml for the standard database, else plan.json beside the
+// database (by default ~/.local/share/omaplan/plan.json). Empty for an
+// in-memory database.
 QString path(const QString &databasePath);
 
 // Omarchy's current theme as the plan.json `theme` object; empty when no

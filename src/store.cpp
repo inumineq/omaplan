@@ -1,6 +1,8 @@
 #include "store.h"
 
 #include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QSqlError>
@@ -17,6 +19,10 @@ QString Store::defaultPath() {
     const QByteArray override = qgetenv("OMAPLAN_DB");
     if (!override.isEmpty())
         return QString::fromLocal8Bit(override);
+    return standardPath();
+}
+
+QString Store::standardPath() {
     return QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)).filePath("omaplan.db");
 }
 
@@ -43,12 +49,23 @@ bool Store::open(QString *error) {
     if (m_db.isOpen())
         return true;
 
-    if (m_path != QLatin1String(":memory:")) {
-        const QDir dir = QFileInfo(m_path).absoluteDir();
-        if (!dir.exists() && !dir.mkpath(".")) {
-            if (error) *error = QStringLiteral("cannot create directory %1").arg(dir.path());
+    const bool onDisk = m_path != QLatin1String(":memory:");
+    if (onDisk) {
+        const QString dir = QFileInfo(m_path).absolutePath();
+        if (!makePrivateDirectory(dir)) {
+            if (error) *error = QStringLiteral("cannot create directory %1").arg(dir);
             return false;
         }
+        // The plan and the raw AI input and answers are private. SQLite
+        // gives -wal and -shm the database file's permissions; files from
+        // before 0.2 are tightened here too.
+        const QString files[] = {m_path, m_path + QStringLiteral("-wal"), m_path + QStringLiteral("-shm")};
+        QFile db(m_path);
+        if (!db.exists() && db.open(QIODevice::WriteOnly))
+            db.close();
+        for (const QString &file : files)
+            if (QFileInfo::exists(file))
+                QFile::setPermissions(file, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
     }
 
     m_db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), m_connectionName);
@@ -71,6 +88,16 @@ bool Store::open(QString *error) {
     pragma.exec(QStringLiteral("PRAGMA synchronous=NORMAL"));
 
     return migrate(error);
+}
+
+bool Store::makePrivateDirectory(const QString &path) {
+    QDir dir(path);
+    if (dir.exists())
+        return true;
+    if (!dir.mkpath(QStringLiteral(".")))
+        return false;
+    QFile::setPermissions(path, QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner);
+    return true;
 }
 
 int Store::schemaVersion() const {

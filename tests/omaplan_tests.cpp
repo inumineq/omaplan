@@ -12,6 +12,8 @@
 #include <QTextStream>
 #include <QtTest>
 
+#include <sys/stat.h>
+
 #include "actions.h"
 #include "cli.h"
 #include "config.h"
@@ -173,11 +175,43 @@ private slots:
             cfg.write("[snapshot]\npath = \"~/x/plan.json\"  # comment\n");
         }
         qputenv("OMAPLAN_CONFIG", dir.filePath(QStringLiteral("c.toml")).toLocal8Bit());
-        QCOMPARE(Snapshot::path(db), QDir::homePath() + QStringLiteral("/x/plan.json"));
+        // The configured path belongs to the standard database; a scratch
+        // database (--db, OMAPLAN_DB) must not overwrite the real plan.json.
+        QCOMPARE(Snapshot::path(Store::standardPath()), QDir::homePath() + QStringLiteral("/x/plan.json"));
+        QCOMPARE(Snapshot::path(db), dir.filePath(QStringLiteral("plan.json")));
         qputenv("OMAPLAN_SNAPSHOT", "/elsewhere/plan.json");
         QCOMPARE(Snapshot::path(db), QStringLiteral("/elsewhere/plan.json"));
         qputenv("OMAPLAN_CONFIG", "");
         qputenv("OMAPLAN_SNAPSHOT", saved);
+    }
+
+    // The plan, raw AI input and answers are private: the data directory is
+    // created 0700, and the database, its -wal/-shm and plan.json are 0600
+    // whatever the umask.
+    void filesArePrivate() {
+        QTemporaryDir dir;
+        const QString dataDir = dir.filePath(QStringLiteral("data"));
+        const QString db = dataDir + QStringLiteral("/omaplan.db");
+        const QString snapshot = dir.filePath(QStringLiteral("snap/plan.json"));
+        const mode_t savedMask = umask(022);
+        {
+            Store store(db);
+            QVERIFY(store.open());
+            Snapshotter snapshotter(&store, snapshot);
+            Task task;
+            task.title = QStringLiteral("Blog");
+            QVERIFY(!store.createTask(task, QStringLiteral("test")).isEmpty());
+            const auto ownerOnly = QFileDevice::ReadOwner | QFileDevice::WriteOwner;
+            const auto mask = QFileDevice::ReadGroup | QFileDevice::WriteGroup | QFileDevice::ExeGroup
+                              | QFileDevice::ReadOther | QFileDevice::WriteOther | QFileDevice::ExeOther;
+            QCOMPARE(QFileInfo(dataDir).permissions() & mask, QFileDevice::Permissions());
+            QVERIFY(QFileInfo(dataDir).permissions() & QFileDevice::ExeOwner);
+            for (const QString &file : {db, db + QStringLiteral("-wal"), db + QStringLiteral("-shm"), snapshot}) {
+                QVERIFY2(QFileInfo::exists(file), qPrintable(file));
+                QCOMPARE(QFileInfo(file).permissions() & (mask | ownerOnly), ownerOnly);
+            }
+        }
+        umask(savedMask);
     }
 
     // Every change rewrites plan.json, valid against docs/export-schema.json.
