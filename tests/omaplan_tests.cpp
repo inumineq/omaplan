@@ -1356,6 +1356,31 @@ private slots:
         QVERIFY(!QFile::exists(snapshot));
     }
 
+    // "-h" as the value of a flag is that value, not a request for help.
+    void helpFlagAsAValueIsAValue()
+    {
+        QTemporaryDir dir;
+        const QString db = dir.filePath(QStringLiteral("value.db"));
+        int code = -1;
+        const QJsonObject created = QJsonDocument::fromJson(
+            runOmaplan(db, {QStringLiteral("new"), QStringLiteral("--title"), QStringLiteral("-h"),
+                            QStringLiteral("--json")}, &code).toUtf8()).object();
+        QCOMPARE(code, 0);
+        QCOMPARE(created[QStringLiteral("task")].toObject()[QStringLiteral("title")].toString(), QStringLiteral("-h"));
+        const QString id = created[QStringLiteral("task")].toObject()[QStringLiteral("id")].toString();
+        runOmaplan(db, {QStringLiteral("edit"), id, QStringLiteral("--notes"), QStringLiteral("-h")}, &code);
+        QCOMPARE(code, 0);
+        const QJsonObject shown = QJsonDocument::fromJson(
+            runOmaplan(db, {QStringLiteral("show"), id, QStringLiteral("--json")}).toUtf8()).object();
+        QCOMPARE(shown[QStringLiteral("task")].toObject()[QStringLiteral("notes")].toString(), QStringLiteral("-h"));
+        // Where a flag name can stand, it is still the help.
+        QVERIFY(runOmaplan(db, {QStringLiteral("edit"), id, QStringLiteral("-h")}, &code).contains(QStringLiteral("Usage:")));
+        QCOMPARE(code, 0);
+        QVERIFY(runOmaplan(db, {QStringLiteral("edit"), id, QStringLiteral("--title"), QStringLiteral("--help")}, &code)
+                    .contains(QStringLiteral("Usage:")));
+        QVERIFY(runOmaplan(db, {QStringLiteral("--db"), db, QStringLiteral("-h")}, &code).contains(QStringLiteral("Usage:")));
+    }
+
     // What the README, SPEC and --help promise, the binary does.
     void docsPromisesHold()
     {

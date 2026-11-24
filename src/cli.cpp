@@ -79,14 +79,20 @@ static const QHash<QString, QString> &legacyFlags() {
 // followed by another flag, gets an empty value; the switches (--yes,
 // --force, --week, --month) never take a value, so `add --yes buy milk`
 // keeps "buy". Old Danish flag names are stored under their English names.
-static QHash<QString, QString> parseFlags(const QStringList &args, QStringList *positional) {
+// Whether args[i], a flag, takes args[i + 1] as its value.
+static bool takesValue(const QStringList &args, int i) {
     static const QStringList switches = {QStringLiteral("yes"), QStringLiteral("force"), QStringLiteral("week"),
                                          QStringLiteral("month")};
+    const QString key = legacyFlags().value(args[i].mid(2), args[i].mid(2));
+    return !switches.contains(key) && i + 1 < args.size() && !args[i + 1].startsWith(QLatin1String("--"));
+}
+
+static QHash<QString, QString> parseFlags(const QStringList &args, QStringList *positional) {
     QHash<QString, QString> flags;
     for (int i = 0; i < args.size(); ++i) {
         if (args[i].startsWith(QLatin1String("--"))) {
             const QString key = legacyFlags().value(args[i].mid(2), args[i].mid(2));
-            if (!switches.contains(key) && i + 1 < args.size() && !args[i + 1].startsWith(QLatin1String("--")))
+            if (takesValue(args, i))
                 flags[key] = args[++i];
             else
                 flags[key] = QString();
@@ -95,6 +101,18 @@ static QHash<QString, QString> parseFlags(const QStringList &args, QStringList *
         }
     }
     return flags;
+}
+
+// Whether one of `names` stands where a flag can, not as a flag's value:
+// `edit <id> --notes -h` sets the notes to "-h".
+static bool hasFlag(const QStringList &args, const QStringList &names) {
+    for (int i = 0; i < args.size(); ++i) {
+        if (names.contains(args[i]))
+            return true;
+        if (args[i].startsWith(QLatin1String("--")) && takesValue(args, i))
+            ++i;
+    }
+    return false;
 }
 
 // The options each command takes (after the 0.1 names are mapped); any other
@@ -156,15 +174,15 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
             rest.append(args[i]);
     }
 
-    if (rest.contains(QLatin1String("--version"))) {
+    if (hasFlag(rest, {QStringLiteral("--version")})) {
         out << "omaplan " << QCoreApplication::applicationVersion() << "\n";
         return 0;
     }
 
     // --help or -h anywhere shows the help and runs nothing: an agent that
     // asks for the help of `undo` must not undo.
-    if (rest.isEmpty() || rest.first() == QLatin1String("help") || rest.contains(QLatin1String("--help"))
-        || rest.contains(QLatin1String("-h"))) {
+    if (rest.isEmpty() || rest.first() == QLatin1String("help")
+        || hasFlag(rest, {QStringLiteral("--help"), QStringLiteral("-h")})) {
         printHelp(out);
         return 0;
     }
