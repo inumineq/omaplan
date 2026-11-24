@@ -160,8 +160,17 @@ bool Store::migrateLocked(QSqlQuery &query, QString *error) {
                                 .arg(version).arg(kSchemaVersion);
         return false;
     }
-    const auto alter = [&](const char *sql) {
-        if (query.exec(QString::fromLatin1(sql)))
+    // Adds a column unless it is there: the migration race of older builds
+    // left databases with the columns but user_version behind them.
+    const auto addColumn = [&](const QString &table, const QString &column, const QString &definition) {
+        if (!query.exec(QStringLiteral("PRAGMA table_info(%1)").arg(table))) {
+            if (error) *error = query.lastError().text();
+            return false;
+        }
+        while (query.next())
+            if (query.value(1).toString() == column)
+                return true;
+        if (query.exec(QStringLiteral("ALTER TABLE %1 ADD COLUMN %2 %3").arg(table, column, definition)))
             return true;
         if (error) *error = query.lastError().text();
         return false;
@@ -175,22 +184,22 @@ bool Store::migrateLocked(QSqlQuery &query, QString *error) {
             // Version 2: changes.undo_of links an undo to the change it
             // inverted, so repeated undo walks back through the history
             // instead of inverting the same change twice.
-            if (!alter("ALTER TABLE changes ADD COLUMN undo_of INTEGER"))
+            if (!addColumn(QStringLiteral("changes"), QStringLiteral("undo_of"), QStringLiteral("INTEGER")))
                 return false;
         } else if (version == 2) {
             // Version 3: changes.redo_of marks an undo as re-applied by a
             // redo, so redo walks forward through the undos.
-            if (!alter("ALTER TABLE changes ADD COLUMN redo_of INTEGER"))
+            if (!addColumn(QStringLiteral("changes"), QStringLiteral("redo_of"), QStringLiteral("INTEGER")))
                 return false;
         } else if (version == 3) {
             // Version 4: captures.annotated_text keeps the date-annotated
             // text next to the raw input, so a proposal stays traceable.
-            if (!alter("ALTER TABLE captures ADD COLUMN annotated_text TEXT NOT NULL DEFAULT ''"))
+            if (!addColumn(QStringLiteral("captures"), QStringLiteral("annotated_text"), QStringLiteral("TEXT NOT NULL DEFAULT ''")))
                 return false;
         } else if (version == 4) {
             // Version 5: changes.batch groups changes made as one step (an
             // approved AI proposal), so undo/redo handle them together.
-            if (!alter("ALTER TABLE changes ADD COLUMN batch TEXT"))
+            if (!addColumn(QStringLiteral("changes"), QStringLiteral("batch"), QStringLiteral("TEXT")))
                 return false;
         } else {
             if (error) *error = QStringLiteral("unknown schema version %1").arg(version);

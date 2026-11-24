@@ -832,6 +832,40 @@ private slots:
         QVERIFY(captureColumns.contains(QStringLiteral("annotated_text")));
     }
 
+    // The race the migration lock now prevents left databases with all the
+    // columns but user_version behind them; such a database opens again.
+    void migrationRepairsAVersionBehindItsColumns_data()
+    {
+        QTest::addColumn<int>("version");
+        for (int version = 0; version < 5; ++version)
+            QTest::newRow(qPrintable(QStringLiteral("v%1").arg(version))) << version;
+    }
+
+    void migrationRepairsAVersionBehindItsColumns()
+    {
+        QFETCH(int, version);
+        QTemporaryDir dir;
+        const QString path = dir.filePath(QStringLiteral("behind.db"));
+        QString id;
+        {
+            Store store(path);
+            QVERIFY(store.open());
+            Task task;
+            task.title = QStringLiteral("Blog");
+            id = store.createTask(task, QStringLiteral("test"));
+            QVERIFY(!id.isEmpty());
+            QSqlQuery q(store.database());
+            QVERIFY(q.exec(QStringLiteral("PRAGMA user_version=%1").arg(version)));
+        }
+        Store store(path);
+        QString error;
+        QVERIFY2(store.open(&error), qPrintable(error));
+        QCOMPARE(store.schemaVersion(), 5);
+        Task task;
+        QVERIFY(store.task(id, &task));
+        QCOMPARE(task.title, QStringLiteral("Blog"));
+    }
+
     // Starts the real binary on `db` without waiting for it.
     static QProcess *startOmaplan(const QString &db, const QStringList &args, QObject *parent) {
         auto *process = new QProcess(parent);
