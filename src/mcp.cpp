@@ -179,7 +179,12 @@ static QString schemaError(const QJsonObject &schema, const QJsonObject &args, c
     return {};
 }
 
-QJsonObject McpServer::callTool(const QString &name, const QJsonObject &args) {
+QJsonObject McpServer::callTool(const QString &name, const QJsonObject &given) {
+    // null means "not given": some clients send it for every unused field.
+    QJsonObject args;
+    for (auto it = given.begin(); it != given.end(); ++it)
+        if (!it.value().isNull())
+            args.insert(it.key(), it.value());
     QJsonObject schema;
     for (const QJsonValue &tool : toolList().value(QStringLiteral("tools")).toArray())
         if (tool.toObject().value(QStringLiteral("name")).toString() == name)

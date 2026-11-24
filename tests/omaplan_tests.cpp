@@ -1446,6 +1446,28 @@ private slots:
         QVERIFY(errorText(QStringLiteral("list"), {{QStringLiteral("status"), QStringLiteral("todo")}}).isEmpty());
         QVERIFY(errorText(QStringLiteral("summary"), {{QStringLiteral("period"), QStringLiteral("month")}}).isEmpty());
         QVERIFY(errorText(QStringLiteral("new"), {{QStringLiteral("titel"), QStringLiteral("Blog")}}).isEmpty());
+        // null for an optional field means "not given": some clients send it
+        // for every field they do not use. It never clears a field.
+        const QJsonObject made = result(QStringLiteral("new"), {{QStringLiteral("title"), QStringLiteral("Client A")},
+                                                                 {QStringLiteral("project"), QStringLiteral("Blog")},
+                                                                 {QStringLiteral("notes"), QJsonValue::Null}});
+        QVERIFY2(!made[QStringLiteral("isError")].toBool(),
+                 qPrintable(made[QStringLiteral("content")].toArray().first().toObject()[QStringLiteral("text")].toString()));
+        const QString id = made[QStringLiteral("structuredContent")].toObject()[QStringLiteral("task")].toObject()[QStringLiteral("id")].toString();
+        QVERIFY(!id.isEmpty());
+        QVERIFY(errorText(QStringLiteral("edit"), {{QStringLiteral("id"), id},
+                                                   {QStringLiteral("title"), QStringLiteral("Client B")},
+                                                   {QStringLiteral("project"), QJsonValue::Null},
+                                                   {QStringLiteral("priority"), QJsonValue::Null}})
+                    .isEmpty());
+        Task edited;
+        QVERIFY(store.task(id, &edited));
+        QCOMPARE(edited.title, QStringLiteral("Client B"));
+        QCOMPARE(edited.project, QStringLiteral("Blog"));
+        QVERIFY(errorText(QStringLiteral("edit"), {{QStringLiteral("id"), id}, {QStringLiteral("project"), QJsonValue::Null}})
+                    .contains(QStringLiteral("Nothing to change")));
+        QVERIFY(errorText(QStringLiteral("list"), {{QStringLiteral("status"), QJsonValue::Null}}).isEmpty());
+        QVERIFY(errorText(QStringLiteral("show"), {{QStringLiteral("id"), QJsonValue::Null}}).contains(QStringLiteral("id")));
     }
 
     void cliExitCodesAndJson()
