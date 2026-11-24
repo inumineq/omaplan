@@ -50,10 +50,10 @@ bin/test
 every UI string is in the catalogs and translated to Danish, another opens the real window and fails on any QML
 warning), `qmllint` over `src/*.qml`, and the read-only page's JavaScript tests (`node web/test.mjs`, so Node is
 needed for the tests but not for the build). `bin/test -V` shows each test's output. `bin/build`, `bin/test` and
-the CI workflow (`.github/workflows/test.yml`) are the files every Omarchy app shares, kept unchanged. The workflow
-runs `bin/test` in an Arch container and reads the dependencies from Omaplan's recipe in
-[omarchy-pkgs](https://github.com/omacom/omarchy-pkgs), so until that recipe is published, `bin/test` on your own
-machine is the check.
+the CI workflow (`.github/workflows/test.yml`) are the files every Omarchy app shares. The workflow runs `bin/test`
+in an Arch container and reads the dependencies from Omaplan's recipe in
+[omarchy-pkgs](https://github.com/omacom/omarchy-pkgs). Until that recipe is published, it falls back to the copy
+in `ci/PKGBUILD`, which is the workflow's one difference from the shared file and goes away with the copy.
 
 No test calls a real AI. Engines are replaced by fakes or by the `command` engine with a fixture. To try a real
 engine by hand, run `bin/smoke-ai [engine]` with a temporary `OMAPLAN_DB`. It is never part of `bin/test`.
@@ -65,7 +65,8 @@ cmake --install build --prefix ~/.local
 ```
 
 This installs `~/.local/bin/omaplan` plus the launcher entry and icon (`share/`), so Omaplan shows up in the app
-launcher. The package recipe is not in this repository: like every Omarchy app's, it lives in omarchy-pkgs.
+launcher. The package recipe belongs in omarchy-pkgs, like every Omarchy app's; `ci/PKGBUILD` is only CI's
+temporary copy of it.
 
 ## Code style
 

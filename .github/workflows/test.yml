@@ -25,8 +25,16 @@ jobs:
 
       - name: Install the package's dependencies
         # The package lives in omarchy-pkgs, so its PKGBUILD is the one list of what the app needs and CI reads it rather than keeping a copy.
+        # Omaplan's one deviation from the shared workflow (docs/adr/0006): until the recipe is published there, a 404 falls back to the copy in ci/PKGBUILD. Any other failure still fails. Remove the fallback and ci/PKGBUILD once the recipe has landed.
         run: |
-          curl -fsSL "https://raw.githubusercontent.com/omacom/omarchy-pkgs/master/pkgbuilds/${{ github.event.repository.name }}/PKGBUILD" -o "$RUNNER_TEMP/PKGBUILD"
+          status=$(curl -sSL -w '%{http_code}' "https://raw.githubusercontent.com/omacom/omarchy-pkgs/master/pkgbuilds/${{ github.event.repository.name }}/PKGBUILD" -o "$RUNNER_TEMP/PKGBUILD")
+          if [[ $status == 404 ]]; then
+            echo "No recipe in omarchy-pkgs yet: using ci/PKGBUILD"
+            cp ci/PKGBUILD "$RUNNER_TEMP/PKGBUILD"
+          elif [[ $status != 200 ]]; then
+            echo "Fetching the recipe failed with HTTP $status" >&2
+            exit 1
+          fi
           source "$RUNNER_TEMP/PKGBUILD"
           deps=("${depends[@]}" "${makedepends[@]}" "${checkdepends[@]}")
           pacman -S --noconfirm --needed base-devel cmake dbus "${deps[@]%%[<>=]*}"

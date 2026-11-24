@@ -9,6 +9,11 @@ of them can be copied in without a merge.
 - **CMake instead of qmake.** `src/` is a library the app and the tests link, tests run through `ctest` offscreen,
   and `bin/build`, `bin/test` and `.github/workflows/test.yml` are the shared ones. The package recipe is no longer
   in this repository; it lives in omarchy-pkgs, and the CI workflow reads the dependency list from there.
+- **One deviation from the shared workflow, for now.** Until Omaplan's recipe is published in omarchy-pkgs, the
+  workflow's fetch of it answers 404 and CI would be red on every push. The dependency step therefore falls back
+  to a copy of the recipe, `ci/PKGBUILD`, on a 404 and only then; any other failure still fails. The rest of the
+  file is the shared one. When the recipe has landed, the fallback and `ci/PKGBUILD` are removed and the workflow
+  is byte for byte the shared file again.
 - **JSON catalogs instead of Qt Linguist files.** `src/i18n/<code>.json`, keyed by the English text, read by the
   shared `Translator` with a per-string fallback to English. 0005 chose `.ts` files because they are Qt's own
   format and needed no code; the catalogs win because they are what every other Omarchy app uses, a translator

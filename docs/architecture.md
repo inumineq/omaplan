@@ -3,7 +3,8 @@
 Built after Omarchy's `omarchy-make-app` skill (C++ and Qt Quick, CMake, one binary, packaged from omarchy-pkgs).
 The skill ships with Omarchy (`default/agents/skills/omarchy-make-app/`: `SKILL.md`, `templates.md`, `patterns.md`)
 and is the binding source for project shape, theme, language and conventions. The files it marks as shared are kept
-byte for byte: `bin/build`, `bin/test`, `.github/workflows/test.yml` and `src/translator.{h,cpp}`. This document only describes what is particular to Omaplan.
+byte for byte: `bin/build`, `bin/test` and `src/translator.{h,cpp}`. `.github/workflows/test.yml` differs in one
+step while the recipe is not yet in omarchy-pkgs (see ADR 0006). This document only describes what is particular to Omaplan.
 
 ## Modules (flat `src/`)
 
