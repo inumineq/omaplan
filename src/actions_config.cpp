@@ -285,7 +285,7 @@ void Actions::guiTestEngine(const QString &id) {
         const QString first = p.tasks.isEmpty() ? QString() : p.tasks.first().title;
         emit engineTested(id, true,
                           p.tasks.isEmpty() ? tr("Answered, but proposed no tasks.")
-                                            : tr("Answered with %n task(s): %1", nullptr, int(p.tasks.size())).arg(first),
+                                            : tr("Answered with %n tasks: %1", nullptr, int(p.tasks.size())).arg(first),
                           int(timer->elapsed()));
     });
     connect(test, &AiEngine::failed, this, [this, id, timer, done](const QString &message) {

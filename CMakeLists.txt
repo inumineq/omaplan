@@ -11,7 +11,7 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Network Qml Quick QuickControls2 Sql Test LinguistTools)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Network Qml Quick QuickControls2 Sql Test)
 # Omarchy's font is fontconfig's monospace (src/theme.cpp).
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(Fontconfig REQUIRED IMPORTED_TARGET fontconfig)
@@ -27,14 +27,12 @@ target_link_libraries(omaplan_core PUBLIC
 target_compile_options(omaplan_core PUBLIC -Wall -Wextra)
 target_compile_definitions(omaplan_core PUBLIC OMAPLAN_VERSION="${PROJECT_VERSION}")
 
-# The QML, the AI schema, the agent skill and the read-only page, compiled
+# The QML, the catalogs, the AI schema, the agent skill and the read-only page, compiled
 # into every binary that loads them.
 set(omaplan_resources src/resources.qrc src/ai-schema.qrc src/skill.qrc src/web.qrc)
-file(GLOB omaplan_translations CONFIGURE_DEPENDS i18n/omaplan_*.ts)
 
 add_executable(omaplan src/main.cpp ${omaplan_resources})
 target_link_libraries(omaplan PRIVATE omaplan_core)
-qt_add_translations(omaplan TS_FILES ${omaplan_translations} RESOURCE_PREFIX /i18n LUPDATE_TARGET omaplan_lupdate)
 
 # The tests run the real binary (build/omaplan) and read the fixtures from the
 # source tree, so they live one directory below it, in build/tests.
@@ -44,7 +42,6 @@ function(omaplan_test name)
   target_link_libraries(${name} PRIVATE omaplan_core Qt6::Test)
   target_compile_definitions(${name} PRIVATE
     OMAPLAN_SRC="${CMAKE_SOURCE_DIR}/src"
-    OMAPLAN_I18N="${CMAKE_SOURCE_DIR}/i18n"
     FIXTURES_DIR="${CMAKE_SOURCE_DIR}/tests/ai-fixtures")
   set_target_properties(${name} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_dependencies(${name} omaplan)
@@ -57,15 +54,13 @@ endfunction()
 
 # Store, actions, CLI, MCP, models, dates, theme and translations.
 omaplan_test(omaplan_tests tests/omaplan_tests.cpp ${omaplan_resources})
-qt_add_translations(omaplan_tests TS_FILES ${omaplan_translations} RESOURCE_PREFIX /i18n LUPDATE_TARGET omaplan_tests_lupdate)
 # The AI layer with fake engines; no test calls a real AI.
 omaplan_test(ai-unit-tests tests/unit/tst_ai.cpp src/ai-schema.qrc)
+# What the app follows from the desktop: the language and its catalogs.
+omaplan_test(desktop-tests tests/desktop/tst_desktop.cpp ${omaplan_resources})
 # The settings panel in the real window, with a fake engine.
 omaplan_test(panel-tests tests/panel/tst_panel.cpp ${omaplan_resources})
-qt_add_translations(panel-tests TS_FILES ${omaplan_translations} RESOURCE_PREFIX /i18n LUPDATE_TARGET panel_tests_lupdate)
 
-# Every UI string has a translation in each i18n/omaplan_*.ts.
-add_test(NAME i18n-check COMMAND ${CMAKE_SOURCE_DIR}/bin/i18n-check)
 # A changed skill lists main's text as released (src/skill.cpp).
 add_test(NAME skill-released COMMAND ${CMAKE_SOURCE_DIR}/tests/skill-released)
 # The read-only page's JavaScript against the same reference pages. Node is a

@@ -10,7 +10,7 @@ import QtQuick
 QtObject {
     readonly property string lang: uiLanguage.language
     readonly property bool danish: lang.indexOf("da") === 0
-    readonly property var locale: Qt.locale(danish ? "da_DK" : "en_GB")
+    readonly property var locale: Qt.locale(uiLanguage.localeName)
     readonly property bool clock24: settings.clock24
     readonly property int weekStart: settings.weekStart // 1 = Monday, 7 = Sunday
 

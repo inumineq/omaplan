@@ -72,13 +72,9 @@ int main(int argc, char *argv[]) {
 
     // Installed before anything is translated, and every qsTr() binding is
     // re-evaluated when the language changes (the Omarchy language, live).
+    // It also sets the layout direction: right-to-left languages mirror the
+    // window.
     UiLanguage uiLanguage(&app, language, true);
-    // Right-to-left languages mirror the window.
-    const auto applyDirection = [&uiLanguage] {
-        QGuiApplication::setLayoutDirection(UiLanguage::formatLocale(uiLanguage.language()).textDirection());
-    };
-    applyDirection();
-    QObject::connect(&uiLanguage, &UiLanguage::changed, &app, applyDirection);
 
     registerQmlTypes();
 

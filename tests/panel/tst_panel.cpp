@@ -270,7 +270,7 @@ private slots:
         openPanel();
         QFile::remove(m_dir.filePath("slow-finished"));
         click(item(QStringLiteral("test:command")));
-        QCOMPARE(item(QStringLiteral("test:command"))->property("text").toString(), QStringLiteral("Cancel"));
+        QCOMPARE(item(QStringLiteral("test:command"))->property("text").toString(), QStringLiteral("Stop"));
         click(item(QStringLiteral("test:command")));
         QCOMPARE(item(QStringLiteral("test:command"))->property("text").toString(), QStringLiteral("Test"));
         click(item(QStringLiteral("test:command")));

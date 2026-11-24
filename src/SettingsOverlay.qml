@@ -333,7 +333,7 @@ Rectangle {
                                     HeaderButton {
                                         objectName: "test:" + card.modelData
                                         readonly property bool running: !!card.test && card.test.running
-                                        text: running ? qsTr("Cancel") : qsTr("Test")
+                                        text: running ? qsTr("Stop") : qsTr("Test")
                                         focusable: true
                                         toolTip: running ? qsTr("Stop the test") : qsTr("Send one short request to %1").arg(card.info.name)
                                         onClicked: running ? panel.cancelTest(card.modelData) : panel.test(card.modelData)
@@ -455,7 +455,7 @@ Rectangle {
                         text: qsTr("Now: %1 · 12.12 is %2 · the week starts on %3 · %4. Automatic follows the language.")
                               .arg(settings.dayFirst ? qsTr("day/month") : qsTr("month/day"))
                               .arg(settings.dottedIsTime ? qsTr("a time") : qsTr("a date"))
-                              .arg(settings.weekStart === 7 ? qsTr("Sunday", "mid-sentence") : qsTr("Monday", "mid-sentence"))
+                              .arg(Fmt.locale.dayName(settings.weekStart === 7 ? 0 : 1, Locale.LongFormat))
                               .arg(settings.clock24 ? qsTr("24-hour clock") : qsTr("12-hour clock"))
                     }
                     Heading { text: qsTr("Preview").toUpperCase() }

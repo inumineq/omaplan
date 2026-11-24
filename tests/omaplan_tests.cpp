@@ -3426,11 +3426,14 @@ private slots:
                  QStringLiteral("da"));
         QCOMPARE(UiLanguage::resolve(S{{}, {}, {}, danishSystem}, available), QStringLiteral("da"));
         QCOMPARE(UiLanguage::resolve(S{{}, {}, {}, {}}, available), QStringLiteral("en"));
-        // A language without a translation passes to the next source.
+        // A chosen language counts without a catalog (its strings fall back
+        // to English one by one); the system locale is a guess and needs one.
         QCOMPARE(UiLanguage::resolve(S{QStringLiteral("fr"), {}, QStringLiteral("pt-BR"), danishSystem}, available),
+                 QStringLiteral("fr"));
+        QCOMPARE(UiLanguage::resolve(S{{}, {}, QStringLiteral("ar"), danishSystem}, available), QStringLiteral("ar"));
+        QCOMPARE(UiLanguage::resolve(S{{}, {}, {}, {QStringLiteral("de-DE"), QStringLiteral("da-DK")}}, available),
                  QStringLiteral("da"));
-        QCOMPARE(UiLanguage::resolve(S{QStringLiteral("fr"), {}, {}, {QStringLiteral("de-DE")}}, available),
-                 QStringLiteral("en"));
+        QCOMPARE(UiLanguage::resolve(S{{}, {}, {}, {QStringLiteral("de-DE")}}, available), QStringLiteral("en"));
         // Locale spellings name their language.
         QCOMPARE(UiLanguage::normalize(QStringLiteral("da_DK.UTF-8")), QStringLiteral("da"));
         QCOMPARE(UiLanguage::normalize(QStringLiteral("DA")), QStringLiteral("da"));
@@ -3438,10 +3441,9 @@ private slots:
     }
 
     void danishTranslationIsEmbeddedAndInstalled() {
-        // The .qm files come from i18n/*.ts through lrelease, as resources.
-        QVERIFY(UiLanguage::available().contains(QStringLiteral("da")));
-        QVERIFY(UiLanguage::available().contains(QStringLiteral("en")));
-        QVERIFY(QFile::exists(QStringLiteral(":/i18n/omaplan_da.qm")));
+        // The catalogs are src/i18n/<code>.json, compiled in as resources.
+        QCOMPARE(UiLanguage::available(), (QStringList{QStringLiteral("da"), QStringLiteral("en")}));
+        QVERIFY(QFile::exists(QStringLiteral(":/i18n/da.json")));
 
         QTemporaryDir dir;
         qputenv("OMAPLAN_CONFIG", dir.filePath(QStringLiteral("none.toml")).toLocal8Bit());
@@ -3466,16 +3468,35 @@ private slots:
         QLocale::setDefault(QLocale::c());
     }
 
-    void everyStringHasADanishTranslation() {
-        // bin/test also runs lupdate against the sources (bin/i18n-check), so
-        // a new qsTr/tr string without a translation fails there; this checks
-        // the committed file.
-        QFile ts(QStringLiteral(OMAPLAN_I18N "/omaplan_da.ts"));
-        QVERIFY(ts.open(QIODevice::ReadOnly));
-        const QString text = QString::fromUtf8(ts.readAll());
-        QVERIFY(text.count(QStringLiteral("<message")) > 200);
-        QCOMPARE(text.count(QStringLiteral("type=\"unfinished\"")), 0);
-        QCOMPARE(text.count(QStringLiteral("type=\"vanished\"")), 0);
+    // The Omarchy language is followed live, and one without a catalog still
+    // sets the locale and mirrors the window while its strings stay English.
+    void omarchyLanguageIsFollowedLiveWithOrWithoutACatalog() {
+        QTemporaryDir dir;
+        qputenv("OMAPLAN_CONFIG", dir.filePath(QStringLiteral("none.toml")).toLocal8Bit());
+        const QString omarchy = dir.filePath(QStringLiteral("omarchy/language"));
+        auto pick = [&](const QByteArray &code) {
+            QDir().mkpath(QFileInfo(omarchy).absolutePath());
+            QFile file(omarchy);
+            QVERIFY(file.open(QIODevice::WriteOnly));
+            file.write(code + '\n');
+        };
+        {
+            // Before the first pick there is no directory to watch.
+            UiLanguage language(QCoreApplication::instance(), QString(), true, omarchy);
+            pick("ar");
+            QTRY_COMPARE(language.language(), QStringLiteral("ar"));
+            QCOMPARE(QCoreApplication::translate("Actions", "Nothing to undo"), QStringLiteral("Nothing to undo"));
+            QCOMPARE(QGuiApplication::layoutDirection(), Qt::RightToLeft);
+            QCOMPARE(QLocale().language(), QLocale::Arabic);
+
+            pick("da");
+            QTRY_COMPARE(language.language(), QStringLiteral("da"));
+            QCOMPARE(QCoreApplication::translate("Actions", "Nothing to undo"), QStringLiteral("Intet at fortryde"));
+            QCOMPARE(QGuiApplication::layoutDirection(), Qt::LeftToRight);
+            QCOMPARE(language.localeName(), QStringLiteral("da_DK"));
+        }
+        qunsetenv("OMAPLAN_CONFIG");
+        QLocale::setDefault(QLocale::c());
     }
 
     // Runs the real binary with a private database and config.
