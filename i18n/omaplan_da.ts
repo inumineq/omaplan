@@ -74,6 +74,10 @@
         <translation>Forslaget har ingen opgaver</translation>
     </message>
     <message>
+        <source>The from date %1 is after the to date %2</source>
+        <translation>Fra-datoen %1 ligger efter til-datoen %2</translation>
+    </message>
+    <message>
         <source>id: %1</source>
         <translation>id: %1</translation>
     </message>

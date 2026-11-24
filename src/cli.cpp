@@ -351,19 +351,16 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
         QStringList positional;
         const auto flags = parseFlags(rest, &positional);
         ListFilter filter;
-        QDateTime when;
-        bool hasTime;
-        if (flags.contains(QStringLiteral("from"))) {
-            if (!parseDateFlag(flags["from"], &when, &hasTime, err))
+        const QDate today = QDateTime::currentDateTime().date();
+        for (const QString &key : {QStringLiteral("from"), QStringLiteral("to")}) {
+            if (!flags.contains(key) || flags.value(key).isEmpty())
+                continue;
+            QDate *date = key == QLatin1String("from") ? &filter.from : &filter.to;
+            if (!Actions::parseFilterDate(flags.value(key), today, date, &error)) {
+                err << error << "\n";
                 return 1;
-            filter.hasFrom = true;
-            filter.from = when.date();
-        }
-        if (flags.contains(QStringLiteral("to"))) {
-            if (!parseDateFlag(flags["to"], &when, &hasTime, err))
-                return 1;
-            filter.hasTo = true;
-            filter.to = when.date();
+            }
+            (key == QLatin1String("from") ? filter.hasFrom : filter.hasTo) = true;
         }
         if (flags.contains(QStringLiteral("project")))
             filter.project = flags[QStringLiteral("project")];
@@ -419,16 +416,8 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
             err << QObject::tr("Usage: omaplan move <id> <when>") << "\n";
             return 1;
         }
-        QDateTime when;
-        bool hasTime;
         // `move <id> tuesday 14` without quotes is the same as "tuesday 14".
-        if (!parseDateFlag(positional.mid(1).join(QLatin1Char(' ')), &when, &hasTime, err))
-            return 1;
-        if (!when.isValid()) {
-            err << QObject::tr("Usage: omaplan move <id> <when>") << "\n";
-            return 1;
-        }
-        ActionResult result = actions.move(positional.first(), when, hasTime, source);
+        ActionResult result = actions.moveTo(positional.first(), positional.mid(1).join(QLatin1Char(' ')), source);
         if (!result.ok) {
             err << result.error << "\n";
             return 1;

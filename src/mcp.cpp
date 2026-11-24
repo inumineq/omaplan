@@ -139,20 +139,13 @@ QJsonObject McpServer::callTool(const QString &name, const QJsonObject &args) {
 
     if (name == QLatin1String("list")) {
         ListFilter filter;
-        QDateTime when;
-        bool hasTime = false;
-        for (const QString key : {QStringLiteral("from"), QStringLiteral("to")}) {
+        for (const QString &key : {QStringLiteral("from"), QStringLiteral("to")}) {
             if (!args.contains(key))
                 continue;
-            if (!Actions::parseDateTime(args.value(key).toString(), QDate::currentDate(), &when, &hasTime, &error))
+            QDate *date = key == QLatin1String("from") ? &filter.from : &filter.to;
+            if (!Actions::parseFilterDate(args.value(key).toString(), QDate::currentDate(), date, &error))
                 return textResult(failure(key + QStringLiteral(": ") + error));
-            if (key == QLatin1String("from")) {
-                filter.hasFrom = true;
-                filter.from = when.date();
-            } else {
-                filter.hasTo = true;
-                filter.to = when.date();
-            }
+            (key == QLatin1String("from") ? filter.hasFrom : filter.hasTo) = true;
         }
         filter.project = args.value(QStringLiteral("project")).toString();
         filter.status = args.value(QStringLiteral("status")).toString();
@@ -179,12 +172,7 @@ QJsonObject McpServer::callTool(const QString &name, const QJsonObject &args) {
     if (name == QLatin1String("move")) {
         if (id.isEmpty())
             return textResult(needId());
-        QDateTime when;
-        bool hasTime = false;
-        if (!Actions::parseDateTime(args.value(QStringLiteral("when")).toString(), QDate::currentDate(), &when,
-                                    &hasTime, &error))
-            return textResult(failure(error));
-        return textResult(m_actions->move(id, when, hasTime, source));
+        return textResult(m_actions->moveTo(id, args.value(QStringLiteral("when")).toString(), source));
     }
     if (name == QLatin1String("done") || name == QLatin1String("undone"))
         return textResult(id.isEmpty() ? needId() : m_actions->setDone(id, name == QLatin1String("done"), source));

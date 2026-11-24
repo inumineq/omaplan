@@ -18,6 +18,7 @@
 #include "cli.h"
 #include "config.h"
 #include "dateannotate.h"
+#include "mcp.h"
 #include "planmodel.h"
 #include "render.h"
 #include "server.h"
@@ -1477,6 +1478,72 @@ private slots:
         // Still a time when no unit follows.
         QCOMPARE(annotateDates(QStringLiteral("møde onsdag 3 med kunde"), today),
                  QStringLiteral("møde onsdag 3 [Wednesday 2026-11-25 03:00] med kunde"));
+    }
+
+    // A filter date names a period, not the next occurrence: "1. november"
+    // late in November is this year's, "monday" is this week's.
+    void filterDatesDoNotRollForward()
+    {
+        const QDate today(2026, 11, 24); // Tuesday
+        const auto read = [&](const QString &text) {
+            QDate date;
+            QString error;
+            if (!Actions::parseFilterDate(text, today, &date, &error))
+                return QStringLiteral("error: ") + error;
+            return date.toString(Qt::ISODate);
+        };
+        QCOMPARE(read(QStringLiteral("1. november")), QStringLiteral("2026-11-01"));
+        QCOMPARE(read(QStringLiteral("20. november")), QStringLiteral("2026-11-20"));
+        QCOMPARE(read(QStringLiteral("november 1st")), QStringLiteral("2026-11-01"));
+        QCOMPARE(read(QStringLiteral("den 3.")), QStringLiteral("2026-11-03"));
+        QCOMPARE(read(QStringLiteral("monday")), QStringLiteral("2026-11-23"));
+        QCOMPARE(read(QStringLiteral("mandag")), QStringLiteral("2026-11-23"));
+        QCOMPARE(read(QStringLiteral("friday")), QStringLiteral("2026-11-27"));
+        QCOMPARE(read(QStringLiteral("today")), QStringLiteral("2026-11-24"));
+        QCOMPARE(read(QStringLiteral("next monday")), QStringLiteral("2026-11-30"));
+        QCOMPARE(read(QStringLiteral("2027-01-05")), QStringLiteral("2027-01-05"));
+
+        // From after to is an error, not an empty list.
+        QTemporaryDir dir;
+        Store store(dir.filePath(QStringLiteral("f.db")));
+        QVERIFY(store.open());
+        QString out, err;
+        QCOMPARE(cli(store, {QStringLiteral("list"), QStringLiteral("--from"), QStringLiteral("2026-11-30"),
+                             QStringLiteral("--to"), QStringLiteral("2026-11-27")}, &out, &err), 1);
+        QVERIFY2(err.contains(QStringLiteral("2026-11-30")) && err.contains(QStringLiteral("2026-11-27")), qPrintable(err));
+    }
+
+    // `move <id> monday` moves the day and keeps the task's time.
+    void moveKeepsTheTime()
+    {
+        QTemporaryDir dir;
+        Store store(dir.filePath(QStringLiteral("m.db")));
+        QVERIFY(store.open());
+        QString err;
+        int code = -1;
+        const QString id = cliJson(store, {QStringLiteral("new"), QStringLiteral("--title"), QStringLiteral("Meeting"),
+                                           QStringLiteral("--start"), QStringLiteral("2026-12-01 14:00"),
+                                           QStringLiteral("--duration"), QStringLiteral("60"), QStringLiteral("--json")},
+                                   &err, &code)[QStringLiteral("task")].toObject()[QStringLiteral("id")].toString();
+        QCOMPARE(code, 0);
+        QJsonObject task = cliJson(store, {QStringLiteral("move"), id, QStringLiteral("2026-12-07"), QStringLiteral("--json")},
+                                   &err, &code)[QStringLiteral("task")].toObject();
+        QCOMPARE(code, 0);
+        QCOMPARE(task[QStringLiteral("start")].toString(), QStringLiteral("2026-12-07T14:00"));
+        QCOMPARE(task[QStringLiteral("duration_minutes")].toInt(), 60);
+        // An explicit time still wins.
+        task = cliJson(store, {QStringLiteral("move"), id, QStringLiteral("2026-12-08 09:30"), QStringLiteral("--json")},
+                       &err, &code)[QStringLiteral("task")].toObject();
+        QCOMPARE(task[QStringLiteral("start")].toString(), QStringLiteral("2026-12-08T09:30"));
+        // MCP moves the same way.
+        Actions actions(&store);
+        McpServer mcp(&actions);
+        const QJsonObject result = mcp.handle(call(1, QStringLiteral("move"), {{QStringLiteral("id"), id},
+                                                                             {QStringLiteral("when"), QStringLiteral("2026-12-10")}}))
+                                       .toObject()[QStringLiteral("result")].toObject();
+        QVERIFY(!result[QStringLiteral("isError")].toBool());
+        QCOMPARE(result[QStringLiteral("structuredContent")].toObject()[QStringLiteral("task")].toObject()
+                     [QStringLiteral("start")].toString(), QStringLiteral("2026-12-10T09:30"));
     }
 
     void dateAnnotationInEnglish()
