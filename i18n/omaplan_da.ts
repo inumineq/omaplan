@@ -520,12 +520,12 @@ Råt svar:
         <translation>Annullér</translation>
     </message>
     <message>
-        <source>Keys</source>
-        <translation>Taster</translation>
+        <source>Keyboard shortcuts</source>
+        <translation>Tastaturgenveje</translation>
     </message>
     <message>
-        <source>Esc, ? or a click closes this</source>
-        <translation>Esc, ? eller et klik lukker</translation>
+        <source>Esc closes</source>
+        <translation>Esc lukker</translation>
     </message>
 </context>
 <context>
