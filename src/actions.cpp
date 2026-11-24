@@ -382,7 +382,10 @@ static QStringList existingTaskLines(Store *store) {
             continue;
         QString line = task.title;
         if (task.start.isValid())
-            line += QStringLiteral(" | %1").arg(dateTimeText(task.start, task.startHasTime));
+            // ISO for the engine, whatever the user's clock: it answers in ISO.
+            line += QStringLiteral(" | %1").arg(task.startHasTime
+                                                   ? task.start.toString(QStringLiteral("yyyy-MM-dd HH:mm"))
+                                                   : task.start.date().toString(Qt::ISODate));
         if (!task.project.isEmpty())
             line += QStringLiteral(" | %1").arg(task.project);
         line += QStringLiteral(" | %1").arg(Task::statusToString(task.status));

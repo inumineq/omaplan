@@ -2846,6 +2846,43 @@ private slots:
         QVERIFY(!byId.value("local").value("ready").toBool());
     }
 
+    // N1: the prompt keeps ISO times on a 12-hour clock; only text for the user follows it.
+    void promptKeepsIsoTimesOnA12HourClock()
+    {
+        QTemporaryDir dir;
+        QFile script(dir.filePath("fake.sh"));
+        QVERIFY(script.open(QIODevice::WriteOnly));
+        script.write(QStringLiteral("cat > '%1'; echo '{\"tasks\":[{\"title\":\"Proof the post\"}],\"unresolved\":[]}'")
+                         .arg(dir.filePath("prompt.txt")).toUtf8());
+        script.close();
+        QFile cfg(dir.filePath("config.toml"));
+        QVERIFY(cfg.open(QIODevice::WriteOnly));
+        cfg.write(QStringLiteral("[engine]\ncommand = \"sh %1\"\n").arg(script.fileName()).toUtf8());
+        cfg.close();
+        qputenv("OMAPLAN_CONFIG", cfg.fileName().toLocal8Bit());
+        DateConvention c;
+        c.clock24 = false;
+        ConventionGuard guard(c);
+        Store store(dir.filePath("t.db"));
+        QString error;
+        QVERIFY(store.open(&error));
+        Actions actions(&store);
+        Task task;
+        task.title = QStringLiteral("Write the blog post");
+        task.start = QDateTime(QDate::currentDate().addDays(1), QTime(14, 30));
+        task.startHasTime = true;
+        QVERIFY(actions.create(task, "test").ok);
+        const ActionResult r = actions.propose(QStringLiteral("proof the post"), QStringLiteral("command"));
+        qputenv("OMAPLAN_CONFIG", "");
+        QVERIFY2(r.ok, qPrintable(r.error));
+        QFile prompt(dir.filePath("prompt.txt"));
+        QVERIFY(prompt.open(QIODevice::ReadOnly));
+        const QString text = QString::fromUtf8(prompt.readAll());
+        const QString iso = task.start.toString(QStringLiteral("yyyy-MM-dd HH:mm"));
+        QVERIFY2(text.contains(QStringLiteral("Write the blog post | ") + iso), qPrintable(text.right(400)));
+        QVERIFY(!text.contains(QStringLiteral(" PM |")));
+    }
+
     void testButtonAnswersWithTimeOrAClearError()
     {
         QTemporaryDir dir;
