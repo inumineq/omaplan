@@ -305,7 +305,8 @@ bool agentMaySet(const ConfigKey &key) {
 
 bool hasControlCharacter(const QString &text) {
     for (const QChar c : text)
-        if (c.unicode() < 0x20 || c.unicode() == 0x7f)
+        if (c.unicode() < 0x20 || (c.unicode() >= 0x7f && c.unicode() <= 0x9f) // C0, DEL, C1 (with U+0085)
+            || c.unicode() == 0x2028 || c.unicode() == 0x2029)                // line and paragraph separator
             return true;
     return false;
 }

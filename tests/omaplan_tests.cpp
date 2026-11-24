@@ -3145,6 +3145,13 @@ private slots:
         QCOMPARE(cli(store, {"config", "set", "engine.vibe.model", QStringLiteral("a") + QChar(0x7f)}, &out, &err), 1);
         QCOMPARE(cli(store, {"config", "set", "projects.A\nB", "blue"}, &out, &err), 1);
         QCOMPARE(cli(store, {"config", "set", "projects.A\tB", "blue"}, &out, &err), 1);
+        // N3: C1 controls and Unicode line breaks too; an editor may break the line there.
+        for (const char16_t c : {u'\u0080', u'\u0085', u'\u009f', u' ', u' '}) {
+            QCOMPARE(cli(store, {"config", "set", "engine.vibe.model", QStringLiteral("a") + QChar(c) + "b"}, &out, &err), 1);
+            QCOMPARE(cli(store, {"config", "set", QStringLiteral("projects.A") + QChar(c) + "B", "blue"}, &out, &err), 1);
+        }
+        QCOMPARE(cli(store, {"config", "set", "projects.Café Ø", "blue"}, &out, &err), 0); // ordinary non-ASCII is fine
+        QCOMPARE(cli(store, {"config", "set", "projects.Café Ø", ""}, &out, &err), 0);
         QVERIFY(!QFile::exists(cfg) || AppConfig::load(cfg).command.isEmpty());
         qputenv("OMAPLAN_CONFIG", "");
 
