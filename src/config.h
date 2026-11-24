@@ -123,7 +123,8 @@ public:
     bool save(QString *error = nullptr) const;
 
 private:
-    struct Location { int line = -1; int sectionEnd = -1; };
+    // line: the last occurrence, the one AppConfig::load uses; lines: all of them.
+    struct Location { int line = -1; QList<int> lines; int sectionEnd = -1; };
     Location locate(const QString &section, const QString &key) const;
 
     QString m_path;

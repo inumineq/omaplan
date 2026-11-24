@@ -17,6 +17,7 @@
 #include <QtTest>
 
 #include <sys/stat.h>
+#include <thread>
 
 #include "actions.h"
 #include "cli.h"
@@ -2882,6 +2883,61 @@ private slots:
         QCOMPARE(structured(4).value("engines").toArray().size(), 4);
         QVERIFY(isError(5));
         QCOMPARE(AppConfig::load(dir.filePath("config.toml")).vibeModel, QStringLiteral("mistral-medium"));
+    }
+
+    // M3: set/get/unset act on the line the program reads, the last one.
+    void configWritesTheOccurrenceThatApplies()
+    {
+        QTemporaryDir dir;
+        const QString cfg = dir.filePath("config.toml");
+        QFile f(cfg);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("[motor]\nengine = \"vibe\"\n\n[engine]\ndefault = \"claude\"\n\n[dates]\nclock = \"12h\"\nclock = \"24h\"\n");
+        f.close();
+        qputenv("OMAPLAN_CONFIG", cfg.toLocal8Bit());
+        QCOMPARE(Actions::configGet("engine.default").payload.value("value").toString(), QStringLiteral("claude"));
+        QCOMPARE(Actions::configGet("dates.clock").payload.value("value").toString(), QStringLiteral("24h"));
+        QVERIFY(Actions::configSet("engine.default", "local").ok);
+        QCOMPARE(AppConfig::load(cfg).engine, QStringLiteral("local"));
+        QVERIFY(ConfigFile(cfg).text().contains("[motor]\nengine = \"vibe\"")); // the old line stays as it was
+        QVERIFY(Actions::configSet("dates.clock", "").ok); // unset removes both
+        qputenv("OMAPLAN_CONFIG", "");
+        QVERIFY(AppConfig::load(cfg).clock.isEmpty());
+        QVERIFY2(!ConfigFile(cfg).text().contains("clock"), qPrintable(ConfigFile(cfg).text()));
+    }
+
+    // M4: two writers at once lose nothing.
+    void configSetFromParallelWritersKeepsEveryKey()
+    {
+        QTemporaryDir dir;
+        const QString cfg = dir.filePath("config.toml");
+        qputenv("OMAPLAN_CONFIG", cfg.toLocal8Bit());
+        auto writer = [](const QString &prefix) {
+            for (int i = 0; i < 40; ++i)
+                Actions::configSet(QStringLiteral("projects.%1%2").arg(prefix).arg(i), QStringLiteral("blue"));
+        };
+        std::thread a(writer, QStringLiteral("A")), b(writer, QStringLiteral("B"));
+        a.join();
+        b.join();
+        qputenv("OMAPLAN_CONFIG", "");
+        QCOMPARE(AppConfig::load(cfg).projectColors.size(), 80);
+    }
+
+    // M5: a running process (omaplan mcp) reads dates as it just set them.
+    void configSetOfDatesAppliesInTheRunningProcess()
+    {
+        QTemporaryDir dir;
+        qputenv("OMAPLAN_CONFIG", dir.filePath("config.toml").toLocal8Bit());
+        ConventionGuard guard(DateConvention::forLanguage(QStringLiteral("en")));
+        QVERIFY(Actions::configSet("dates.order", "mdy").ok);
+        QDateTime when;
+        bool hasTime = false;
+        QVERIFY(Actions::parseDateTime(QStringLiteral("12/11"), QDate(2026, 11, 24), &when, &hasTime));
+        QCOMPARE(when.date(), QDate(2026, 12, 11));
+        QVERIFY(Actions::configSet("dates.order", "").ok);
+        QVERIFY(Actions::parseDateTime(QStringLiteral("12/11"), QDate(2026, 11, 24), &when, &hasTime));
+        qputenv("OMAPLAN_CONFIG", "");
+        QCOMPARE(when.date(), QDate(2027, 11, 12));
     }
 
     // H1: over MCP an agent may not choose what runs or where data goes.

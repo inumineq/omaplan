@@ -4,7 +4,10 @@
 #include "actions.h"
 
 #include <QCoreApplication>
+#include <QDir>
 #include <QElapsedTimer>
+#include <QFileInfo>
+#include <QLockFile>
 #include <QJsonArray>
 #include <QProcess>
 #include <QStandardPaths>
@@ -121,7 +124,14 @@ ActionResult Actions::configSet(const QString &name, const QString &rawValue, Ca
             value = ids.at(0).trimmed() + QStringLiteral(", ") + ids.at(1).trimmed();
     }
 
-    ConfigFile file;
+    // Read, change and write under a lock, so two writers at once (an agent's
+    // parallel calls, the panel and the CLI) never lose each other's change.
+    const QString path = AppConfig::defaultPath();
+    QDir().mkpath(QFileInfo(path).absolutePath());
+    QLockFile lock(path + QStringLiteral(".lock"));
+    if (!lock.tryLock(10000))
+        return {false, QStringLiteral("%1 is locked by another writer; try again").arg(path), {}, {}};
+    ConfigFile file(path);
     if (caller == Caller::Agent
         && (key.name == QLatin1String("engine.default") || key.name == QLatin1String("engine.compare"))) {
         bool namesCommand = false;
@@ -140,7 +150,11 @@ ActionResult Actions::configSet(const QString &name, const QString &rawValue, Ca
     QString error;
     if (!file.save(&error))
         return {false, error, {}, {}};
-    const QJsonObject e = entry(key, file, AppConfig::load(file.path()));
+    const AppConfig config = AppConfig::load(file.path());
+    // The running process (omaplan mcp) reads dates the way it just set them.
+    if (key.section == QLatin1String("dates") || key.name == QLatin1String("language"))
+        DateConvention::setActive(DateConvention::resolve(config, UiLanguage::current()));
+    const QJsonObject e = entry(key, file, config);
     return {true, {}, entryLine(e), e};
 }
 

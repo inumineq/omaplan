@@ -378,8 +378,10 @@ ConfigFile::Location ConfigFile::locate(const QString &section, const QString &k
         }
         if (line.kind != Line::Value || current != section)
             continue;
-        if (where.line < 0 && canonicalKey(section, line.name) == key)
-            where.line = i;
+        if (canonicalKey(section, line.name) == key) {
+            where.line = i; // the last one wins, as in AppConfig::load
+            where.lines << i;
+        }
         if (!left)
             lastContent = i;
     }
@@ -439,8 +441,8 @@ void ConfigFile::set(const QString &section, const QString &key, const QString &
 
 void ConfigFile::unset(const QString &section, const QString &key) {
     const Location where = locate(section, key);
-    if (where.line >= 0)
-        m_lines.removeAt(where.line);
+    for (int i = where.lines.size() - 1; i >= 0; --i)
+        m_lines.removeAt(where.lines.at(i));
 }
 
 bool ConfigFile::save(QString *error) const {
