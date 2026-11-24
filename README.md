@@ -111,6 +111,9 @@ database instead, unless `OMAPLAN_SNAPSHOT` is set.
 
 `omaplan snapshot [path]` writes it at once (e.g. the first time, or to another path).
 
+`plan.json` is private (0600): only the user that writes it can read it, so a `serve` running as another user or
+service needs a copy it owns, e.g. with rsync as below.
+
 `omaplan serve [--port N] [--bind ADDR] [--host NAME,...] [--snapshot PATH]` shows the snapshot as a small,
 server-rendered page with overview, list and timeline, plus `/plan.json`. It only reads `plan.json` (never the
 database), cannot write, and the page works without JavaScript. It binds to `127.0.0.1:8787`; share it on your

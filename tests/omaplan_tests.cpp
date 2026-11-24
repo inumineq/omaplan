@@ -216,6 +216,10 @@ private slots:
             }
         }
         umask(savedMask);
+        // The README says so, for a serve that runs as another user.
+        QFile readme(repoFile(QStringLiteral("README.md")));
+        QVERIFY(readme.open(QIODevice::ReadOnly));
+        QVERIFY(QString::fromUtf8(readme.readAll()).contains(QStringLiteral("`plan.json` is private (0600)")));
     }
 
     // Every change rewrites plan.json, valid against docs/export-schema.json.
