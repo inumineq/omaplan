@@ -14,9 +14,9 @@ Omaplan is built like Omarchy's own apps (C++ and Qt Quick, CMake, one binary), 
 [omarchy-pkgs](https://github.com/omacom/omarchy-pkgs). Until it is published there, build it from this repository:
 
 ```sh
-omarchy-pkg-add base-devel cmake qt6-base qt6-declarative qt6-svg qt6-wayland fontconfig
+omarchy-pkg-add base-devel cmake qt6-base qt6-declarative qt6-svg qt6-wayland fontconfig nodejs
 bin/build                                  # cmake into build/
-bin/test                                   # builds, then runs every test offscreen with ctest
+bin/test                                   # builds, then runs every test offscreen with ctest (two need node)
 cmake --install build --prefix ~/.local    # the binary, the launcher entry and the icon, for this user
 ```
 
