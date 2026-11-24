@@ -208,8 +208,8 @@ Rectangle {
                 Layout.fillWidth: true
                 Text {
                     text: overlay.comparing ? qsTr("Compare proposals") : qsTr("Proposal")
-                    font.bold: true
-                    font.pixelSize: 18
+                    font.weight: Font.DemiBold
+                    font.pixelSize: 16
                     color: theme.foreground
                 }
                 Text {

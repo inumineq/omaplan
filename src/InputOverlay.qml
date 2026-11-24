@@ -106,8 +106,8 @@ Rectangle {
                 Layout.fillWidth: true
                 Text {
                     text: qsTr("New tasks")
-                    font.bold: true
-                    font.pixelSize: 18
+                    font.weight: Font.DemiBold
+                    font.pixelSize: 16
                     color: theme.foreground
                 }
                 Item { Layout.fillWidth: true }

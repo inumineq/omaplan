@@ -171,8 +171,8 @@ Rectangle {
 
             Text {
                 text: editor.taskId === "" ? qsTr("New task") : qsTr("Edit task")
-                font.bold: true
-                font.pixelSize: 18
+                font.weight: Font.DemiBold
+                font.pixelSize: 16
                 color: theme.foreground
             }
             Field {
