@@ -131,8 +131,16 @@ ActionResult Actions::configSet(const QString &name, const QString &rawValue, Ca
     const QString path = AppConfig::defaultPath();
     QDir().mkpath(QFileInfo(path).absolutePath());
     QLockFile lock(path + QStringLiteral(".lock"));
-    if (!lock.tryLock(10000))
-        return {false, QStringLiteral("%1 is locked by another writer; try again").arg(path), {}, {}};
+    if (!lock.tryLock(10000)) {
+        switch (lock.error()) {
+        case QLockFile::LockFailedError:
+            return {false, QStringLiteral("%1 is locked by another writer; try again").arg(path), {}, {}};
+        case QLockFile::PermissionError:
+            return {false, QStringLiteral("no permission to write in %1").arg(QFileInfo(path).absolutePath()), {}, {}};
+        default:
+            return {false, QStringLiteral("could not lock %1 for writing").arg(path), {}, {}};
+        }
+    }
     ConfigFile file(path);
     if (caller == Caller::Agent
         && (key.name == QLatin1String("engine.default") || key.name == QLatin1String("engine.compare"))) {

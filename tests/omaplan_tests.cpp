@@ -3027,6 +3027,25 @@ private slots:
         QCOMPARE(plan.value("clock").toString(), QStringLiteral("12h"));
     }
 
+    // N4: a directory Omaplan may not write to is not "locked by another writer".
+    void configSetInAReadOnlyDirectorySaysSo()
+    {
+        QTemporaryDir dir;
+        const QString cfg = dir.filePath("config.toml");
+        QFile::setPermissions(dir.path(), QFileDevice::ReadOwner | QFileDevice::ExeOwner);
+        qputenv("OMAPLAN_CONFIG", cfg.toLocal8Bit());
+        QElapsedTimer timer;
+        timer.start();
+        const ActionResult r = Actions::configSet("engine.vibe.model", "small");
+        qputenv("OMAPLAN_CONFIG", "");
+        QFile::setPermissions(dir.path(), QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner);
+        if (QFileInfo(dir.path()).isWritable() && r.ok)
+            QSKIP("running as a user who may write anywhere (root)");
+        QVERIFY(!r.ok);
+        QVERIFY2(r.error.contains("permission") && !r.error.contains("another writer"), qPrintable(r.error));
+        QVERIFY(timer.elapsed() < 5000); // no waiting for a lock that can never be taken
+    }
+
     // M3: set/get/unset act on the line the program reads, the last one.
     void configWritesTheOccurrenceThatApplies()
     {
