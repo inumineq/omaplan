@@ -135,6 +135,7 @@ Rectangle {
                     clip: true
                     TextArea {
                         id: input
+                        selectedTextColor: theme.accentForeground
                         placeholderText: qsTr("Write or dictate freely, e.g. “blog post on Friday 14:30, 1 hour, project Blog; call Customer A Tuesday morning”")
                         placeholderTextColor: theme.muted
                         wrapMode: TextArea.Wrap

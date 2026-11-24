@@ -40,6 +40,7 @@ QJsonObject omarchyTheme(const QString &directory) {
     QJsonObject colors;
     colors["accent"] = hex(theme.accent());
     colors["accent_fg"] = hex(theme.accentForeground());
+    colors["accent_text"] = hex(theme.accentText());
     colors["bg"] = hex(theme.background());
     colors["bg_raised"] = hex(theme.surface());
     colors["fg"] = hex(theme.foreground());
@@ -53,7 +54,8 @@ QJsonObject omarchyTheme(const QString &directory) {
 QString themeStyle(const QJsonObject &theme) {
     static const char *const keys[][2] = {{"bg", "--bg"},         {"bg_raised", "--bg-raised"}, {"fg", "--fg"},
                                           {"muted", "--muted"},   {"border", "--border"},       {"accent", "--accent"},
-                                          {"accent_fg", "--accent-fg"}, {"danger", "--danger"}, {"ok", "--ok"}};
+                                          {"accent_fg", "--accent-fg"}, {"accent_text", "--accent-text"},
+                                          {"danger", "--danger"}, {"ok", "--ok"}};
     QStringList parts;
     for (const auto &key : keys) {
         const QString value = theme.value(QLatin1String(key[0])).toString();

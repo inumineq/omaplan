@@ -11,6 +11,7 @@
   --border: #2a2a34;
   --accent: #ffd60a;
   --accent-fg: #000000;
+  --accent-text: var(--accent); /* the accent as text, lifted to read on --bg */
   --danger: #f7768e;
   --ok: #9ece6a;
   --radius: 0px; /* sharp, like Omarchy's default windows (decoration:rounding = 0) */
@@ -134,7 +135,7 @@ body:has(#timeline.active) .views a[href="#timeline"],
 }
 
 .description a {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 /* ---------- days and groups ---------- */
@@ -210,7 +211,7 @@ body:has(#timeline.active) .views a[href="#timeline"],
 .time {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.85rem;
-  color: var(--accent);
+  color: var(--accent-text);
   white-space: nowrap;
 }
 
@@ -259,7 +260,7 @@ body:has(#timeline.active) .views a[href="#timeline"],
 }
 
 .badge-p1 {
-  color: var(--accent);
+  color: var(--accent-text);
   border-color: var(--accent);
 }
 
@@ -363,7 +364,7 @@ body:has(#timeline.active) .views a[href="#timeline"],
 }
 
 .gantt-day.today .gantt-date {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .tracks {
@@ -444,7 +445,7 @@ body:has(#timeline.active) .views a[href="#timeline"],
 }
 
 .footer a {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 /* ---------- wider screens ---------- */

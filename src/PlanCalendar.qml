@@ -224,7 +224,7 @@ Item {
                                 font.family: theme.fontFamily
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: { Fmt.lang; return Fmt.weekdayShort(parent.parent.date) }
-                                color: parent.parent.isToday ? theme.accent : theme.muted
+                                color: parent.parent.isToday ? theme.accentText : theme.muted
                                 font.pixelSize: 12
                             }
                             Rectangle {

@@ -139,6 +139,7 @@ Rectangle {
         Text { font.family: theme.fontFamily; text: fieldBox.label; color: theme.muted; font.pixelSize: 11 }
         TextField {
             id: input
+            selectedTextColor: theme.accentForeground
             Layout.fillWidth: true
             font.pixelSize: 14
             color: theme.foreground
@@ -245,6 +246,7 @@ Rectangle {
                         anchors.fill: parent
                         TextArea {
                             id: notes
+                            selectedTextColor: theme.accentForeground
                             wrapMode: TextArea.Wrap
                             color: theme.foreground
                             font.pixelSize: 13

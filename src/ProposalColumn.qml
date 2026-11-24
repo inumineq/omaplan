@@ -32,7 +32,7 @@ Rectangle {
             Text {
                 font.family: theme.fontFamily
                 text: column.info.engine || ""
-                color: column.chosen ? theme.accent : theme.foreground
+                color: column.chosen ? theme.accentText : theme.foreground
                 font.bold: true
                 font.pixelSize: 14
             }
@@ -76,6 +76,7 @@ Rectangle {
             visible: column.info.state === "error"
             clip: true
             TextArea {
+                selectedTextColor: theme.accentForeground
                 text: column.info.error || ""
                 readOnly: true
                 selectByMouse: true

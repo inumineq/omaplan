@@ -154,7 +154,7 @@ Item {
                     anchors.leftMargin: 4
                     font.pixelSize: 13
                     font.bold: true
-                    color: theme.accent
+                    color: theme.accentText
                     text: {
                         Fmt.lang
                         if (root.grouping === "project")

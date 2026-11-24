@@ -277,8 +277,13 @@ Omarchy's `colors.toml`, fallback `#FFD60A`):
 | `--border` | `border` | `#2a2a34` |
 | `--accent` | `accent` | `#ffd60a` |
 | `--accent-fg` | `accent_fg` | `#000000` |
+| `--accent-text` | `accent_text` | `var(--accent)` |
 | `--danger` | `danger` | `#f7768e` |
 | `--ok` | `ok` | `#9ece6a` |
+
+Text colours (`muted`, `danger`, `ok`, `accent_text`) are the theme's own, lifted toward white or black where they
+would read below 4.5:1 on `bg` (Omarchy's `muted` is a terminal's dim colour, about 2:1); `accent` itself stays exact
+for fills and borders.
 
 `serve` sets the variables inline on `<html>` from the theme of the machine it runs on (or else the `theme` in
 `plan.json`); `app.js` does the same from `plan.json`'s `theme` when the page is opened statically. `--radius`

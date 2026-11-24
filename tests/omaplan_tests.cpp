@@ -368,7 +368,7 @@ private slots:
         const QJsonObject theme = Snapshot::omarchyTheme(dir.path());
         QCOMPARE(theme.value("accent").toString(), QStringLiteral("#7aa2f7"));
         QCOMPARE(theme.value("bg").toString(), QStringLiteral("#1a1b26"));
-        QCOMPARE(theme.size(), 9);
+        QCOMPARE(theme.size(), 10);
         const QString style = Snapshot::themeStyle(theme);
         QVERIFY(style.contains(QStringLiteral("--accent:#7aa2f7")));
         QVERIFY(style.contains(QStringLiteral("--bg:#1a1b26")));
@@ -2841,6 +2841,48 @@ private slots:
         QCOMPARE(light.background(), QStringLiteral("#fafafa"));
         QCOMPARE(light.danger(), QStringLiteral("#cc0000"));
         QVERIFY(QColor(light.muted()).lightness() > QColor(light.foreground()).lightness());
+    }
+
+    void themeTextColorsReadOnEveryPalette()
+    {
+        // Omarchy's palettes are terminal colours: muted is a dim colour at
+        // about 2:1, and red, green or the accent can be faint on light
+        // themes. As text they are lifted to WCAG AA on background and panels.
+        const QList<QByteArray> palettes{
+            "mode = \"dark\"\naccent = \"#7aa2f7\"\nmuted = \"#414868\"\nbackground = \"#1a1b26\"\n"
+            "lighter_background = \"#24283b\"\nforeground = \"#a9b1d6\"\nred = \"#f7768e\"\ngreen = \"#9ece6a\"\n",
+            "mode = \"light\"\naccent = \"#d7827e\"\nmuted = \"#cecacd\"\nbackground = \"#faf4ed\"\n"
+            "foreground = \"#575279\"\nred = \"#b4637a\"\ngreen = \"#56949f\"\n",
+            "mode = \"dark\"\naccent = \"#78824b\"\nmuted = \"#666666\"\nbackground = \"#222222\"\n"
+            "foreground = \"#c2c2b0\"\nred = \"#685742\"\ngreen = \"#5f875f\"\n",
+        };
+        for (const QByteArray &palette : palettes) {
+            QTemporaryDir dir;
+            QDir().mkpath(dir.filePath("theme"));
+            QFile f(dir.filePath("theme/colors.toml"));
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write(palette);
+            f.close();
+            Theme theme(dir.path());
+            for (const QString &text : {theme.muted(), theme.danger(), theme.success(), theme.accentText()}) {
+                QVERIFY2(Theme::contrast(text, theme.background()) >= 4.5, qPrintable(palette + text));
+                QVERIFY2(Theme::contrast(text, theme.surface()) >= 4.5, qPrintable(palette + text));
+            }
+            // Secondary text stays quieter than the foreground.
+            QVERIFY(Theme::contrast(theme.muted(), theme.background())
+                    < Theme::contrast(theme.foreground(), theme.background()));
+        }
+        // A colour that already reads is left exactly as the theme has it.
+        QTemporaryDir dir;
+        QDir().mkpath(dir.filePath("theme"));
+        QFile f(dir.filePath("theme/colors.toml"));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("accent = \"#7aa2f7\"\nbackground = \"#1a1b26\"\nforeground = \"#c0caf5\"\nred = \"#f7768e\"\n");
+        f.close();
+        Theme tokyo(dir.path());
+        QCOMPARE(tokyo.accentText(), QStringLiteral("#7aa2f7"));
+        QCOMPARE(tokyo.danger(), QStringLiteral("#f7768e"));
+        QCOMPARE(Theme::contrast("#000000", "#ffffff"), 21.0);
     }
 
     // Omaplan's font is Omarchy's: omarchy-font-set rewrites fontconfig's

@@ -171,7 +171,7 @@ Item {
                         width: parent.width - 12
                         elide: Text.ElideRight
                         text: { Fmt.lang; return gantt.dayCount > 7 ? Fmt.dayShort(parent.date) : Fmt.capitalize(Fmt.dayLong(parent.date)) }
-                        color: parent.isToday ? theme.accent : theme.foreground
+                        color: parent.isToday ? theme.accentText : theme.foreground
                         font.pixelSize: 12
                         font.bold: parent.isToday
                     }

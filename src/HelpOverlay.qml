@@ -132,7 +132,7 @@ Rectangle {
                                             Text {
                                                 Layout.preferredWidth: 160
                                                 text: parent.modelData[0]
-                                                color: theme.accent
+                                                color: theme.accentText
                                                 font.family: theme.fontFamily
                                                 font.pixelSize: 12
                                             }

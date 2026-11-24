@@ -79,7 +79,7 @@ Item {
                     textFormat: Text.StyledText
                     font.pixelSize: 13
                     font.bold: true
-                    color: header.overdue ? theme.danger : theme.accent
+                    color: header.overdue ? theme.danger : theme.accentText
                     text: {
                         Fmt.lang
                         if (header.overdue)

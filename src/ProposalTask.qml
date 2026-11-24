@@ -49,12 +49,13 @@ Rectangle {
             Layout.fillWidth: true
             elide: Text.ElideRight
             text: field.label + (field.guess ? " · " + qsTr("guess") : "")
-            color: field.guess ? theme.accent : theme.muted
+            color: field.guess ? theme.accentText : theme.muted
             font.pixelSize: 10
             font.bold: field.guess
         }
         TextField {
             id: input
+            selectedTextColor: theme.accentForeground
             Layout.fillWidth: true
             text: card.task[field.key] || ""
             font.pixelSize: 13
@@ -103,6 +104,7 @@ Rectangle {
             Layout.fillWidth: true
             TextField {
                 id: titleField
+                selectedTextColor: theme.accentForeground
                 Layout.fillWidth: true
                 text: card.task.title
                 placeholderText: text === "" ? qsTr("Title") : ""

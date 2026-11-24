@@ -16,7 +16,7 @@ An invented example lives in `web/example/plan.json`; `web/test.mjs` validates i
 | `exported` | ISO 8601 **with offset** | time of the export, e.g. `2026-11-23T13:57:00+01:00` |
 | `timezone` | IANA name | local time zone, e.g. `Europe/Copenhagen` |
 | `language` | BCP 47 | the app's user interface language, e.g. `en` or `da` |
-| `theme` | object, optional | theme colours `#RRGGBB`: `accent`, `accent_fg`, `bg`, `bg_raised`, `fg`, `muted`, `border`, `danger`, `ok` |
+| `theme` | object, optional | theme colours `#RRGGBB`: `accent`, `accent_fg`, `accent_text`, `bg`, `bg_raised`, `fg`, `muted`, `border`, `danger`, `ok` |
 | `tasks` | array | every task, see below |
 
 The read-only edition does not use `language` to pick its own language: `omaplan serve` follows the browser's

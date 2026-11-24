@@ -497,6 +497,7 @@ function renderPage(plan, today, t, active) {
 const THEME_TO_CSS = {
   accent: '--accent',
   accent_fg: '--accent-fg',
+  accent_text: '--accent-text',
   bg: '--bg',
   bg_raised: '--bg-raised',
   fg: '--fg',

@@ -22,6 +22,9 @@ class Theme : public QObject {
     Q_PROPERTY(QString muted READ muted NOTIFY changed)
     Q_PROPERTY(QString danger READ danger NOTIFY changed)       // overdue, errors
     Q_PROPERTY(QString success READ success NOTIFY changed)
+    // The accent as a text colour: the theme's accent, lifted until it reads
+    // on the background. Fills and borders keep the exact accent.
+    Q_PROPERTY(QString accentText READ accentText NOTIFY changed)
     // Omarchy's font (omarchy-font-set: fontconfig's monospace), by its real
     // family. Followed live once followSystemFont() is called; until then,
     // the generic monospace.
@@ -45,9 +48,10 @@ public:
     QString raised() const;
     QString border() const;
     QString foreground() const { return color("foreground", dark() ? "#e6e6e6" : "#1d1d1f"); }
-    QString muted() const;
-    QString danger() const { return color("red", "#e5534b"); }
-    QString success() const { return color("green", "#57ab5a"); }
+    QString muted() const { return m_muted; }
+    QString danger() const { return m_danger; }
+    QString success() const { return m_success; }
+    QString accentText() const { return m_accentText; }
     QString fontFamily() const { return m_fontFamily; }
 
     // Follows Omarchy's font from now on, as the application's font and
@@ -57,6 +61,8 @@ public:
     // The family fontconfig gives for `family` (an alias like monospace) as
     // its configuration on disk says now, or `family` when it gives none.
     static QString resolveFamily(const QString &family);
+    // WCAG contrast ratio of two colours, 1 to 21.
+    static double contrast(const QString &a, const QString &b);
 
 signals:
     void changed();
@@ -64,6 +70,8 @@ signals:
 
 private:
     QString color(const char *key, const char *fallback) const;
+    QString readable(const QString &color) const;
+    void deriveTextColors();
     void reload();
     void readSystemFont();
     void refreshRounding();
@@ -77,6 +85,7 @@ private:
     int m_radius = 0;
     QProcess m_roundingProcess;
     QTimer m_roundingPoll, m_roundingTimeout;
+    QString m_muted, m_danger, m_success, m_accentText;
     QString m_fontFamily = "monospace";
     bool m_followingFont = false;
     QFileSystemWatcher m_fontWatcher;

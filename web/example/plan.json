@@ -7,6 +7,7 @@
   "theme": {
     "accent": "#FFD60A",
     "accent_fg": "#000000",
+    "accent_text": "#FFD60A",
     "bg": "#0e0e10",
     "bg_raised": "#1a1a21",
     "fg": "#e8e8ee",

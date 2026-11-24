@@ -18,6 +18,7 @@
       "properties": {
         "accent": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
         "accent_fg": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Text colour readable on accent"},
+        "accent_text": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "The accent as a text colour, readable on bg"},
         "bg": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
         "bg_raised": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
         "fg": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},

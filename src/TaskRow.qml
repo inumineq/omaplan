@@ -110,7 +110,7 @@ Rectangle {
         Tag {
             visible: row.priority < 3 && !row.done
             text: Fmt.priorityLabel(row.priority)
-            tint: row.priority === 1 ? theme.danger : theme.accent
+            tint: row.priority === 1 ? theme.danger : theme.accentText
         }
     }
 }
