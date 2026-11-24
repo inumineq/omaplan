@@ -932,6 +932,17 @@ static bool dayOfMonthDate(const QDate &base, int day, QDate *out) {
     return false;
 }
 
+// A local time in the spring daylight saving gap (02:30 on the last Sunday
+// of March in Europe) does not exist; QDateTime would quietly move it.
+static bool existsLocally(const QDate &date, const QTime &time, const QString &text, QString *error) {
+    if (QDateTime(date, time).time() == time)
+        return true;
+    if (error)
+        *error = QCoreApplication::translate("Actions", "%1 does not exist on %2 (daylight saving time): %3")
+                     .arg(time.toString(QStringLiteral("HH:mm")), date.toString(Qt::ISODate), text);
+    return false;
+}
+
 bool Actions::parseFilterDate(const QString &text, const QDate &today, QDate *out, QString *error) {
     QDateTime when;
     bool hasTime = false;
@@ -973,6 +984,8 @@ bool Actions::parseDateTime(const QString &text, const QDate &today, QDateTime *
             if (error) *error = QCoreApplication::translate("Actions", "invalid time: %1").arg(trimmed);
             return false;
         }
+        if (!existsLocally(date, time, trimmed, error))
+            return false;
         *out = QDateTime(date, time);
         *hasTime = true;
         return true;
@@ -1056,6 +1069,8 @@ bool Actions::parseDateTime(const QString &text, const QDate &today, QDateTime *
             } else if (auto m = daySlash.match(part); m.hasMatch()) {
                 day = m.captured(1).toInt();
                 month = m.captured(2).toInt();
+                if (month < 1 || month > 12)
+                    bad = true;
             } else if (DateVocabulary::month(part)) {
                 month = DateVocabulary::month(part);
             } else if (bareNumber.match(part).hasMatch()) {
@@ -1075,16 +1090,17 @@ bool Actions::parseDateTime(const QString &text, const QDate &today, QDateTime *
             return false;
         }
         if (day != 0 && month != 0) {
-            // "12/12" or "12. december": explicit day and month.
-            int year = today.year();
-            QDate candidate(year, month, 1);
-            if (day > candidate.daysInMonth()) {
+            // "12/12" or "12. december": explicit day and month, this year's
+            // or (upcoming) the next one that exists from today on, so
+            // 29 February finds the next leap year.
+            QDate candidate(today.year(), month, day);
+            for (int year = today.year() + 1; upcoming && (!candidate.isValid() || candidate < today)
+                                               && year <= today.year() + 8; ++year)
+                candidate = QDate(year, month, day);
+            if (!candidate.isValid()) {
                 if (error) *error = QCoreApplication::translate("Actions", "invalid date: %1").arg(trimmed);
                 return false;
             }
-            candidate = candidate.addDays(day - 1);
-            if (candidate < today && upcoming)
-                candidate = QDate(year + 1, month, 1).addDays(day - 1);
             date = candidate;
             if (weekday != 0 && date.dayOfWeek() != weekday) {
                 if (error) *error = QCoreApplication::translate("Actions", "%1 is not a %2")
@@ -1130,6 +1146,8 @@ bool Actions::parseDateTime(const QString &text, const QDate &today, QDateTime *
         }
     }
 
+    if (withTime && !existsLocally(date, time, trimmed, error))
+        return false;
     *out = QDateTime(date, withTime ? time : QTime(0, 0));
     *hasTime = withTime;
     return true;

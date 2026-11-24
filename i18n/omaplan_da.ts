@@ -149,6 +149,10 @@
         <translation>status skal være todo eller done</translation>
     </message>
     <message>
+        <source>%1 does not exist on %2 (daylight saving time): %3</source>
+        <translation>%1 findes ikke den %2 (sommertid): %3</translation>
+    </message>
+    <message>
         <source>empty date</source>
         <translation>tom dato</translation>
     </message>

@@ -134,6 +134,7 @@ static bool runEngine(AiEngine &engine, const QString &text, Proposal *proposalO
     guard.start(guardMs);
     PromptContext ctx;
     ctx.today = QDate(2026, 11, 23); // the fixed fixture date (a Monday)
+    ctx.timeZone = QStringLiteral("Europe/Copenhagen");
     ctx.language = QStringLiteral("da");
     engine.propose(text, ctx);
     if (!done) // process-based engines answer asynchronously
@@ -178,6 +179,7 @@ private slots:
         ctx.today = QDate(2026, 11, 23); // Monday
         ctx.language = QStringLiteral("da");
         ctx.existingTasks = {QStringLiteral("2026-11-24 09:00 Research (Blog)")};
+        ctx.timeZone = QStringLiteral("Europe/Copenhagen");
         const QString prompt = buildSystemPrompt(ctx);
         QVERIFY(prompt.contains(QStringLiteral("2026-11-23")));
         QVERIFY(prompt.contains(QStringLiteral("Monday")));
@@ -188,6 +190,12 @@ private slots:
         QVERIFY(prompt.contains(QStringLiteral("tasks")));   // the schema is embedded
         QVERIFY(prompt.contains(QStringLiteral("guessed")));       // guessing rules
         QVERIFY(prompt.contains(QStringLiteral("unresolved")));
+        // The machine's own time zone by default, not a fixed one.
+        PromptContext local;
+        local.today = ctx.today;
+        QVERIFY(buildSystemPrompt(local).contains(QString::fromUtf8(QTimeZone::systemTimeZoneId())));
+        local.timeZone = QStringLiteral("America/New_York");
+        QVERIFY(buildSystemPrompt(local).contains(QStringLiteral("America/New_York")));
         QVERIFY(prompt.contains(QStringLiteral("på tirsdag"))); // Danish date expressions mentioned
         // eval-vibe-2: engines must not wander into prose or tool calls.
         QVERIFY(prompt.contains(QStringLiteral("no tool calls"), Qt::CaseInsensitive));

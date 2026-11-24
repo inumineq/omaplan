@@ -11,6 +11,7 @@
 #include <QSqlQuery>
 #include <QTemporaryDir>
 #include <QTextStream>
+#include <QTimeZone>
 #include <QtTest>
 
 #include <sys/stat.h>
@@ -1726,6 +1727,43 @@ private slots:
         QVERIFY(!result[QStringLiteral("isError")].toBool());
         QCOMPARE(result[QStringLiteral("structuredContent")].toObject()[QStringLiteral("task")].toObject()
                      [QStringLiteral("start")].toString(), QStringLiteral("2026-12-10T09:30"));
+    }
+
+    // The small date holes from the audit.
+    void dateEdgeCases()
+    {
+        QDateTime out;
+        bool hasTime = false;
+        QString error;
+        // 29 February is the next one that exists, not an error in a common year.
+        QVERIFY2(Actions::parseDateTime(QStringLiteral("29. februar"), QDate(2027, 1, 10), &out, &hasTime, &error), qPrintable(error));
+        QCOMPARE(out.date(), QDate(2028, 2, 29));
+        QVERIFY(Actions::parseDateTime(QStringLiteral("february 29th"), QDate(2028, 3, 1), &out, &hasTime, &error));
+        QCOMPARE(out.date(), QDate(2032, 2, 29));
+        QVERIFY(Actions::parseDateTime(QStringLiteral("29/2"), QDate(2028, 1, 5), &out, &hasTime, &error));
+        QCOMPARE(out.date(), QDate(2028, 2, 29));
+        QVERIFY(!Actions::parseDateTime(QStringLiteral("30. februar"), QDate(2027, 1, 10), &out, &hasTime, &error));
+        // A month of 0 or above 12 is an error, not "the 5th".
+        for (const QString &text : {QStringLiteral("5/0"), QStringLiteral("5/13")}) {
+            error.clear();
+            QVERIFY2(!Actions::parseDateTime(text, QDate(2026, 11, 23), &out, &hasTime, &error), qPrintable(text));
+            QVERIFY(!error.isEmpty());
+        }
+        // A clock time that does not exist (the spring daylight saving gap)
+        // is an error, not silently an hour later.
+        const QTimeZone zone = QTimeZone::systemTimeZone();
+        QDate gapDay;
+        for (QDate d(2027, 1, 1); d < QDate(2028, 1, 1) && !gapDay.isValid(); d = d.addDays(1))
+            if (QDateTime(d, QTime(2, 30)).time() != QTime(2, 30))
+                gapDay = d;
+        if (gapDay.isValid()) {
+            error.clear();
+            QVERIFY(!Actions::parseDateTime(gapDay.toString(Qt::ISODate) + QStringLiteral(" 02:30"), QDate(2026, 11, 23),
+                                            &out, &hasTime, &error));
+            QVERIFY2(error.contains(QStringLiteral("02:30")), qPrintable(error));
+        } else {
+            qInfo("no daylight saving gap at 02:30 in %s; gap check not exercised", zone.id().constData());
+        }
     }
 
     void dateAnnotationInEnglish()
