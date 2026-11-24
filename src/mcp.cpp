@@ -123,7 +123,12 @@ QJsonObject McpServer::toolList() {
                   configKey, {QStringLiteral("key")}, true)
           << tool(QStringLiteral("config_set"),
                   QStringLiteral("Change one setting in config.toml (comments and other keys stay). Only when the user asked "
-                                 "for it. An empty value removes the key, so the default applies."),
+                                 "for it. An empty value removes the key, so the default applies. Allowed: language, "
+                                 "dates.*, projects.*, engine.vibe.model, engine.claude.model, engine.local.model, "
+                                 "engine.timeout, engine.default and engine.compare. Not engine.command, "
+                                 "engine.local.endpoint, engine.local.api or snapshot.path (what runs and where data "
+                                 "goes): the user sets those with `omaplan config set` or the settings panel. The command "
+                                 "engine can only be chosen once the user has set its command line."),
                   configSet, {QStringLiteral("key"), QStringLiteral("value")})
           << tool(QStringLiteral("engines"),
                   QStringLiteral("The AI engines: whether each tool is installed and the model or endpoint it uses. Runs no "
@@ -283,7 +288,7 @@ QJsonObject McpServer::callTool(const QString &name, const QJsonObject &given) {
         return textResult(Actions::configGet(args.value(QStringLiteral("key")).toString()));
     if (name == QLatin1String("config_set"))
         return textResult(Actions::configSet(args.value(QStringLiteral("key")).toString(),
-                                             args.value(QStringLiteral("value")).toString()));
+                                             args.value(QStringLiteral("value")).toString(), Actions::Caller::Agent));
     if (name == QLatin1String("engines"))
         return textResult(Actions::engines());
     if (name == QLatin1String("propose") || name == QLatin1String("add")) {

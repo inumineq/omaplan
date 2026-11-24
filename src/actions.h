@@ -128,7 +128,12 @@ public:
     // key, so the default applies again. Comments and unknown keys stay.
     static ActionResult configList();
     static ActionResult configGet(const QString &key);
-    static ActionResult configSet(const QString &key, const QString &value);
+    // Who asks: the user (CLI, the panel) may set every key. An agent (MCP)
+    // may not choose what runs or where data goes: not engine.command,
+    // engine.local.endpoint/api or snapshot.path, and the command engine only
+    // once the user has set its command line.
+    enum class Caller { User, Agent };
+    static ActionResult configSet(const QString &key, const QString &value, Caller caller = Caller::User);
     // Each engine: whether its tool is on PATH (or its endpoint/command is
     // set), and the model or endpoint it would use. Runs nothing.
     static ActionResult engines();

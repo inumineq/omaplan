@@ -92,8 +92,15 @@ const QStringList &paletteSlots();
 QString paletteSlot(const QString &value);
 bool isPaletteSlot(const QString &value);
 // Checks a value for a key; returns an English error, or empty when fine.
-// An empty value always passes (it means "unset").
+// An empty value passes (it means "unset"); a control character never does,
+// in the value or in a project name.
 QString validate(const ConfigKey &key, const QString &value);
+bool hasControlCharacter(const QString &text);
+// Whether an agent (MCP) may set the key: language, dates.*, projects.*, the
+// model names, timeout, default engine and compare. Not what runs
+// (engine.command), where text goes (engine.local.endpoint/api) or where a
+// file is written (snapshot.path).
+bool agentMaySet(const ConfigKey &key);
 } // namespace ConfigKeys
 
 // The file as lines, for writing: set() and unset() change one line and

@@ -2884,6 +2884,84 @@ private slots:
         QCOMPARE(AppConfig::load(dir.filePath("config.toml")).vibeModel, QStringLiteral("mistral-medium"));
     }
 
+    // H1: over MCP an agent may not choose what runs or where data goes.
+    void mcpConfigSetIsLimitedToSafeKeys()
+    {
+        QTemporaryDir dir;
+        const QString db = dir.filePath("mcp.db");
+        const QString cfg = dir.filePath("config.toml");
+        QString stderrText;
+        QList<QJsonObject> r = mcpSession(db, {
+            call(1, "config_set", {{"key", "engine.command"}, {"value", "sh -c 'touch x'"}}),
+            call(2, "config_set", {{"key", "snapshot.path"}, {"value", dir.filePath("victim.txt")}}),
+            call(3, "config_set", {{"key", "engine.local.endpoint"}, {"value", "http://example.invalid"}}),
+            call(4, "config_set", {{"key", "engine.local.api"}, {"value", "openai"}}),
+            call(5, "config_set", {{"key", "engine.default"}, {"value", "command"}}),
+            call(6, "config_set", {{"key", "engine.compare"}, {"value", "vibe, command"}}),
+            call(7, "config_set", {{"key", "engine.claude.model"}, {"value", "opus"}}),
+            call(8, "config_set", {{"key", "projects.Blog"}, {"value", "blue"}}),
+            call(9, "config_set", {{"key", "dates.clock"}, {"value", "12h"}}),
+        }, &stderrText);
+        QCOMPARE(r.size(), 10);
+        const auto isError = [&](int i) { return r.at(i).value("result").toObject().value("isError").toBool(); };
+        const auto text = [&](int i) {
+            return r.at(i).value("result").toObject().value("content").toArray().at(0).toObject().value("text").toString();
+        };
+        for (int i = 0; i < 6; ++i)
+            QVERIFY2(isError(i), qPrintable(QString::number(i) + ": " + text(i)));
+        QVERIFY2(text(0).contains("omaplan config set"), qPrintable(text(0)));
+        QVERIFY2(text(4).contains("engine.command"), qPrintable(text(4)));
+        for (int i = 6; i < 9; ++i)
+            QVERIFY2(!isError(i), qPrintable(text(i)));
+        const AppConfig after = AppConfig::load(cfg);
+        QVERIFY(after.command.isEmpty());
+        QVERIFY(after.snapshotPath.isEmpty());
+        QVERIFY(after.localEndpoint.isEmpty());
+        QCOMPARE(after.claudeModel, QStringLiteral("opus"));
+
+        // Once the user has set a command line themselves, an agent may pick that engine.
+        Store store(db);
+        QString error, out, err;
+        QVERIFY(store.open(&error));
+        qputenv("OMAPLAN_CONFIG", cfg.toLocal8Bit());
+        QCOMPARE(cli(store, {"config", "set", "engine.command", "my-engine --json"}, &out, &err), 0);
+        qputenv("OMAPLAN_CONFIG", "");
+        r = mcpSession(db, {call(1, "config_set", {{"key", "engine.default"}, {"value", "command"}})}, &stderrText);
+        QVERIFY2(!isError(0), qPrintable(text(0)));
+        QCOMPARE(AppConfig::load(cfg).engine, QStringLiteral("command"));
+    }
+
+    // H2: a control character would break the file into new lines (and keys).
+    void configRejectsControlCharacters()
+    {
+        QTemporaryDir dir;
+        const QString cfg = dir.filePath("config.toml");
+        qputenv("OMAPLAN_CONFIG", cfg.toLocal8Bit());
+        Store store(dir.filePath("t.db"));
+        QString error, out, err;
+        QVERIFY(store.open(&error));
+        const QString smuggled = QStringLiteral("x\n[engine]\ndefault = \"command\"\ncommand = \"touch y\"\n#");
+        QCOMPARE(cli(store, {"config", "set", "engine.vibe.model", smuggled}, &out, &err), 1);
+        QVERIFY2(err.contains("control character"), qPrintable(err));
+        QCOMPARE(cli(store, {"config", "set", "engine.vibe.model", "a\rb"}, &out, &err), 1);
+        QCOMPARE(cli(store, {"config", "set", "engine.vibe.model", QStringLiteral("a") + QChar(0x7f)}, &out, &err), 1);
+        QCOMPARE(cli(store, {"config", "set", "projects.A\nB", "blue"}, &out, &err), 1);
+        QCOMPARE(cli(store, {"config", "set", "projects.A\tB", "blue"}, &out, &err), 1);
+        QVERIFY(!QFile::exists(cfg) || AppConfig::load(cfg).command.isEmpty());
+        qputenv("OMAPLAN_CONFIG", "");
+
+        QString stderrText;
+        const QList<QJsonObject> r = mcpSession(dir.filePath("t.db"), {
+            call(1, "config_set", {{"key", "engine.claude.model"}, {"value", smuggled}}),
+            call(2, "config_set", {{"key", "projects.A\nB"}, {"value", "blue"}}),
+        }, &stderrText);
+        QCOMPARE(r.size(), 3);
+        QVERIFY(r.at(0).value("result").toObject().value("isError").toBool());
+        QVERIFY(r.at(1).value("result").toObject().value("isError").toBool());
+        QVERIFY(AppConfig::load(cfg).command.isEmpty());
+        QVERIFY(AppConfig::load(cfg).projectColors.isEmpty());
+    }
+
     void mcpSpeaksTheProtocolOverStdio()
     {
         QTemporaryDir dir;

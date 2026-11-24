@@ -95,10 +95,16 @@ ActionResult Actions::configGet(const QString &name) {
     return {true, {}, e.value("effective").toString(), e};
 }
 
-ActionResult Actions::configSet(const QString &name, const QString &rawValue) {
+ActionResult Actions::configSet(const QString &name, const QString &rawValue, Caller caller) {
     ConfigKey key;
     if (!ConfigKeys::find(name, &key))
         return {false, tr("Unknown setting: %1 (see omaplan config list)").arg(name), {}, {}};
+    if (caller == Caller::Agent && !ConfigKeys::agentMaySet(key))
+        return {false,
+                QStringLiteral("%1 decides what Omaplan runs or where it sends or writes data, so an agent may not set "
+                               "it. Ask the user to run `omaplan config set %1 <value>` or use the settings panel.")
+                    .arg(key.name),
+                {}, {}};
     QString value = rawValue.trimmed();
     if (!key.choices.isEmpty() || key.section == QLatin1String("projects") || key.name == QLatin1String("language"))
         value = value.toLower();
@@ -116,6 +122,17 @@ ActionResult Actions::configSet(const QString &name, const QString &rawValue) {
     }
 
     ConfigFile file;
+    if (caller == Caller::Agent
+        && (key.name == QLatin1String("engine.default") || key.name == QLatin1String("engine.compare"))) {
+        bool namesCommand = false;
+        for (const QString &id : value.split(QLatin1Char(',')))
+            namesCommand = namesCommand || id.trimmed() == QLatin1String("command");
+        if (namesCommand && AppConfig::load(file.path()).command.isEmpty())
+            return {false,
+                    QStringLiteral("The command engine has no command line, and an agent may not set engine.command. "
+                                   "Ask the user to run `omaplan config set engine.command <command line>` first."),
+                    {}, {}};
+    }
     if (value.isEmpty())
         file.unset(key.section, key.key);
     else

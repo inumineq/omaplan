@@ -295,7 +295,27 @@ QString paletteSlot(const QString &value) {
 
 bool isPaletteSlot(const QString &value) { return !paletteSlot(value).isEmpty(); }
 
+bool agentMaySet(const ConfigKey &key) {
+    static const QStringList keys = {
+        QStringLiteral("language"),          QStringLiteral("engine.default"),     QStringLiteral("engine.compare"),
+        QStringLiteral("engine.timeout"),    QStringLiteral("engine.vibe.model"),  QStringLiteral("engine.claude.model"),
+        QStringLiteral("engine.local.model")};
+    return keys.contains(key.name) || key.section == QLatin1String("dates") || key.section == QLatin1String("projects");
+}
+
+bool hasControlCharacter(const QString &text) {
+    for (const QChar c : text)
+        if (c.unicode() < 0x20 || c.unicode() == 0x7f)
+            return true;
+    return false;
+}
+
 QString validate(const ConfigKey &key, const QString &value) {
+    // A line break would split the line in the file into new keys.
+    if (hasControlCharacter(value))
+        return QStringLiteral("%1 may not contain a control character (line break, tab, ...)").arg(key.name);
+    if (key.section == QLatin1String("projects") && hasControlCharacter(key.key))
+        return QStringLiteral("a project name may not contain a control character (line break, tab, ...)");
     if (value.isEmpty())
         return {};
     if (!key.choices.isEmpty() && !key.choices.contains(value))

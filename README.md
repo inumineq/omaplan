@@ -84,7 +84,11 @@ about the source ("Changed from the command line"). Concurrent writes are safe (
 
 `omaplan mcp` is an MCP server over stdio (JSON-RPC 2.0) with the same actions as the command line as tools:
 `list`, `show`, `new`, `edit`, `move`, `done`, `undone`, `rm`, `undo`, `redo`, `projects`, `summary`, `propose`,
-`approve` and `add`, plus `config_list`, `config_get`, `config_set` and `engines` for the settings. The arguments are named like the CLI flags (`title`, `start`, `duration`, `deadline`,
+`approve` and `add`, plus `config_list`, `config_get`, `config_set` and `engines` for the settings. An agent may
+set the language, `dates.*`, `projects.*`, the model names, the timeout, the default engine and compare, but not
+what runs or where data goes (`engine.command`, `engine.local.endpoint`, `engine.local.api`, `snapshot.path`);
+those take `omaplan config set` or the settings panel. It can pick the `command` engine only once you have set its
+command line yourself. The arguments are named like the CLI flags (`title`, `start`, `duration`, `deadline`,
 `project`, `from`, `to`, ...; `when` for `move`, `period` = `week`|`month` for `summary`, `text` and `engine` for
 `propose`/`add`), and dates accept the same expressions. Changes get the source `mcp`, show up live in the window
 and can be undone from there.
