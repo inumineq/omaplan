@@ -8,6 +8,8 @@
 
 #include "uilanguage.h"
 
+QStringList Settings::languages() const { return UiLanguage::available(); }
+
 Settings::Settings(UiLanguage *language, const QString &path, QObject *parent)
     : QObject(parent)
     , m_language(language)

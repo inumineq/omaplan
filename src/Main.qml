@@ -31,7 +31,7 @@ ApplicationWindow {
     property bool helpVisible: false
     // Any overlay that takes the keyboard: the view keys are off meanwhile,
     // so typing "q" or "2" in a text field never quits or switches view.
-    readonly property bool modal: helpVisible || inputOverlay.visible || proposalView.visible || editor.visible
+    readonly property bool modal: helpVisible || settingsPanel.visible || inputOverlay.visible || proposalView.visible || editor.visible
     // When an overlay closes, the keyboard goes back to the window. A hidden
     // text field that kept focus would otherwise swallow j, x, n, Ctrl+Z.
     onModalChanged: if (!modal) keySink.forceActiveFocus()
@@ -54,6 +54,10 @@ ApplicationWindow {
         return result.ok
     }
 
+    function openSettings() {
+        helpVisible = false
+        settingsPanel.open()
+    }
     function openInput() {
         if (!modal)
             inputOverlay.open()
@@ -126,7 +130,9 @@ ApplicationWindow {
     Shortcut { sequence: "3"; enabled: !win.modal; onActivated: win.currentView = 2 }
     Shortcut { sequence: "4"; enabled: !win.modal; onActivated: win.currentView = 3 }
     Shortcut { sequences: ["?", "Shift+?"]; enabled: !inputOverlay.visible && !proposalView.visible && !editor.visible
+                                                     && !settingsPanel.visible
         onActivated: win.helpVisible = !win.helpVisible }
+    Shortcut { sequences: [",", "Ctrl+,"]; enabled: !win.modal || win.helpVisible; onActivated: win.openSettings() }
     Shortcut { sequence: "Esc"; enabled: win.helpVisible; onActivated: win.helpVisible = false }
     Shortcut { sequence: "q"; enabled: !win.modal; onActivated: Qt.quit() }
     Shortcut { sequences: ["n", "Space"]; enabled: !win.modal; onActivated: win.openInput() }
@@ -215,6 +221,54 @@ ApplicationWindow {
                 primary: true
                 onClicked: win.openInput()
             }
+            // The settings behind a quiet gear, beside the ?.
+            AbstractButton {
+                id: settingsButton
+                Layout.leftMargin: 6
+                focusPolicy: Qt.NoFocus
+                implicitWidth: 24
+                implicitHeight: 24
+                onClicked: settingsPanel.visible ? settingsPanel.closeRequested() : win.openSettings()
+                ToolTip.visible: hovered
+                ToolTip.delay: 600
+                ToolTip.text: qsTr("Settings") + " (,)"
+                // A small gear drawn in the theme's colours (the ⚙ glyph
+                // comes out as a colour emoji in many fonts).
+                contentItem: Item {
+                    readonly property color ink: settingsButton.hovered ? theme.foreground : theme.muted
+                    Repeater {
+                        model: 4
+                        delegate: Rectangle {
+                            required property int index
+                            anchors.centerIn: parent
+                            width: 2.5
+                            height: 13
+                            radius: 1
+                            rotation: index * 45
+                            color: parent.ink
+                        }
+                    }
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: 9
+                        height: 9
+                        radius: 4.5
+                        color: parent.ink
+                    }
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: 3.5
+                        height: 3.5
+                        radius: 1.75
+                        color: settingsButton.hovered ? theme.raised : theme.background
+                    }
+                }
+                background: Rectangle {
+                    radius: width / 2
+                    color: settingsButton.hovered ? theme.raised : "transparent"
+                    border.color: theme.border
+                }
+            }
             // The shortcuts behind a small ?, like Omacut's and Folio's.
             AbstractButton {
                 id: helpButton
@@ -290,6 +344,12 @@ ApplicationWindow {
             anchors.fill: parent
             visible: win.helpVisible
             onCloseRequested: win.helpVisible = false
+        }
+
+        SettingsOverlay {
+            id: settingsPanel
+            anchors.fill: parent
+            onCloseRequested: visible = false
         }
 
         InputOverlay {

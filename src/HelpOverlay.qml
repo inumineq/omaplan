@@ -24,6 +24,7 @@ Rectangle {
             ["a", qsTr("New task by hand")],
             ["Ctrl+Z / Ctrl+Shift+Z", qsTr("Undo / redo (also changes from the CLI or an agent)")],
             ["?", qsTr("This overview")],
+            [", / Ctrl+,", qsTr("Settings: AI engine, date and time, project colours")],
             ["q", qsTr("Quit")]]],
         [qsTr("Selected task"), [
             ["j / k  ↓ / ↑", qsTr("Select next / previous")],
@@ -51,6 +52,11 @@ Rectangle {
             ["Tab", qsTr("Next field in the proposal")],
             ["Ctrl+R / Ctrl+E", qsTr("After an engine error: try again / create it yourself")],
             ["Esc", qsTr("Close / discard / cancel the engine")]]],
+        [qsTr("Settings"), [
+            ["Alt+1 / Alt+2 / Alt+3", qsTr("AI engine, date and time, project colours")],
+            ["Tab  ← / →", qsTr("Next field; change a choice or a project's colour")],
+            ["Ctrl+E", qsTr("Open config.toml in the editor")],
+            ["Esc", qsTr("Close (every change is already saved)")]]],
         [qsTr("Task editor"), [
             ["Ctrl+Enter / Enter", qsTr("Save")],
             ["Alt+1 / Alt+2 / Alt+3", qsTr("Priority: high, medium, normal")],
@@ -102,7 +108,7 @@ Rectangle {
                     Layout.fillWidth: true
                     spacing: 28
                     Repeater {
-                        model: [overlay.groups.slice(0, 3), overlay.groups.slice(3)]
+                        model: [overlay.groups.slice(0, 4), overlay.groups.slice(4)]
                         delegate: ColumnLayout {
                             required property var modelData
                             Layout.fillWidth: true

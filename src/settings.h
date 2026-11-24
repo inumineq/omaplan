@@ -21,11 +21,15 @@ class Settings : public QObject {
     Q_PROPERTY(bool dottedIsTime READ dottedIsTime NOTIFY changed)
     Q_PROPERTY(int weekStart READ weekStart NOTIFY changed)   // 1 = Monday, 7 = Sunday
     Q_PROPERTY(bool clock24 READ clock24 NOTIFY changed)
-    // project name -> palette slot ("color4")
+    // project name -> palette slot ("blue")
     Q_PROPERTY(QVariantMap projectColors READ projectColors NOTIFY changed)
     // Every setting by its dotted name ("engine.claude.model") -> the value in
     // the file, "" when the file does not set it.
     Q_PROPERTY(QVariantMap values READ values NOTIFY changed)
+    // For the panel's choices: the interface languages there are
+    // translations for, and the palette slots in their fixed order.
+    Q_PROPERTY(QStringList languages READ languages CONSTANT)
+    Q_PROPERTY(QStringList paletteSlots READ paletteSlots CONSTANT)
 
 public:
     // `path` empty = AppConfig::defaultPath().
@@ -38,6 +42,8 @@ public:
     bool clock24() const { return m_convention.clock24; }
     QVariantMap projectColors() const;
     QVariantMap values() const { return m_values; }
+    QStringList languages() const;
+    QStringList paletteSlots() const { return ConfigKeys::paletteSlots(); }
     const AppConfig &config() const { return m_config; }
 
     // Opens config.toml in the user's editor: $EDITOR in a terminal

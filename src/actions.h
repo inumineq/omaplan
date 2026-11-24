@@ -6,6 +6,8 @@
 #include <QJsonObject>
 #include <QObject>
 #include <functional>
+#include <map>
+#include <memory>
 #include <QString>
 
 #include "engine.h"
@@ -165,5 +167,5 @@ private:
     Store *m_store;
     std::unique_ptr<AiEngine> m_engine;
     std::unique_ptr<AiEngine> m_compare[2];
-    std::unique_ptr<AiEngine> m_test;
+    std::map<QString, std::unique_ptr<AiEngine>> m_tests; // engine id -> its running Test
 };

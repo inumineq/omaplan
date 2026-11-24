@@ -2823,6 +2823,42 @@ private slots:
         QVERIFY(!byId.value("local").value("ready").toBool());
     }
 
+    void testButtonAnswersWithTimeOrAClearError()
+    {
+        QTemporaryDir dir;
+        QFile script(dir.filePath("fake.sh"));
+        QVERIFY(script.open(QIODevice::WriteOnly));
+        script.write(R"(cat >/dev/null; echo '{"tasks":[{"title":"Write the blog post"}],"unresolved":[]}')");
+        script.close();
+        QFile cfg(dir.filePath("config.toml"));
+        QVERIFY(cfg.open(QIODevice::WriteOnly));
+        cfg.write(QStringLiteral("[engine]\ncommand = \"sh %1\"\n").arg(script.fileName()).toUtf8());
+        cfg.close();
+        qputenv("OMAPLAN_CONFIG", cfg.fileName().toLocal8Bit());
+        const QByteArray oldPath = qgetenv("PATH");
+        qputenv("PATH", "/usr/bin:/bin"); // no claude here
+
+        Store store(dir.filePath("t.db"));
+        QString error;
+        QVERIFY(store.open(&error));
+        Actions actions(&store);
+        QSignalSpy spy(&actions, &Actions::engineTested);
+        actions.guiTestEngine(QStringLiteral("command"));
+        actions.guiTestEngine(QStringLiteral("claude")); // must not cancel the first
+        QTRY_COMPARE_WITH_TIMEOUT(spy.size(), 2, 5000);
+        qputenv("PATH", oldPath);
+        qputenv("OMAPLAN_CONFIG", "");
+        QHash<QString, QList<QVariant>> byId;
+        for (const QList<QVariant> &args : spy)
+            byId.insert(args.at(0).toString(), args);
+        QVERIFY(!byId.value("claude").at(1).toBool());
+        QVERIFY2(byId.value("claude").at(2).toString().contains("claude"), qPrintable(byId.value("claude").at(2).toString()));
+        QVERIFY(byId.value("command").at(1).toBool());
+        QVERIFY(byId.value("command").at(2).toString().contains("Write the blog post"));
+        QVERIFY(byId.value("command").at(3).toInt() >= 0);
+        QCOMPARE(store.tasks().size(), 0); // a test stores nothing
+    }
+
     void mcpConfigTools()
     {
         QTemporaryDir dir;

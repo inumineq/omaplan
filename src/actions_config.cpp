@@ -201,19 +201,20 @@ QJsonObject Actions::guiConfigSet(const QString &key, const QString &value) {
 QJsonObject Actions::guiEngines() const { return engines().payload; }
 
 void Actions::guiTestEngine(const QString &id) {
-    if (m_test && m_test->isRunning()) {
-        m_test->disconnect(this);
-        m_test->cancel();
+    // One test per engine: pressing Test again restarts that engine's test.
+    if (auto running = m_tests.find(id); running != m_tests.end()) {
+        running->second->disconnect(this);
+        running->second->cancel();
+        m_tests.erase(running);
     }
     QString error;
-    m_test = createEngine(id, {}, {}, &error);
-    if (!m_test) {
+    std::unique_ptr<AiEngine> engine = createEngine(id, {}, {}, &error);
+    if (!engine) {
         emit engineTested(id, false, error, 0);
         return;
     }
     QString whyNot;
-    if (!m_test->available(&whyNot)) {
-        m_test.reset();
+    if (!engine->available(&whyNot)) {
         emit engineTested(id, false, whyNot, 0);
         return;
     }
@@ -224,15 +225,17 @@ void Actions::guiTestEngine(const QString &id) {
     context.language = UiLanguage::current();
     auto timer = std::make_shared<QElapsedTimer>();
     timer->start();
-    connect(m_test.get(), &AiEngine::finished, this, [this, id, timer](const Proposal &p, const QString &) {
+    AiEngine *test = engine.get();
+    connect(test, &AiEngine::finished, this, [this, id, timer](const Proposal &p, const QString &) {
         const QString first = p.tasks.isEmpty() ? QString() : p.tasks.first().title;
         emit engineTested(id, true,
                           p.tasks.isEmpty() ? tr("Answered, but proposed no tasks.")
                                             : tr("Answered with %n task(s): %1", nullptr, int(p.tasks.size())).arg(first),
                           int(timer->elapsed()));
     });
-    connect(m_test.get(), &AiEngine::failed, this, [this, id, timer](const QString &message) {
+    connect(test, &AiEngine::failed, this, [this, id, timer](const QString &message) {
         emit engineTested(id, false, message, int(timer->elapsed()));
     });
-    m_test->propose(annotateDates(QStringLiteral("Test: write the blog post tomorrow at 10"), today), context);
+    m_tests[id] = std::move(engine);
+    test->propose(annotateDates(QStringLiteral("Test: write the blog post tomorrow at 10"), today), context);
 }
