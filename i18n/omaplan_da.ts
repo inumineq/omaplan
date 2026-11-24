@@ -172,6 +172,10 @@
         <translation>Kommandoen &apos;%1&apos; blev ikke fundet på PATH. Installér den for at bruge motoren %2.</translation>
     </message>
     <message>
+        <source>The text is %1 characters long; the limit is %2 characters.</source>
+        <translation>Teksten er %1 tegn lang; grænsen er %2 tegn.</translation>
+    </message>
+    <message>
         <source>The command is not installed or not on PATH.</source>
         <translation>Kommandoen er ikke installeret eller ikke på PATH.</translation>
     </message>

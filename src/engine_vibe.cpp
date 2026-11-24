@@ -4,7 +4,8 @@
 
 // Mistral engine via the Mistral Vibe CLI on the user's Pro quota. No API
 // key in the app: vibe already holds the user's login. The system prompt is
-// passed as a file so the prompt text stays identical to the other engines.
+// passed as a file so the prompt text stays identical to the other engines;
+// the user prompt goes on stdin, out of `ps` and the argument size limit.
 class VibeEngine : public AiEngine {
 public:
     explicit VibeEngine(QObject *parent = nullptr)
@@ -34,12 +35,12 @@ protected:
         // matches no real tool (headless: --enabled-tools disables all others),
         // so vibe cannot wander off into tool calls (turn_limit).
         launch(QStringLiteral("vibe"),
-               {QStringLiteral("-p"), userPrompt,
+               {QStringLiteral("--prompt-file"), QStringLiteral("/dev/stdin"),
                 QStringLiteral("--output"), QStringLiteral("json"),
                 QStringLiteral("--max-turns"), QStringLiteral("1"),
                 QStringLiteral("--enabled-tools"), QStringLiteral("__omaplan_no_tools__"),
                 QStringLiteral("--system-prompt-file"), m_systemPromptFile->fileName()},
-               QByteArray(),
+               userPrompt.toUtf8(),
                QStringLiteral("Install Mistral Vibe (the 'vibe' command) to use the Mistral engine."),
                useIsolatedWorkingDirectory());
     }

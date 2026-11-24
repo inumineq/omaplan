@@ -772,6 +772,7 @@ private slots:
             "#!/bin/sh\n"
             "dir=\"%1\"\n"
             "printf '%s\\n' \"$@\" > \"$dir/args.txt\"\n"
+            "cat > \"$dir/stdin.txt\"\n"
             "prev=\n"
             "for a in \"$@\"; do\n"
             "  if [ \"$prev\" = \"--system-prompt-file\" ]; then f=\"$a\"; fi\n"
@@ -815,6 +816,11 @@ private slots:
         QVERIFY(argsText.contains(QStringLiteral("--enabled-tools")));
         QVERIFY(argsText.contains(QStringLiteral("__omaplan_no_tools__")));
         QVERIFY(argsText.contains(QStringLiteral("--max-turns")));
+        // The user prompt goes on stdin, not in the arguments.
+        QVERIFY(!argsText.contains(QStringLiteral("køb mælk")));
+        QFile in(dir.filePath(QStringLiteral("stdin.txt")));
+        QVERIFY(in.open(QIODevice::ReadOnly));
+        QVERIFY(QString::fromUtf8(in.readAll()).contains(QStringLiteral("køb mælk")));
     }
 
     void claudeEngineUnwrapsResultEnvelope()
@@ -833,6 +839,7 @@ private slots:
             "#!/bin/sh\n"
             "dir=\"%1\"\n"
             "printf '%s\\n' \"$@\" > \"$dir/args.txt\"\n"
+            "cat > \"$dir/stdin.txt\"\n"
             "cat \"$dir/response.json\"\n").arg(dir.path());
         QVERIFY(writeFakeTool(dir.path(), QStringLiteral("claude"), script));
 
@@ -848,19 +855,44 @@ private slots:
         }
         qputenv("PATH", oldPath);
 
-        // The full prompt went to -p, with the json output format requested.
-        // (The prompt itself contains newlines, so inspect the raw file.)
+        // The full prompt goes on stdin, never in the arguments (visible in
+        // ps, and capped at 128 kB by the kernel).
         QFile args(dir.filePath(QStringLiteral("args.txt")));
         QVERIFY(args.open(QIODevice::ReadOnly));
         const QString argsText = QString::fromUtf8(args.readAll());
-        const QStringList argLines = argsText.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+        const QStringList argLines = argsText.split(QLatin1Char('\n'));
+        QVERIFY(!argsText.contains(QStringLiteral("skriv blogindlæg")));
+        QFile in(dir.filePath(QStringLiteral("stdin.txt")));
+        QVERIFY(in.open(QIODevice::ReadOnly));
+        const QString stdinText = QString::fromUtf8(in.readAll());
+        QVERIFY(stdinText.contains(QStringLiteral("skriv blogindlæg")));   // user text
+        QVERIFY(stdinText.contains(QStringLiteral("2026-11-23")));         // system prompt included
+
+        // A plain text-in/JSON-out run: no tools, no MCP servers, none of
+        // the user's settings, hooks or slash commands, no saved session.
         QVERIFY(argLines.contains(QStringLiteral("-p")));
-        QVERIFY(argLines.contains(QStringLiteral("--output-format")));
-        QVERIFY(argLines.contains(QStringLiteral("json")));
-        const int p = argLines.indexOf(QStringLiteral("-p"));
-        QVERIFY(p >= 0 && p + 1 < argLines.size());
-        QVERIFY(argsText.contains(QStringLiteral("skriv blogindlæg")));   // user text
-        QVERIFY(argsText.contains(QStringLiteral("2026-11-23")));         // system prompt included
+        const int format = argLines.indexOf(QStringLiteral("--output-format"));
+        QVERIFY(format >= 0 && argLines.value(format + 1) == QStringLiteral("json"));
+        const int tools = argLines.indexOf(QStringLiteral("--tools"));
+        QVERIFY(tools >= 0 && argLines.value(tools + 1).isEmpty());
+        const int sources = argLines.indexOf(QStringLiteral("--setting-sources"));
+        QVERIFY(sources >= 0 && argLines.value(sources + 1).isEmpty());
+        QVERIFY(argLines.contains(QStringLiteral("--strict-mcp-config")));
+        QVERIFY(!argLines.contains(QStringLiteral("--mcp-config")));
+        QVERIFY(argLines.contains(QStringLiteral("--disable-slash-commands")));
+        QVERIFY(argLines.contains(QStringLiteral("--no-session-persistence")));
+    }
+
+    // A text too long for any engine fails up front with its length, instead
+    // of a misleading "install the CLI" error from a failed exec.
+    void tooLongTextNamesItsLength()
+    {
+        auto engine = createClaudeEngine();
+        QString error;
+        const QString text(150000, QLatin1Char('x'));
+        QVERIFY(!runEngine(*engine, text, nullptr, &error));
+        QVERIFY2(error.contains(QStringLiteral("150000")), qPrintable(error));
+        QVERIFY2(!error.contains(QStringLiteral("Install")), qPrintable(error));
     }
 
     void localEngineOllamaProtocol()
