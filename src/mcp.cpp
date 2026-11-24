@@ -90,8 +90,9 @@ QJsonObject McpServer::toolList() {
                   {{QStringLiteral("period"), QJsonObject{{QStringLiteral("type"), QStringLiteral("string")},
                                                           {QStringLiteral("enum"), QJsonArray{QStringLiteral("week"), QStringLiteral("month")}}}}},
                   {}, true)
-          << tool(QStringLiteral("propose"), QStringLiteral("Ask the AI engine to turn free text into tasks. Stores nothing: "
-                                                            "show the proposal to the user, then call approve."),
+          << tool(QStringLiteral("propose"), QStringLiteral("Ask the AI engine to turn free text into tasks. Stores no tasks "
+                                                            "(the text and the answer are kept as a capture): show the "
+                                                            "proposal to the user, then call approve."),
                   proposeFields, {QStringLiteral("text")})
           << tool(QStringLiteral("approve"), QStringLiteral("Store a proposal from propose (optionally edited)."),
                   {{QStringLiteral("proposal"), QJsonObject{{QStringLiteral("type"), QStringLiteral("object"),},

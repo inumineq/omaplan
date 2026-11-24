@@ -16,7 +16,9 @@
 // hardcoded and no model is bundled. The schema is sent as grammar (Ollama
 // "format", OpenAI response_format json_schema) so small models stay valid.
 // A truncated answer (done_reason/finish_reason "length") is an error and
-// carries the raw response. Loopback or LAN endpoints only; no API key.
+// carries the raw response. No API key is sent. Any URL is accepted, and the
+// prompt (the text and the open tasks) goes to it, so the endpoint is meant
+// to be the user's own machine or network.
 class LocalEngine : public AiEngine {
 public:
     LocalEngine(const QString &endpoint, const QString &model, const QString &api, QObject *parent)
