@@ -71,12 +71,28 @@ class PanelTests : public QObject {
         QQuickItem *f = m_window->activeFocusItem();
         return f ? f->objectName() : QString();
     }
-    // Clicks the middle of an item; it is scrolled into view first.
+    // Clicks the middle of an item; it is scrolled into view first, and the
+    // click must land where it is seen, not in a part a clipping parent cuts off.
     void click(QQuickItem *target) {
         if (target->activeFocusOnTab())
             target->forceActiveFocus();
+        QQuickItem *flick = item(QStringLiteral("settingsFlick"));
+        if (flick && flick->isAncestorOf(target)) {
+            const QRectF r = target->mapRectToItem(flick, target->boundingRect());
+            qreal y = flick->property("contentY").toReal();
+            if (r.bottom() > flick->height())
+                y += r.bottom() - flick->height();
+            if (r.top() < 0)
+                y += r.top();
+            flick->setProperty("contentY", y);
+        }
         pump();
-        const QPoint p = target->mapToScene(QPointF(target->width() / 2, target->height() / 2)).toPoint();
+        const QPointF centre = target->mapToScene(QPointF(target->width() / 2, target->height() / 2));
+        for (QQuickItem *a = target->parentItem(); a; a = a->parentItem())
+            QVERIFY2(!a->clip() || a->contains(a->mapFromScene(centre)),
+                     qPrintable(QStringLiteral("%1 is cut off: its centre (%2, %3) is outside a clipping parent")
+                                    .arg(target->objectName()).arg(centre.x()).arg(centre.y())));
+        const QPoint p = centre.toPoint();
         QTest::mouseClick(m_window, Qt::LeftButton, {}, p);
         pump();
     }
@@ -261,6 +277,46 @@ private slots:
         QMetaObject::invokeMethod(m_panel, "close");
         pump(2500);
         QVERIFY2(!QFile::exists(m_dir.filePath("slow-finished")), "the engine kept running");
+    }
+
+    // A narrow window (a tiled one), like a wide fallback font, must not push
+    // the panel's content past its right edge, where the Test buttons would be
+    // cut off and could not be clicked.
+    void panelFitsANarrowWindow() {
+        const QSize before = m_window->size();
+        m_window->resize(560, 800);
+        pump();
+        QQuickItem *flick = item(QStringLiteral("settingsFlick"));
+        for (const char *section : {"engine", "dates", "projects"}) {
+            openPanel(section);
+            const qreal right = flick->mapToScene({flick->width(), 0}).x();
+            // The first visible item that reaches past the panel's right edge.
+            std::function<QQuickItem *(QQuickItem *)> overflowing = [&](QQuickItem *i) -> QQuickItem * {
+                if (!i->isVisible() || i->width() <= 0)
+                    return nullptr;
+                if (i->mapToScene({i->width(), 0}).x() > right + 0.5)
+                    return i;
+                for (QQuickItem *c : i->childItems())
+                    if (QQuickItem *found = overflowing(c))
+                        return found;
+                return nullptr;
+            };
+            QQuickItem *wide = overflowing(flick->childItems().first());
+            QVERIFY2(!wide, wide ? qPrintable(QStringLiteral("%1: %2 \"%3\" ends at %4, the panel at %5")
+                                                  .arg(QString::fromLatin1(section),
+                                                       QString::fromLatin1(wide->metaObject()->className()),
+                                                       wide->property("text").toString())
+                                                  .arg(wide->mapToScene({wide->width(), 0}).x())
+                                                  .arg(right))
+                                 : "");
+        }
+        openPanel();
+        QSignalSpy spy(m_actions.get(), &Actions::engineTested);
+        click(item(QStringLiteral("test:claude")));
+        QTRY_COMPARE_WITH_TIMEOUT(spy.size(), 1, 3000);
+        QMetaObject::invokeMethod(m_panel, "close");
+        m_window->resize(before);
+        pump();
     }
 
     // L11: the panel opens at the top.

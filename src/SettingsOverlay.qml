@@ -173,7 +173,14 @@ Rectangle {
         onStoredChanged: if (!input.activeFocus) input.text = stored
         Component.onCompleted: input.text = stored
         spacing: 3
-        Text { font.family: theme.fontFamily; text: fieldBox.label; color: theme.muted; font.pixelSize: 11 }
+        Text {
+            font.family: theme.fontFamily
+            Layout.fillWidth: true // wraps rather than widen the field past the panel
+            wrapMode: Text.Wrap
+            text: fieldBox.label
+            color: theme.muted
+            font.pixelSize: 11
+        }
         TextField {
             id: input
             // Each engine card holds every kind of field; only the shown one is named.
@@ -208,6 +215,7 @@ Rectangle {
         property string key
         focusable: true
         keyInline: true
+        maxWidth: flick.width
         value: panel.choice(key)
         onPicked: v => panel.set(key, v === "auto" ? "" : v)
     }
@@ -256,6 +264,7 @@ Rectangle {
                     id: sectionChoice
                     focusable: true
                     keyInline: true
+                    maxWidth: flick.width
                     keyHint: "Alt+1/2/3"
                     options: [["engine", qsTr("AI engine")], ["dates", qsTr("Date and time")],
                               ["projects", qsTr("Project colours")]]
@@ -384,6 +393,7 @@ Rectangle {
                         spacing: 4
                         Segmented {
                             focusable: true
+                            maxWidth: flick.width
                             label: qsTr("Left")
                             options: panel.engineInfo.engines.map(e => [e.id, e.name])
                             value: (panel.engineInfo.compare || [])[0] || ""
@@ -391,6 +401,7 @@ Rectangle {
                         }
                         Segmented {
                             focusable: true
+                            maxWidth: flick.width
                             label: qsTr("Right")
                             options: panel.engineInfo.engines.map(e => [e.id, e.name])
                             value: (panel.engineInfo.compare || [])[1] || ""
@@ -538,8 +549,11 @@ Rectangle {
                                 anchors.leftMargin: 6
                                 anchors.rightMargin: 6
                                 spacing: 4
+                                // The tag gives way to the swatches in a narrow panel.
                                 Item {
-                                    Layout.preferredWidth: 180
+                                    Layout.fillWidth: true
+                                    Layout.maximumWidth: 180
+                                    Layout.minimumWidth: 60
                                     Layout.fillHeight: true
                                     Layout.rightMargin: 8
                                     clip: true
