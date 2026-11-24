@@ -62,6 +62,18 @@ Item {
     // The task stays in place (dimmed) while a ghost follows the pointer; on
     // release the drop position decides the new day, and in the week grid
     // also the time.
+    // A task shown on its deadline (no start) moves its deadline and keeps
+    // the deadline's time; it never gains a start.
+    function moveTask(task, date, hasTime) {
+        if (!task.deadlineOnly) {
+            win.check(actions.guiMove(task.taskId, date, hasTime))
+            return
+        }
+        const withTime = hasTime || task.deadlineHasTime
+        if (!hasTime && task.deadlineHasTime)
+            date.setHours(task.deadline.getHours(), task.deadline.getMinutes())
+        win.check(actions.guiEdit(task.taskId, { "deadline": Qt.formatDateTime(date, withTime ? "yyyy-MM-dd HH:mm" : "yyyy-MM-dd") }))
+    }
     function drop(task, pointInCal, grabOffset) {
         if (mode === "week") {
             const inGrid = cal.mapToItem(gridContent, pointInCal.x, pointInCal.y)
@@ -71,12 +83,12 @@ Item {
                 return
             const date = Fmt.addDays(weekStart, col)
             if (inAllDay.y < allDayArea.height + 4) {
-                win.check(actions.guiMove(task.taskId, date, false))
+                moveTask(task, date, false)
             } else {
                 const top = inGrid.y - grabOffset.y
                 const minutes = Math.max(0, Math.min(24 * 60 - 15, Math.round(top / hourHeight * 4) * 15))
                 date.setHours(Math.floor(minutes / 60), minutes % 60)
-                win.check(actions.guiMove(task.taskId, date, true))
+                moveTask(task, date, true)
             }
         } else {
             const p = cal.mapToItem(monthGrid, pointInCal.x, pointInCal.y)
@@ -87,7 +99,7 @@ Item {
             const date = Fmt.addDays(gridStart, row * 7 + col)
             if (task.startHasTime)
                 date.setHours(task.start.getHours(), task.start.getMinutes())
-            win.check(actions.guiMove(task.taskId, date, task.startHasTime))
+            moveTask(task, date, task.startHasTime)
         }
     }
 
