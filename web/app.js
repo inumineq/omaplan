@@ -507,11 +507,16 @@ const THEME_TO_CSS = {
   ok: '--ok',
 };
 
+// The same rule as isFontFamily() in src/snapshot.cpp: safe to quote in CSS.
+const FONT_FAMILY = /^[A-Za-z0-9 ._-]{1,64}$/;
+
 function applyTheme(theme, root) {
   if (!theme) return;
   for (const [key, variable] of Object.entries(THEME_TO_CSS)) {
     if (theme[key]) root.style.setProperty(variable, theme[key]);
   }
+  // Omarchy's font; style.css falls back to the device's monospace.
+  if (typeof theme.font === 'string' && FONT_FAMILY.test(theme.font)) root.style.setProperty('--font', "'" + theme.font + "'");
 }
 
 // ---------- browser bootstrap (optional; the page works without JS) ----------
@@ -550,7 +555,9 @@ async function boot() {
     }
     if (!plan || plan.format !== 'omaplan-plan') continue;
     const root = document.documentElement;
-    applyTheme(plan.theme, root);
+    // serve has already set this machine's live theme on <html>; plan.json's
+    // is only for the page opened statically.
+    if (!root.getAttribute('style')) applyTheme(plan.theme, root);
     root.lang = t.language;
     document.title = t.title;
     const today = todayStr();

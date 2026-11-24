@@ -142,8 +142,9 @@ tailscale serve --bg 8787
 
 The page picks a view with anchors (`#overview`, `#list`, `#list-project`, `#timeline`) or a link like
 `/?view=timeline`. It is in English or Danish, following the browser's language (`Accept-Language` on the server,
-`navigator.language` in `web/app.js`). The colours follow the Omarchy theme on the machine running `serve`, and
-otherwise the theme as it was when the snapshot was written. The markup is described in `web/MARKUP.md`.
+`navigator.language` in `web/app.js`). The colours and the font follow the Omarchy theme and font on the machine
+running `serve`, and otherwise the theme as it was when the snapshot was written; a device without that font
+shows its own monospace. The markup is described in `web/MARKUP.md`.
 
 ## Agent skill
 

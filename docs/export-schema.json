@@ -13,7 +13,7 @@
     "language": {"type": "string", "pattern": "^[a-z]{2}(-[A-Z]{2})?$", "description": "BCP 47 code of the app's user interface language, e.g. en or da"},
     "theme": {
       "type": "object",
-      "description": "Optional theme colours from the Omarchy theme, so the read-only edition follows it. Hex #RRGGBB.",
+      "description": "Optional theme colours from the Omarchy theme, so the read-only edition follows it. Hex #RRGGBB, and Omarchy's font family.",
       "additionalProperties": false,
       "properties": {
         "accent": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
@@ -25,7 +25,8 @@
         "muted": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
         "border": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
         "danger": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
-        "ok": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"}
+        "ok": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
+        "font": {"type": "string", "pattern": "^[A-Za-z0-9 ._-]{1,64}$", "description": "Omarchy's font family (fontconfig's monospace); the page falls back to monospace"}
       }
     },
     "tasks": {

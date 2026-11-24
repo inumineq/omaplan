@@ -12,6 +12,7 @@
   --accent: #ffd60a;
   --accent-fg: #000000;
   --accent-text: var(--accent); /* the accent as text, lifted to read on --bg */
+  --font: monospace; /* Omarchy's font family, quoted: 'JetBrainsMono Nerd Font' */
   --danger: #f7768e;
   --ok: #9ece6a;
   --radius: 0px; /* sharp, like Omarchy's default windows (decoration:rounding = 0) */
@@ -29,7 +30,8 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--fg);
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Omarchy's font when the theme names it (--font), else the device's monospace */
+  font-family: var(--font), monospace;
   font-size: 1rem;
   line-height: 1.45;
 }
@@ -209,7 +211,6 @@ body:has(#timeline.active) .views a[href="#timeline"],
 }
 
 .time {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.85rem;
   color: var(--accent-text);
   white-space: nowrap;

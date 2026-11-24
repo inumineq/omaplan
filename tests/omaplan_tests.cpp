@@ -368,12 +368,62 @@ private slots:
         const QJsonObject theme = Snapshot::omarchyTheme(dir.path());
         QCOMPARE(theme.value("accent").toString(), QStringLiteral("#7aa2f7"));
         QCOMPARE(theme.value("bg").toString(), QStringLiteral("#1a1b26"));
-        QCOMPARE(theme.size(), 10);
+        QCOMPARE(theme.size() - theme.contains("font"), 10);
         const QString style = Snapshot::themeStyle(theme);
         QVERIFY(style.contains(QStringLiteral("--accent:#7aa2f7")));
         QVERIFY(style.contains(QStringLiteral("--bg:#1a1b26")));
         // Anything but #rrggbb stays out of the style attribute.
         QCOMPARE(Snapshot::themeStyle(QJsonObject{{"bg", "red;}</style>"}, {"fg", "#FFFFFF"}}), QStringLiteral("--fg:#ffffff"));
+        // The font family, quoted; one that could break out of the attribute does not get through.
+        QCOMPARE(Snapshot::themeStyle(QJsonObject{{"font", "JetBrainsMono Nerd Font"}}),
+                 QStringLiteral("--font:'JetBrainsMono Nerd Font'"));
+        for (const char *bad : {"X';}</style>", "A\"B", "", "Fira;Code"})
+            QCOMPARE(Snapshot::themeStyle(QJsonObject{{"font", bad}}), QString());
+    }
+
+    // plan.json carries Omarchy's font (fontconfig's monospace, as
+    // omarchy-font-set leaves it) beside the colours.
+    void snapshotThemeCarriesOmarchyFont() {
+        QTemporaryDir config;
+        const QByteArray was = qgetenv("XDG_CONFIG_HOME");
+        qputenv("XDG_CONFIG_HOME", QFile::encodeName(config.path()));
+        const auto restore = qScopeGuard([&] {
+            if (was.isEmpty())
+                qunsetenv("XDG_CONFIG_HOME");
+            else
+                qputenv("XDG_CONFIG_HOME", was);
+        });
+        QDir(config.path()).mkpath(QStringLiteral("omarchy/theme"));
+        QFile colors(config.filePath(QStringLiteral("omarchy/theme/colors.toml")));
+        QVERIFY(colors.open(QIODevice::WriteOnly));
+        colors.write("accent = \"#7aa2f7\"\n");
+        colors.close();
+        const QString fallback = Theme::resolveFamily(QStringLiteral("monospace"));
+        if (fallback.compare(QLatin1String("monospace"), Qt::CaseInsensitive) == 0) {
+            // No real fonts (CI's container): no font key, the page's monospace.
+            QVERIFY(!Snapshot::omarchyTheme(config.filePath(QStringLiteral("omarchy"))).contains("font"));
+            QSKIP("fontconfig knows no real fonts here");
+        }
+        QString other;
+        for (const QString &family : QFontDatabase::families())
+            if (family != fallback && QRegularExpression(QStringLiteral("^[A-Za-z0-9 ._-]+$")).match(family).hasMatch()
+                && Theme::resolveFamily(family) == family && family.compare(QLatin1String("monospace"), Qt::CaseInsensitive)) {
+                other = family;
+                break;
+            }
+        if (other.isEmpty())
+            QSKIP("no second font family is installed");
+        QDir(config.path()).mkpath(QStringLiteral("fontconfig"));
+        QFile fonts(config.filePath(QStringLiteral("fontconfig/fonts.conf")));
+        QVERIFY(fonts.open(QIODevice::WriteOnly));
+        fonts.write("<?xml version=\"1.0\"?>\n<!DOCTYPE fontconfig SYSTEM \"fonts.dtd\">\n<fontconfig>\n"
+                    "  <match target=\"pattern\">\n    <test name=\"family\" qual=\"any\"><string>monospace</string></test>\n"
+                    "    <edit name=\"family\" mode=\"prepend_first\" binding=\"strong\"><string>"
+                    + other.toUtf8() + "</string></edit>\n  </match>\n</fontconfig>\n");
+        fonts.close();
+        const QJsonObject theme = Snapshot::omarchyTheme(config.filePath(QStringLiteral("omarchy")));
+        QCOMPARE(theme.value("font").toString(), other);
+        QVERIFY(Snapshot::themeStyle(theme).endsWith(QStringLiteral(";--font:'") + other + '\''));
     }
 
     // The C++ rendering is the JS reference rendering, byte for byte, in

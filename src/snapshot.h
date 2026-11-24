@@ -23,9 +23,10 @@ QString path(const QString &databasePath);
 
 // Omarchy's current theme as the plan.json `theme` object; empty when no
 // Omarchy theme is installed. `directory` defaults to Omarchy's current
-// theme state (~/.local/state/omarchy/current).
+// theme state (~/.local/state/omarchy/current). Carries Omarchy's font
+// (fontconfig's monospace) as `font` too.
 QJsonObject omarchyTheme(const QString &directory = {});
-// `theme` as inline CSS variables (--bg:#..;--accent:#..), for serve.
+// `theme` as inline CSS variables (--bg:#..;--accent:#..;--font:'..'), for serve.
 QString themeStyle(const QJsonObject &theme);
 
 // `language` is the app's user interface language (BCP 47, e.g. "en").
