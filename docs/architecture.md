@@ -18,9 +18,10 @@ step while the recipe is not yet in omarchy-pkgs (see ADR 0006). This document o
 | `config.{h,cpp}` | `~/.config/omaplan/config.toml`, parsed by hand (no TOML dependency); old Danish section names as aliases. `ConfigKeys` lists every setting with its allowed values; `ConfigFile` changes one line in place, keeping comments and unknown keys |
 | `actions_config.cpp` | the settings as actions: `configList/Get/Set`, `engines` (is each tool installed, which model), and the panel's Test (`guiTestEngine`, one short request per engine) |
 | `settings.{h,cpp}` | `config.toml` as the window sees it: watched (file and directory, debounced), exposed to QML (values, date convention, project colours), sets the process's `DateConvention`; opens the file in `$EDITOR` |
-| `task.{h,cpp}` | the value type `Task` and its validation; date/time as `QDate`/`QDateTime` in local time |
+| `task.{h,cpp}` | the value type `Task` and its validation; date/time as `QDate`/`QDateTime` in local time. Also `taskSpan`: the stretch of time a task covers in the timeline (start to start + duration, else to a later deadline, else the day or 30 minutes) and whether its deadline gets a mark after it |
+| `timeline.{h,cpp}` | `Timeline::layout`: where each timeline title goes (inside its bar when it fits, else after it, before it, after the deadline mark, else shortened) and which lane each task takes so nothing overlaps; used by `GanttView.qml` (through `GanttModel::pack`) and by `render.cpp`, and ported to `layoutTimeline` in `web/app.js` |
 | `store.{h,cpp}` | SQLite via Qt SQL (`QSQLITE`), schema version and migration, transactions; the only place that writes data |
-| `planmodel.{h,cpp}` | `QAbstractListModel` over the tasks with roles; filtering/grouping via proxy models per view |
+| `planmodel.{h,cpp}` | `QAbstractListModel` over the tasks with roles; filtering/grouping via proxy models per view. `GanttModel` keeps the tasks whose span or deadline mark falls in the timeline's `from`–`to` |
 | `engine.{h,cpp}` | abstract `AiEngine` (asynchronous `propose(text, context)` → proposal or error), timeout and cancel |
 | `engine_vibe.cpp` | Mistral via `vibe --prompt-file <private temp file> --output json --max-turns 1 --system-prompt-file …`, tools disabled (the Pro quota; no key in the app) |
 | `engine_claude.cpp` | Claude via `claude -p --output-format json` with the prompt on stdin and no tools, MCP servers, settings files or slash commands |

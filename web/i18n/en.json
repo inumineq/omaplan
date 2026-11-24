@@ -32,7 +32,7 @@
   "listProjectDescription": "All tasks grouped by project.",
   "groupByDate": "Group by date",
   "noProject": "No project",
-  "timelineDescription": "Gantt chart of every date with tasks or deadlines – window {from}–{to}, overlapping tasks get a track each.",
+  "timelineDescription": "Gantt chart, a week per block: each task spans its days, and a day runs from {from} to {to}. A title sits in its bar when it fits, otherwise beside it; ◆ is a deadline.",
   "timeNone": "no date",
   "allDay": "all day",
   "deadline": "deadline {date}",

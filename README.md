@@ -60,8 +60,10 @@ hovering a button shows its key. `,` (or the gear beside it) opens the settings.
 | `,` or `Ctrl+,` | Settings; there `Alt+1`/`2`/`3` picks the section, Tab and ← / → change a value, `Ctrl+E` opens `config.toml` |
 | `q` | Quit |
 
-With the mouse, tasks can be dragged to another day in the calendar, in the week view also to another time. In the
-timeline, dragging the right edge of a bar changes the duration.
+With the mouse, tasks can be dragged to another day in the calendar, in the week view also to another time. The
+timeline is a Gantt chart: a task with a duration over several days, or with a start and a later deadline, spans
+those days, and its title sits inside the bar when it fits and beside it otherwise. Dragging a bar there moves the
+task, and dragging its right edge changes the duration (or the deadline it runs to).
 
 ## Command line
 

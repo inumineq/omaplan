@@ -32,7 +32,7 @@
   "listProjectDescription": "Alle opgaver grupperet efter projekt.",
   "groupByDate": "Gruppér efter dato",
   "noProject": "Ingen projekt",
-  "timelineDescription": "Gantt over alle datoer med opgaver eller frister – vindue {from}–{to}, overlap ligger i hver sit spor.",
+  "timelineDescription": "Gantt med en uge pr. blok: hver opgave strækker sig over sine dage, og en dag går fra {from} til {to}. Titlen står i bjælken, når den kan være der, ellers ved siden af; ◆ er en frist.",
   "timeNone": "ingen dato",
   "allDay": "heldag",
   "deadline": "frist {date}",

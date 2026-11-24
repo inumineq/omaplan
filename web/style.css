@@ -342,89 +342,76 @@ body:has(#timeline.active) .views a[href="#timeline"],
 
 /* ---------- timeline (Gantt) ---------- */
 
-/* the time window is set inline on .gantt (--from/--to, whole hours, at least 8-18) */
+/* A week per block. Positions are percentages of the week (--x, --w); titles keep their width in rem. The layout
+   is computed for the minimum width (WEEK_REM in app.js), so a wider page only spreads things further apart. */
 .gantt {
-  --from: 8;
-  --to: 18;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-raised);
   overflow-x: auto;
 }
 
-.gantt-head,
-.gantt-day {
-  display: flex;
-  min-width: 34rem; /* narrow screen: horizontal scroll, the date column scrolls along */
-}
-
-.gantt-head {
-  border-bottom: 1px solid var(--border);
-  color: var(--muted);
-  font-size: 0.7rem;
-}
-
-.gantt-hours {
-  position: relative;
-  flex: 1;
-  height: 1.1rem;
-}
-
-.gantt-hours span {
-  position: absolute;
-  left: calc((var(--hour) - var(--from)) / (var(--to) - var(--from)) * 100%);
-  transform: translateX(-50%);
-}
-
-/* the last label (at the end of the window) is right-aligned so it is not clipped */
-.gantt-hours span:last-child {
-  transform: translateX(-100%);
-}
-
-.gantt-date {
-  width: 4.6rem;
-  flex: none;
-  margin: 0;
-  padding: 0.45rem 0.4rem;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--muted);
-  border-right: 1px solid var(--border);
-}
-
-.gantt-day {
+.gantt-week {
+  min-width: 48rem; /* WEEK_REM; a narrow screen scrolls sideways */
   border-bottom: 1px solid var(--border);
 }
 
-.gantt-day:last-child {
+.gantt-week:last-child {
   border-bottom: none;
 }
 
-.gantt-day.today .gantt-date {
+.gantt-days {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  border-bottom: 1px solid var(--border);
+}
+
+.gantt-date {
+  margin: 0;
+  padding: 0.3rem 0.4rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--muted);
+  border-left: 1px solid var(--border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gantt-date:first-child {
+  border-left: none;
+}
+
+.gantt-date.today {
   color: var(--accent-text);
 }
 
-.tracks {
+/* a line at the start of each day */
+.lanes {
   position: relative;
-  flex: 1;
-  height: calc(var(--tracks, 1) * 1.7rem);
-  min-width: 0;
+  height: calc(var(--lanes, 1) * 1.7rem + 0.3rem);
+  background-image: linear-gradient(to right, var(--border) 1px, transparent 1px);
+  background-size: calc(100% / 7) 100%;
+}
+
+.bar,
+.bar-label {
+  position: absolute;
+  top: calc(var(--lane, 0) * 1.7rem + 0.3rem);
+  left: calc(var(--x, 0) * 1%);
+  height: 1.4rem;
+  font-size: 0.75rem;
+  line-height: 1.4rem;
+  white-space: nowrap;
 }
 
 .bar {
-  position: absolute;
-  top: calc(var(--track, 0) * 1.7rem + 0.15rem);
-  left: calc((var(--start, 8) - var(--from)) / (var(--to) - var(--from)) * 100%);
-  width: calc(var(--length, 1) / (var(--to) - var(--from)) * 100%);
-  min-width: 0.35rem;
-  height: 1.4rem;
+  width: calc(var(--w, 1) * 1%);
+  min-width: 0.35rem; /* BAR_MIN_REM */
   background: var(--accent);
   color: var(--accent-fg);
   border-radius: min(4px, var(--radius));
   overflow: hidden;
-  font-size: 0.75rem;
-  line-height: 1.4rem;
-  white-space: nowrap;
 }
 
 .bar[data-color] {
@@ -444,42 +431,77 @@ body:has(#timeline.active) .views a[href="#timeline"],
   border-color: var(--project);
 }
 
+/* a bar that goes on into the week before or after */
+.bar-cut-start {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left-style: none;
+}
+
+.bar-cut-end {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right-style: none;
+}
+
 .bar.status-done {
   opacity: 0.45;
 }
 
 .bar-title {
+  display: block;
   padding: 0 0.3rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* the title beside the bar when it cannot fit inside it */
+.status-done .bar-title,
+.bar-label.status-done {
+  text-decoration: line-through;
+}
+
+/* the title beside its bar (or mark) when it does not fit inside; --max only when shortened. It sits on the
+   chart's colour, so the day lines and the line to a deadline stop at its edges. */
 .bar-label {
-  position: absolute;
-  top: calc(var(--track, 0) * 1.7rem + 0.15rem);
-  left: calc((var(--start, 8) + var(--length, 1) - var(--from)) / (var(--to) - var(--from)) * 100% + 0.35rem);
-  height: 1.4rem;
-  line-height: 1.4rem;
-  font-size: 0.75rem;
+  max-width: calc(var(--max, 100) * 1rem);
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--fg);
-  white-space: nowrap;
+  background: var(--bg-raised);
+}
+
+/* before its bar: --x is the right edge */
+.bar-label-before {
+  transform: translateX(-100%);
+}
+
+.bar-label.status-done {
+  color: var(--muted);
+}
+
+/* a deadline after the bar: a line from the bar to a diamond */
+.deadline-line {
+  position: absolute;
+  top: calc(var(--lane, 0) * 1.7rem + 1rem);
+  left: calc(var(--x, 0) * 1%);
+  width: calc(var(--w, 0) * 1%);
+  height: 1px;
+  background: var(--muted);
 }
 
 .deadline-mark {
   position: absolute;
-  top: calc(var(--tracks, 1) * 1.7rem - 0.45rem);
-  left: calc((var(--start, 18) - var(--from)) / (var(--to) - var(--from)) * 100%);
-  width: 0.55rem;
-  height: 0.55rem;
-  transform: translateX(-50%) rotate(45deg);
+  top: calc(var(--lane, 0) * 1.7rem + 1rem);
+  left: calc(var(--x, 0) * 1%);
+  width: 0.42rem;
+  height: 0.42rem;
+  transform: translate(-50%, -50%) rotate(45deg);
   background: var(--danger);
   border-radius: 1px;
 }
 
-/* a deadline outside the window (or a date only) sits at the right edge */
-.deadline-mark-edge {
-  left: auto;
-  right: 0.15rem;
-  transform: rotate(45deg);
+.deadline-mark.status-done {
+  background: var(--muted);
 }
 
 /* ---------- footer ---------- */

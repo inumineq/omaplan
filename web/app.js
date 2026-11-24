@@ -336,127 +336,268 @@ function renderListByProject(plan, t, active) {
   );
 }
 
-// Gantt: one row per day across the whole plan (start and deadline dates; undated tasks without a deadline
-// are not in the timeline). The time axis spans a window taken from the data: earliest start to latest end,
-// rounded to whole hours, at least 08-18. Bars go in tracks by overlap (first free track). The title sits in
-// the bar when it fits (a conservative estimate, see below), otherwise beside it -- never clipped in a bar
-// that is too short.
-const CHARS_PER_DAY = 64; // characters that fit at most in an all-day bar at the column's minimum width (34rem)
+// ---------- timeline (Gantt) ----------
 
+// A moment as written in plan.json: { date: 'YYYY-MM-DD', min: minutes into the day (0-1439) }, wall time.
+function minutesOf(time) {
+  return Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5));
+}
+
+function addMinutes(m, n) {
+  const total = m.min + n;
+  return { date: addDays(m.date, Math.floor(total / 1440)), min: total % 1440 };
+}
+
+function compareMoments(a, b) {
+  return a.date < b.date ? -1 : a.date > b.date ? 1 : a.min - b.min;
+}
+
+function daysBetween(a, b) {
+  return Math.round((dateObj(b) - dateObj(a)) / 86400000);
+}
+
+function mondayOf(date) {
+  return addDays(date, -((dateObj(date).getDay() + 6) % 7));
+}
+
+function timeOf(min) {
+  const p = (n) => String(n).padStart(2, '0');
+  return p(Math.floor(min / 60)) + ':' + p(min % 60);
+}
+
+// A task's extent on the timeline, the rule of taskSpan in src/task.h: the duration is the work (whole days for a
+// start without a time); without one, a deadline on a later day is the end; otherwise the whole day, or 30
+// minutes from a start with a time. A deadline after the end, or a task's only date, is a mark. The end is
+// exclusive: a whole day ends at midnight after it.
+function taskSpan(o) {
+  const s = parseStart(o.start);
+  const d = parseStart(o.deadline);
+  // the moment a deadline falls due: its time, or the end of its day
+  const due = !d.date ? null : d.time ? { date: d.date, min: minutesOf(d.time) } : { date: addDays(d.date, 1), min: 0 };
+  const span = { start: null, end: null, allDay: false, toDeadline: false, mark: null, markAllDay: false };
+  if (s.date) {
+    span.allDay = !s.time;
+    span.start = { date: s.date, min: s.time ? minutesOf(s.time) : 0 };
+    if (o.duration_min > 0) {
+      span.end = span.allDay ? { date: addDays(s.date, Math.max(1, Math.ceil(o.duration_min / 1440))), min: 0 } : addMinutes(span.start, o.duration_min);
+    } else if (due && d.date > s.date) {
+      // whole days run to the end of the deadline's day, whatever its time
+      span.end = span.allDay ? { date: addDays(d.date, 1), min: 0 } : due;
+      span.toDeadline = true;
+    } else {
+      span.end = span.allDay ? { date: addDays(s.date, 1), min: 0 } : addMinutes(span.start, 30);
+    }
+  }
+  if (due && (!span.end || compareMoments(due, span.end) > 0)) {
+    span.mark = { date: d.date, min: d.time ? minutesOf(d.time) : 0 };
+    span.markAllDay = !d.time;
+  }
+  return span;
+}
+
+// Where the titles go and which lane each task takes (Timeline::layout in src/timeline.cpp, kept in step): a title
+// inside its bar when it fits, else after the bar (up to its mark), else before the bar, else after the mark, else
+// shortened on the side with the most room; then each task takes the first lane where all it occupies (bar, title,
+// mark) is `spacing` clear of the last task there. items: { barStart, barEnd, hasMark, markStart, markEnd,
+// labelWidth }; g: { total, gap, pad, spacing }.
+function placeTitle(item, g) {
+  const w = item.labelWidth;
+  const markEnd = item.hasMark ? item.markEnd : item.barEnd;
+  const afterLimit = item.hasMark ? item.markStart - g.gap : g.total;
+  const p = { lane: 0, side: 'inside', labelStart: 0, labelWidth: w, shortened: false, start: 0, end: 0 };
+  if (w + 2 * g.pad <= item.barEnd - item.barStart) {
+    p.side = 'inside';
+    p.labelStart = item.barStart + g.pad;
+  } else if (item.barEnd + g.gap + w <= afterLimit) {
+    p.side = 'afterBar';
+    p.labelStart = item.barEnd + g.gap;
+  } else if (item.barStart - g.gap - w >= 0) {
+    p.side = 'before';
+    p.labelStart = item.barStart - g.gap - w;
+  } else if (item.hasMark && item.markEnd + g.gap + w <= g.total) {
+    p.side = 'afterMark';
+    p.labelStart = item.markEnd + g.gap;
+  } else {
+    const rooms = [
+      { side: 'inside', start: item.barStart + g.pad, width: item.barEnd - item.barStart - 2 * g.pad },
+      { side: 'afterBar', start: item.barEnd + g.gap, width: afterLimit - item.barEnd - g.gap },
+      { side: 'afterMark', start: item.markEnd + g.gap, width: item.hasMark ? g.total - item.markEnd - g.gap : -1 },
+      { side: 'before', start: 0, width: item.barStart - g.gap },
+    ];
+    let best = rooms[0];
+    for (const room of rooms) if (room.width > best.width) best = room;
+    p.side = best.side;
+    p.labelWidth = Math.max(0, best.width);
+    p.labelStart = best.side === 'before' ? best.start + best.width - p.labelWidth : best.start;
+    p.shortened = true;
+  }
+  p.start = Math.min(item.barStart, p.side === 'before' ? p.labelStart : item.barStart);
+  p.end = Math.max(markEnd, p.side === 'inside' || p.side === 'before' ? item.barEnd : p.labelStart + p.labelWidth);
+  return p;
+}
+
+function layoutTimeline(items, g) {
+  const placed = items.map((item) => placeTitle(item, g));
+  const order = placed.map((p, i) => i).sort((a, b) => placed[a].start - placed[b].start || placed[b].end - placed[a].end);
+  const laneEnd = [];
+  for (const i of order) {
+    let lane = 0;
+    while (lane < laneEnd.length && laneEnd[lane] + g.spacing > placed[i].start + 1e-9) lane++;
+    if (lane === laneEnd.length) laneEnd.push(0);
+    laneEnd[lane] = placed[i].end;
+    placed[i].lane = lane;
+  }
+  return placed;
+}
+
+// The page does not know its width, so a week is laid out in rem at its minimum width (CSS: .gantt-week) with a
+// title's width estimated from its length. Positions are written as percentages of the week and widths in rem:
+// on a wider page the gaps grow and the titles keep their width, so nothing that is apart at the minimum width
+// can meet, and a title that fits in its bar keeps fitting.
+const WEEK_REM = 48;
+const CHAR_REM = 0.47; // a character of a title at 0.75rem in a monospace font (0.6em), rounded up
+const BAR_MIN_REM = 0.35; // CSS: .bar min-width
+const MARK_REM = 0.6; // across a deadline mark (CSS: .deadline-mark, 0.42rem turned 45°)
+const TIMELINE_GEOMETRY = { total: WEEK_REM, gap: 0.3, pad: 0.3, spacing: 0.9 };
+
+// "Mon 23/11 14:00–15:30", "Mon 23/11 (all day)", "Mon 23/11 – Fri 27/11", "Mon 30/11 08:00 – Wed 2/12 10:00"
+function spanText(t, s) {
+  if (s.allDay) {
+    const last = addDays(s.end.date, -1);
+    return last === s.start.date ? formatDateShort(t, s.start.date) + ' (' + t.allDay + ')' : formatDateShort(t, s.start.date) + ' – ' + formatDateShort(t, last);
+  }
+  const at = (m) => formatDateShort(t, m.date) + ' ' + clockTime(t, timeOf(m.min));
+  const sameDay = s.end.date === s.start.date || (s.end.min === 0 && s.end.date === addDays(s.start.date, 1));
+  return sameDay ? at(s.start) + '–' + clockTime(t, timeOf(s.end.min)) : at(s.start) + ' – ' + at(s.end);
+}
+
+// Gantt: a week per block, seven day columns, from the first to the last week with a task. A task is a bar over
+// its days (taskSpan); within a day the hours run from `from` to `to` (taken from the tasks with a time, at least
+// 08-18). A deadline after the bar is a mark at the end of a line; a task with only a deadline is just the mark.
+// Tasks without a start or a deadline are not in the timeline.
 function renderTimeline(plan, today, t, active) {
   t = pageTexts(plan, t);
-  const dated = plan.tasks.filter((o) => o.start);
-  const dates = new Set();
-  for (const o of dated) dates.add(o.start.slice(0, 10));
-  for (const o of plan.tasks) if (o.deadline) dates.add(o.deadline.slice(0, 10));
-  let sortedDates = [...dates].sort();
-  if (sortedDates.length === 0) sortedDates = [today];
-  const days = [];
-  for (let d = sortedDates[0]; d <= sortedDates[sortedDates.length - 1]; d = addDays(d, 1)) days.push(d);
+  const tasks = plan.tasks
+    .map((o) => ({ o, span: taskSpan(o) }))
+    .filter((x) => x.span.start || x.span.mark)
+    .sort((a, b) => compareMoments(a.span.start || a.span.mark, b.span.start || b.span.mark) || a.o.title.localeCompare(b.o.title, t.language));
 
-  // raw bars per day (all-day = no time)
-  const raw = new Map(); // date -> [{ o, s, start, length, allDay }]
-  for (const day of days) {
-    raw.set(
-      day,
-      dated
-        .filter((o) => o.start.slice(0, 10) === day)
-        .map((o) => {
-          const s = parseStart(o.start);
-          if (!s.time) return { o, s, start: 0, length: 0, allDay: true };
-          const start = Number(s.time.slice(0, 2)) + Number(s.time.slice(3, 5)) / 60;
-          const length = o.duration_min ? o.duration_min / 60 : 0.5;
-          return { o, s, start, length, allDay: false };
-        })
-    );
-  }
-
-  // window from the timed tasks: earliest start to latest end, rounded, at least 08-18
+  // the hours of a day: the tasks with a time, from their start to their end on the same day, at least 08-18
   let from = 8;
   let to = 18;
-  const timed = [...raw.values()].flat().filter((b) => !b.allDay);
-  if (timed.length) {
-    const minStart = Math.min(...timed.map((b) => b.start));
-    const maxEnd = Math.max(...timed.map((b) => b.start + b.length));
-    from = Math.min(8, Math.floor(minStart));
-    to = Math.max(18, Math.ceil(maxEnd));
+  for (const { span: s } of tasks) {
+    if (!s.start || s.allDay) continue;
+    from = Math.min(from, Math.floor(s.start.min / 60));
+    const end = s.end.date === s.start.date ? s.end.min : s.start.min + 30;
+    to = Math.max(to, Math.min(24, Math.ceil(end / 60)));
   }
 
-  // all-day bars span the whole window
-  for (const bars of raw.values()) {
-    for (const b of bars) if (b.allDay) {
-      b.start = from;
-      b.length = to - from;
-    }
+  const dates = [];
+  for (const { span: s } of tasks) {
+    if (s.start) dates.push(s.start.date, s.end.min === 0 ? addDays(s.end.date, -1) : s.end.date);
+    if (s.mark) dates.push(s.mark.date);
   }
+  dates.sort();
+  const first = mondayOf(dates.length ? dates[0] : today);
+  const last = mondayOf(dates.length ? dates[dates.length - 1] : today);
 
-  // hour labels on the axis
-  const step = to - from > 12 ? 3 : to - from > 8 ? 2 : 1;
-  const hours = [];
-  for (let h = Math.ceil(from / step) * step; h <= to; h += step) hours.push(h);
-
-  const dayParts = [];
-  for (const day of days) {
-    const bars = raw.get(day)
-      .sort((a, b) => a.start - b.start || b.length - a.length || a.o.title.localeCompare(b.o.title, t.language));
-    // tracks: the first free track where the bar does not overlap (start >= the track's end)
-    const trackEnd = [];
-    for (const b of bars) {
-      let track = trackEnd.findIndex((end) => end <= b.start + 1e-9);
-      if (track === -1) {
-        trackEnd.push(0);
-        track = trackEnd.length - 1;
+  const pct = (rem) => num((rem / WEEK_REM) * 100);
+  const weeks = [];
+  for (let week = first; week <= last; week = addDays(week, 7)) {
+    const weekStart = { date: week, min: 0 };
+    const weekEnd = { date: addDays(week, 7), min: 0 };
+    // rem from the week's start; `edge`: a whole-day boundary
+    const at = (m, edge) => {
+      const day = daysBetween(week, m.date);
+      if (day < 0) return 0;
+      if (day >= 7) return WEEK_REM;
+      const within = edge ? 0 : Math.max(0, Math.min(1, (m.min / 60 - from) / (to - from)));
+      return ((day + within) / 7) * WEEK_REM;
+    };
+    const shown = [];
+    const items = [];
+    for (const x of tasks) {
+      const s = x.span;
+      const b = { x, hasBar: false, hasMark: false, cutStart: false, cutEnd: false, barStart: 0, barEnd: 0, markX: 0 };
+      if (s.start && compareMoments(s.start, weekEnd) < 0 && compareMoments(s.end, weekStart) > 0) {
+        b.hasBar = true;
+        b.cutStart = compareMoments(s.start, weekStart) < 0;
+        b.cutEnd = compareMoments(s.end, weekEnd) > 0;
+        b.barStart = b.cutStart ? 0 : at(s.start, s.allDay);
+        b.barEnd = b.cutEnd ? WEEK_REM : at(s.end, s.allDay);
+        b.barEnd = Math.max(b.barEnd, Math.min(WEEK_REM, b.barStart + BAR_MIN_REM));
       }
-      trackEnd[track] = b.start + b.length;
-      b.track = track;
+      if (s.mark && s.mark.date >= week && s.mark.date < weekEnd.date) {
+        b.hasMark = true;
+        let c = s.markAllDay ? at({ date: addDays(s.mark.date, 1), min: 0 }, true) - 0.4 : at(s.mark, false);
+        c = Math.max(MARK_REM / 2, Math.min(WEEK_REM - MARK_REM / 2, c));
+        if (b.hasBar) c = Math.max(c, b.barEnd + MARK_REM / 2);
+        b.markX = c;
+      }
+      if (!b.hasBar && !b.hasMark) continue;
+      if (!b.hasBar) b.barStart = b.barEnd = b.markX - MARK_REM / 2;
+      shown.push(b);
+      items.push({
+        barStart: b.barStart, barEnd: b.barEnd, hasMark: b.hasMark, markStart: b.markX - MARK_REM / 2,
+        markEnd: b.markX + MARK_REM / 2, labelWidth: x.o.title.length * CHAR_REM,
+      });
     }
-    const tracks = Math.max(1, trackEnd.length);
+    const placed = layoutTimeline(items, TIMELINE_GEOMETRY);
     const lines = [];
-    for (const b of bars) {
-      const title = b.o.title + ' – ' + formatDateShort(t, day) + (b.s.time ? ' ' + clockTime(t, b.s.time) + (b.o.duration_min ? '–' + clockTime(t, endTime(b.s.time, b.o.duration_min)) : '') : ' (' + t.allDay + ')');
-      const pos = '--start:' + num(b.start) + ';--length:' + num(b.length) + ';--track:' + b.track;
-      const bar =
-        '        <div class="bar' + (b.allDay ? ' bar-all-day' : '') + (b.o.status === 'done' ? ' status-done' : '') + '" style="' + pos + '" data-id="' + esc(b.o.id) + '"' + colorAttr(t, b.o) + ' title="' + esc(title) + '">';
-      // The title goes beside the bar when it cannot fit inside it. A bar's pixel width shrinks with the
-      // window (to - from); at the column's minimum width (34rem) about 64 characters fit across a whole-day
-      // bar. Estimate conservatively: a title behind the estimate would be clipped by overflow:hidden.
-      const fitsIn = b.o.title.length <= (b.length * CHARS_PER_DAY) / (to - from);
-      if (fitsIn) {
-        lines.push(bar + '<span class="bar-title">' + esc(b.o.title) + '</span></div>');
-      } else {
-        lines.push(bar + '</div>');
-        lines.push('        <span class="bar-label" style="' + pos + '" data-id="' + esc(b.o.id) + '" title="' + esc(title) + '">' + esc(b.o.title) + '</span>');
+    let lanes = 1;
+    shown.forEach((b, i) => {
+      const p = placed[i];
+      const o = b.x.o;
+      const s = b.x.span;
+      lanes = Math.max(lanes, p.lane + 1);
+      const lane = ';--lane:' + p.lane;
+      const done = o.status === 'done' ? ' status-done' : '';
+      const markTitle = s.mark ? fill(t.deadlineTitle, { date: formatDeadline(t, o.deadline), title: o.title }) : '';
+      const title = s.start ? o.title + ' – ' + spanText(t, s) : markTitle;
+      if (b.hasBar) {
+        lines.push(
+          '          <div class="bar' + (s.allDay ? ' bar-all-day' : '') + done + (b.cutStart ? ' bar-cut-start' : '') + (b.cutEnd ? ' bar-cut-end' : '') +
+          '" style="--x:' + pct(b.barStart) + ';--w:' + pct(b.barEnd - b.barStart) + lane + '" data-id="' + esc(o.id) + '"' + colorAttr(t, o) +
+          ' title="' + esc(title) + '">' + (p.side === 'inside' ? '<span class="bar-title">' + esc(o.title) + '</span>' : '') + '</div>'
+        );
       }
+      if (b.hasBar && b.hasMark) {
+        lines.push('          <div class="deadline-line" style="--x:' + pct(b.barEnd) + ';--w:' + pct(b.markX - b.barEnd) + lane + '"></div>');
+      }
+      if (b.hasMark) {
+        lines.push('          <div class="deadline-mark' + done + '" style="--x:' + pct(b.markX) + lane + '" data-id="' + esc(o.id) + '" title="' + esc(markTitle) + '"></div>');
+      }
+      // A title before its bar is anchored by its right edge, so it stays at the bar on a wider page.
+      if (p.side !== 'inside' && p.labelWidth > 0) {
+        const before = p.side === 'before';
+        lines.push(
+          '          <span class="bar-label' + (before ? ' bar-label-before' : '') + done + '" style="--x:' + pct(before ? p.labelStart + p.labelWidth : p.labelStart) + lane + (p.shortened ? ';--max:' + num(p.labelWidth) : '') +
+          '" data-id="' + esc(o.id) + '" title="' + esc(title) + '">' + esc(o.title) + '</span>'
+        );
+      }
+    });
+    const days = [];
+    for (let i = 0; i < 7; i++) {
+      const day = addDays(week, i);
+      days.push('          <h3 class="gantt-date' + (day === today ? ' today' : '') + '"><time datetime="' + day + '">' + esc(formatDateShort(t, day)) + '</time></h3>');
     }
-    for (const o of plan.tasks) {
-      if (!o.deadline || o.deadline.slice(0, 10) !== day) continue;
-      const f = parseStart(o.deadline);
-      const start = f.time ? Number(f.time.slice(0, 2)) + Number(f.time.slice(3, 5)) / 60 : to;
-      const inWindow = !!f.time && start < to;
-      const title = fill(t.deadlineTitle, { date: formatDeadline(t, o.deadline), title: o.title });
-      lines.push('        <div class="deadline-mark' + (inWindow ? '' : ' deadline-mark-edge') + '" style="--start:' + num(Math.min(start, to)) + '" data-id="' + esc(o.id) + '" title="' + esc(title) + '"></div>');
-    }
-    dayParts.push(
-      '    <section class="gantt-day' + (day === today ? ' today' : '') + '" data-date="' + day + '">\n' +
-      '      <h3 class="gantt-date"><time datetime="' + day + '">' + esc(formatDateShort(t, day)) + '</time></h3>\n' +
-      '      <div class="tracks" style="--tracks:' + tracks + '">\n' +
-      lines.join('\n') + '\n' +
-      '      </div>\n' +
-      '    </section>'
+    weeks.push(
+      '      <section class="gantt-week" data-week="' + week + '">\n' +
+      '        <div class="gantt-days">\n' +
+      days.join('\n') + '\n' +
+      '        </div>\n' +
+      '        <div class="lanes" style="--lanes:' + lanes + '">\n' +
+      (lines.length ? lines.join('\n') + '\n' : '') +
+      '        </div>\n' +
+      '      </section>'
     );
   }
   return (
     '  <section id="timeline" class="' + viewClass('timeline', active) + '" aria-label="' + esc(t.timeline) + '">\n' +
     '    <h2>' + esc(t.timeline) + '</h2>\n' +
     '    <p class="description">' + esc(fill(t.timelineDescription, { from, to })) + '</p>\n' +
-    '    <div class="gantt" style="--from:' + from + ';--to:' + to + '">\n' +
-    '      <div class="gantt-head" aria-hidden="true">\n' +
-    '        <div class="gantt-date gantt-date-empty"></div>\n' +
-    '        <div class="gantt-hours">' + hours.map((h) => '<span style="--hour:' + h + '">' + h + '</span>').join('') + '</div>\n' +
-    '      </div>\n' +
-    '      <div class="gantt-rows">\n' +
-    dayParts.join('\n') + '\n' +
-    '      </div>\n' +
+    '    <div class="gantt">\n' +
+    weeks.join('\n') + '\n' +
     '    </div>\n' +
     '  </section>'
   );
@@ -620,7 +761,8 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     VIEWS, LANGUAGES, fill, pickLanguage, parseStart, todayStr, addDays, formatDateLong, formatDateShort,
     formatDeadline, formatDuration, formatTimestamp, endTime, planDate, isOverdue, overdueDate, agendaDate, sortTasks, renderTask, renderOverview,
-    renderListByDate, renderListByProject, renderTimeline, renderMain, renderNav, renderMeta, renderFooter,
+    renderListByDate, renderListByProject, taskSpan, layoutTimeline, TIMELINE_GEOMETRY, WEEK_REM, CHAR_REM,
+    renderTimeline, renderMain, renderNav, renderMeta, renderFooter,
     renderPage, applyTheme,
   };
 }

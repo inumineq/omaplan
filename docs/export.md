@@ -58,9 +58,11 @@ The fields follow the task model in SPEC.md:
 - **Overdue**: `status == "todo"`, the task has a date, and the earlier of `start`/`deadline` is before today.
 - **All-day task**: `start` without a time and without `duration_min`.
 - The **overview** shows today and the next 7 days (8 dates) plus overdue tasks at the top.
-- The **timeline** covers every date from the earliest `start`/`deadline` to the latest. Its time axis spans a
-  window taken from the data: the earliest start to the latest end (of tasks with a time), rounded to whole hours,
-  at least 08–18.
+- The **timeline** covers every week from the earliest date to the latest (a task's first and last day and its
+  deadline). A task spans `start` + `duration_min`; without a duration but with a deadline on a later day it spans
+  from `start` to the deadline; otherwise its day (no time) or 30 minutes. A deadline after that, or a task with
+  only a deadline, is a mark. A day runs from the earliest start to the latest same-day end of tasks with a time,
+  rounded to whole hours, at least 08–18. The full rule is in `web/MARKUP.md`.
 - Order within a day: tasks with a time first (by time), then all-day tasks, then priority, then title.
 
 ## Version history

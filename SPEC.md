@@ -35,7 +35,14 @@ can do.
 1. **Overview** (start): agenda for today and the next 7 days, overdue first.
 2. **Calendar**: week and month (`w`/`m` switches). Tasks can be dragged to a new day/time.
 3. **List**: all tasks with checkboxes; group by date or project; filter by project and status.
-4. **Timeline**: Gantt style with duration and overlap; tasks can be dragged and their length changed.
+4. **Timeline**: a Gantt chart over one day to two weeks (`+`/`-` zooms, `h`/`l` pages). Each task is a bar over
+   the time it covers: its start plus its duration, or from its start to a deadline on a later day, so a task over
+   several days spans those days. A deadline after the bar is a diamond at the end of a line; a task with only a
+   deadline is the diamond. Every title can be read: it sits inside its bar when it fits, otherwise beside the
+   bar (after it, before it or after the diamond), never on another task, and is only shortened when no side has
+   room; tasks take as many lanes as that needs. Dragging a bar moves the task (a span takes its deadline along),
+   dragging its right edge changes the duration or the deadline. The read-only edition draws the same chart a
+   week per block.
 
 The views are different looks at the same data. No view has state of its own beyond zoom/filter.
 

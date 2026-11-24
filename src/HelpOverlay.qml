@@ -38,7 +38,7 @@ Rectangle {
             ["t", qsTr("Go to today")],
             ["w / m", qsTr("Calendar: week / month")],
             ["+ / -", qsTr("Timeline: zoom in / out")],
-            [qsTr("drag"), qsTr("Move to another day or time; drag the right edge of a bar for duration")]]],
+            [qsTr("drag"), qsTr("Move to another day or time; drag the right edge of a bar for its length")]]],
         [qsTr("List"), [
             ["g", qsTr("Group by date, project or none")],
             ["s", qsTr("Show open, done or all")],
