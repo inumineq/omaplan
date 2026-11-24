@@ -25,7 +25,7 @@ Item {
     function zoom(step) { zoomIndex = Math.max(0, Math.min(zoomLevels.length - 1, zoomIndex + step)) }
     function taskIds() { return bars.map(b => b.task.taskId) }
     // A task's project colour (a palette slot from the settings), "" without one.
-    function projectColorOf(t) { return theme.palette[settings.projectColors[t.project] || ""] || "" }
+    function projectColorOf(t) { settings.projectColors; return theme.palette[settings.projectColor(t.project)] || "" }
 
     CalendarModel {
         id: rangeModel
@@ -261,6 +261,7 @@ Item {
                             anchors.verticalCenter: parent.verticalCenter
                             width: inside ? barItem.width - 12 : implicitWidth
                             elide: Text.ElideRight
+                            textFormat: Text.PlainText
                             text: {
                                 Fmt.lang
                                 const t = barItem.task

@@ -23,7 +23,7 @@ Rectangle {
     readonly property bool done: status === "done"
     readonly property bool selected: win.selectedId === taskId
     // The project's colour from the settings (a palette slot), "" without one.
-    readonly property string projectColor: theme.palette[settings.projectColors[project] || ""] || ""
+    readonly property string projectColor: { settings.projectColors; return theme.palette[settings.projectColor(project)] || "" }
     readonly property var today: { planModel.today; return Fmt.startOfDay(new Date()) }
     readonly property bool overdue: !done && (Fmt.valid(deadline) ? Fmt.daysBetween(today, deadline) < 0
                                                                    : Fmt.valid(start) && Fmt.daysBetween(today, start) < 0)
@@ -70,6 +70,7 @@ Rectangle {
             Text {
                 font.family: theme.fontFamily
                 Layout.fillWidth: true
+                textFormat: Text.PlainText
                 text: row.title
                 elide: Text.ElideRight
                 color: row.done ? theme.muted : theme.foreground

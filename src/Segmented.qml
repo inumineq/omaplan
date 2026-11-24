@@ -59,6 +59,7 @@ Row {
                     id: text
                     font.family: theme.fontFamily
                     anchors.centerIn: parent
+                    textFormat: Text.PlainText
                     text: choice.modelData[1]
                     color: choice.active ? theme.accentForeground : theme.foreground
                     font.pixelSize: 12

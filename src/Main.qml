@@ -349,7 +349,7 @@ ApplicationWindow {
         SettingsOverlay {
             id: settingsPanel
             anchors.fill: parent
-            onCloseRequested: visible = false
+            onCloseRequested: close()
         }
 
         InputOverlay {

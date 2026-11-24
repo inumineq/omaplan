@@ -1,0 +1,306 @@
+// The settings panel in the real window, offscreen. Invented data, a fake
+// command engine and a fake vibe on PATH (claude is not there); no test calls
+// a real AI. Each test opens the panel from the closed window.
+#include <QElapsedTimer>
+#include <QFile>
+#include <QGuiApplication>
+#include <QJSValue>
+#include <QPointer>
+#include <QQmlApplicationEngine>
+#include <QQmlContext>
+#include <QQuickItem>
+#include <QQuickStyle>
+#include <QQuickWindow>
+#include <QRegularExpression>
+#include <QTemporaryDir>
+#include <QtTest>
+
+#include "actions.h"
+#include "config.h"
+#include "planmodel.h"
+#include "settings.h"
+#include "store.h"
+#include "theme.h"
+#include "uilanguage.h"
+
+class PanelTests : public QObject {
+    Q_OBJECT
+
+    QTemporaryDir m_dir;
+    QString m_cfg;
+    std::unique_ptr<UiLanguage> m_language;
+    std::unique_ptr<Theme> m_theme;
+    std::unique_ptr<Settings> m_settings;
+    std::unique_ptr<Store> m_store;
+    std::unique_ptr<Actions> m_actions;
+    std::unique_ptr<PlanModel> m_model;
+    std::unique_ptr<QQmlApplicationEngine> m_engine;
+    QQuickWindow *m_window = nullptr;
+    QObject *m_panel = nullptr;
+
+    static void pump(int ms = 120) {
+        QElapsedTimer t;
+        t.start();
+        while (t.elapsed() < ms) {
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+            QThread::msleep(5);
+        }
+    }
+    void key(Qt::Key k, Qt::KeyboardModifiers m = Qt::NoModifier) { QTest::keyClick(m_window, k, m); pump(); }
+    void type(const QString &text) {
+        for (const QChar c : text) {
+            QKeyEvent press(QEvent::KeyPress, Qt::Key_unknown, Qt::NoModifier, QString(c));
+            QKeyEvent release(QEvent::KeyRelease, Qt::Key_unknown, Qt::NoModifier, QString(c));
+            QCoreApplication::sendEvent(m_window, &press);
+            QCoreApplication::sendEvent(m_window, &release);
+        }
+        pump();
+    }
+    // The visual tree, not QObject children: Repeater delegates have no QObject parent.
+    static QQuickItem *find(QQuickItem *root, const QString &name) {
+        for (QQuickItem *child : root->childItems()) {
+            if (child->objectName() == name)
+                return child;
+            if (QQuickItem *found = find(child, name))
+                return found;
+        }
+        return nullptr;
+    }
+    QQuickItem *item(const QString &name) const { return find(m_window->contentItem(), name); }
+    QString focusName() const {
+        QQuickItem *f = m_window->activeFocusItem();
+        return f ? f->objectName() : QString();
+    }
+    // Clicks the middle of an item; it is scrolled into view first.
+    void click(QQuickItem *target) {
+        if (target->activeFocusOnTab())
+            target->forceActiveFocus();
+        pump();
+        const QPoint p = target->mapToScene(QPointF(target->width() / 2, target->height() / 2)).toPoint();
+        QTest::mouseClick(m_window, Qt::LeftButton, {}, p);
+        pump();
+    }
+    void writeConfig(const QByteArray &text) {
+        QFile f(m_cfg);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(text);
+        f.close();
+        m_settings->reload();
+        pump();
+    }
+    void openPanel(const char *section = "engine") {
+        if (m_panel->property("visible").toBool())
+            QMetaObject::invokeMethod(m_panel, "close");
+        pump();
+        key(Qt::Key_Comma, Qt::ControlModifier);
+        m_panel->setProperty("section", section);
+        pump();
+    }
+    QString fileText() const {
+        QFile f(m_cfg);
+        return f.open(QIODevice::ReadOnly) ? QString::fromUtf8(f.readAll()) : QString();
+    }
+
+private slots:
+    void initTestCase() {
+        // Any QML error in the window fails the test that caused it.
+        QTest::failOnWarning(QRegularExpression(QStringLiteral("qml|Unable to assign|TypeError|ReferenceError")));
+        QVERIFY(m_dir.isValid());
+        qputenv("OMAPLAN_DB", m_dir.filePath("plan.db").toLocal8Bit());
+        qputenv("OMAPLAN_SNAPSHOT", m_dir.filePath("plan.json").toLocal8Bit());
+        qputenv("XDG_CONFIG_HOME", m_dir.filePath("xdg").toLocal8Bit());
+        QDir().mkpath(m_dir.filePath("bin"));
+        QFile vibe(m_dir.filePath("bin/vibe"));
+        QVERIFY(vibe.open(QIODevice::WriteOnly));
+        vibe.write("#!/bin/sh\nexit 1\n");
+        vibe.close();
+        vibe.setPermissions(QFileDevice::ReadOwner | QFileDevice::ExeOwner);
+        qputenv("PATH", (m_dir.filePath("bin") + QStringLiteral(":/usr/bin:/bin")).toLocal8Bit());
+        // A slow fake engine: Test can be cancelled while it runs.
+        QFile slow(m_dir.filePath("slow.sh"));
+        QVERIFY(slow.open(QIODevice::WriteOnly));
+        slow.write(QStringLiteral("cat >/dev/null; sleep 1.5; touch %1; echo '{\"tasks\":[],\"unresolved\":[]}'\n")
+                       .arg(m_dir.filePath("slow-finished")).toUtf8());
+        slow.close();
+        m_cfg = m_dir.filePath("config.toml");
+        qputenv("OMAPLAN_CONFIG", m_cfg.toLocal8Bit());
+        QFile cfg(m_cfg);
+        QVERIFY(cfg.open(QIODevice::WriteOnly));
+        cfg.write(QStringLiteral("[engine]\ncommand = \"sh %1\"\n").arg(slow.fileName()).toUtf8());
+        cfg.close();
+
+        QQuickStyle::setStyle(QStringLiteral("Material"));
+        m_language = std::make_unique<UiLanguage>(qApp, QStringLiteral("en"), false, m_dir.filePath("language"));
+        QDir().mkpath(m_dir.filePath("omarchy/theme"));
+        m_theme = std::make_unique<Theme>(m_dir.filePath("omarchy"));
+        m_settings = std::make_unique<Settings>(m_language.get());
+        registerQmlTypes();
+        m_store = std::make_unique<Store>();
+        QString error;
+        QVERIFY2(m_store->open(&error), qPrintable(error));
+        m_actions = std::make_unique<Actions>(m_store.get());
+        for (const QString &project : {QStringLiteral("Blog"), QStringLiteral("constructor"), QStringLiteral("<b>Bold</b>"),
+                                       QStringLiteral("A project with a rather long name that will not fit")}) {
+            Task t;
+            t.title = QStringLiteral("Task for ") + project;
+            t.project = project;
+            t.start = QDateTime(QDate::currentDate(), QTime(10, 0));
+            t.startHasTime = true;
+            m_actions->create(t, QStringLiteral("cli"));
+        }
+        m_model = std::make_unique<PlanModel>(m_store.get());
+        connect(m_actions.get(), &Actions::planChanged, m_model.get(), &PlanModel::reload);
+        m_model->reload();
+
+        m_engine = std::make_unique<QQmlApplicationEngine>();
+        QQmlContext *context = m_engine->rootContext();
+        context->setContextProperty(QStringLiteral("uiLanguage"), m_language.get());
+        context->setContextProperty(QStringLiteral("theme"), m_theme.get());
+        context->setContextProperty(QStringLiteral("actions"), m_actions.get());
+        context->setContextProperty(QStringLiteral("planModel"), m_model.get());
+        context->setContextProperty(QStringLiteral("settings"), m_settings.get());
+        m_engine->load(QUrl(QStringLiteral("qrc:/Main.qml")));
+        QVERIFY(!m_engine->rootObjects().isEmpty());
+        m_window = qobject_cast<QQuickWindow *>(m_engine->rootObjects().first());
+        QVERIFY(m_window);
+        m_window->resize(1280, 800);
+        m_window->show();
+        m_window->requestActivate();
+        pump(300);
+        m_panel = item(QStringLiteral("settingsPanel"));
+        QVERIFY(m_panel);
+    }
+
+    // M1: saving a field in an engine card keeps the card, and the focus moves on.
+    void savingAnEngineFieldKeepsTheFocus() {
+        openPanel();
+        QPointer<QQuickItem> field = item(QStringLiteral("field:engine.vibe.model"));
+        QVERIFY(field);
+        field->forceActiveFocus();
+        type(QStringLiteral("medium"));
+        key(Qt::Key_Tab);
+        QCOMPARE(AppConfig::load(m_cfg).vibeModel, QStringLiteral("medium"));
+        QVERIFY2(field, "the card was rebuilt");
+        QCOMPARE(focusName(), QStringLiteral("test:claude"));
+        // Enter saves too, and the field keeps the focus.
+        QQuickItem *claude = item(QStringLiteral("field:engine.claude.model"));
+        claude->forceActiveFocus();
+        type(QStringLiteral("opus"));
+        key(Qt::Key_Return);
+        QCOMPARE(AppConfig::load(m_cfg).claudeModel, QStringLiteral("opus"));
+        QCOMPARE(focusName(), QStringLiteral("field:engine.claude.model"));
+    }
+
+    // M1: the first click on Test after typing in a field runs the test.
+    void firstClickOnTestRunsIt() {
+        openPanel();
+        QSignalSpy spy(m_actions.get(), &Actions::engineTested);
+        QQuickItem *field = item(QStringLiteral("field:engine.claude.model"));
+        field->forceActiveFocus();
+        type(QStringLiteral("x"));
+        click(item(QStringLiteral("test:claude")));
+        QTRY_COMPARE_WITH_TIMEOUT(spy.size(), 1, 3000); // claude is not on PATH: an error at once
+        QCOMPARE(spy.at(0).at(0).toString(), QStringLiteral("claude"));
+        QVERIFY(AppConfig::load(m_cfg).claudeModel.endsWith(QLatin1Char('x')));
+    }
+
+    // M6: Esc in a field restores the stored value; the next Esc closes. Nothing half-typed is saved.
+    void escapeRestoresAFieldBeforeClosing() {
+        openPanel();
+        const QString before = fileText();
+        QQuickItem *field = item(QStringLiteral("field:engine.command"));
+        field->forceActiveFocus();
+        type(QStringLiteral("oops"));
+        key(Qt::Key_Escape);
+        QVERIFY(m_panel->property("visible").toBool());
+        QCOMPARE(field->property("text").toString(), AppConfig::load(m_cfg).command);
+        key(Qt::Key_Escape);
+        QVERIFY(!m_panel->property("visible").toBool());
+        QCOMPARE(fileText(), before);
+        // Closing with a half edit (the gear, a click outside) saves nothing either.
+        openPanel();
+        item(QStringLiteral("field:engine.command"))->forceActiveFocus();
+        type(QStringLiteral("oops"));
+        QMetaObject::invokeMethod(m_panel, "close");
+        pump();
+        QCOMPARE(fileText(), before);
+        openPanel();
+        QCOMPARE(item(QStringLiteral("field:engine.command"))->property("text").toString(), AppConfig::load(m_cfg).command);
+        QMetaObject::invokeMethod(m_panel, "close");
+    }
+
+    // L8: the timeout field can be emptied (default again); 090 is written as 90.
+    void timeoutFieldEmptiesAndNormalises() {
+        openPanel();
+        QQuickItem *field = item(QStringLiteral("field:engine.timeout"));
+        field->forceActiveFocus();
+        type(QStringLiteral("090"));
+        key(Qt::Key_Return);
+        QVERIFY2(fileText().contains("timeout = 90\n"), qPrintable(fileText()));
+        key(Qt::Key_A, Qt::ControlModifier);
+        key(Qt::Key_Backspace);
+        key(Qt::Key_Return);
+        QVERIFY2(!fileText().contains("timeout"), qPrintable(fileText()));
+        // A rejected value goes back to the stored one; the error stays.
+        type(QStringLiteral("5"));
+        key(Qt::Key_Return);
+        QCOMPARE(field->property("text").toString(), QString());
+        QVERIFY(!m_panel->property("problem").toString().isEmpty());
+        QMetaObject::invokeMethod(m_panel, "close");
+    }
+
+    // L10: a running Test can be cancelled, and closing the panel cancels it.
+    void testCanBeCancelled() {
+        openPanel();
+        QFile::remove(m_dir.filePath("slow-finished"));
+        click(item(QStringLiteral("test:command")));
+        QCOMPARE(item(QStringLiteral("test:command"))->property("text").toString(), QStringLiteral("Cancel"));
+        click(item(QStringLiteral("test:command")));
+        QCOMPARE(item(QStringLiteral("test:command"))->property("text").toString(), QStringLiteral("Test"));
+        click(item(QStringLiteral("test:command")));
+        QMetaObject::invokeMethod(m_panel, "close");
+        pump(2500);
+        QVERIFY2(!QFile::exists(m_dir.filePath("slow-finished")), "the engine kept running");
+    }
+
+    // L11: the panel opens at the top.
+    void opensScrolledToTheTop() {
+        openPanel();
+        QQuickItem *flick = item(QStringLiteral("settingsFlick"));
+        flick->setProperty("contentY", 200);
+        QMetaObject::invokeMethod(m_panel, "close");
+        openPanel();
+        QCOMPARE(flick->property("contentY").toReal(), 0.0);
+        QMetaObject::invokeMethod(m_panel, "close");
+    }
+
+    // L1, L11, L15: odd project names show as text, get their colour, and long ones fit.
+    void projectNamesAreText() {
+        writeConfig(QByteArrayLiteral("[projects]\nconstructor = \"green\"\n\"<b>Bold</b>\" = \"blue\"\n"));
+        openPanel("projects");
+        QQuickItem *odd = item(QStringLiteral("tag:constructor"));
+        QVERIFY(odd);
+        QCOMPARE(odd->property("tint").value<QColor>(), QColor(m_theme->paletteColor(QStringLiteral("green"))));
+        QQuickItem *bold = item(QStringLiteral("tag:<b>Bold</b>"));
+        QVERIFY(bold);
+        QQuickItem *label = find(bold, QStringLiteral("tagLabel"));
+        QCOMPARE(label->property("textFormat").toInt(), 0); // Text.PlainText
+        QQuickItem *longTag = item(QStringLiteral("tag:A project with a rather long name that will not fit"));
+        QQuickItem *firstSwatch = item(QStringLiteral("swatch:A project with a rather long name that will not fit:"));
+        QVERIFY(longTag && firstSwatch);
+        QVERIFY(longTag->mapToScene({longTag->width(), 0}).x() <= firstSwatch->mapToScene({0, 0}).x());
+        QMetaObject::invokeMethod(m_panel, "close");
+    }
+
+    void cleanupTestCase() { m_engine.reset(); }
+};
+
+int main(int argc, char *argv[]) {
+    qputenv("QT_QPA_PLATFORM", "offscreen");
+    QGuiApplication app(argc, argv);
+    app.setApplicationName(QStringLiteral("omaplan-panel-tests"));
+    PanelTests tests;
+    return QTest::qExec(&tests, argc, argv);
+}
+
+#include "tst_panel.moc"

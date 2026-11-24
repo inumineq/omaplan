@@ -55,7 +55,7 @@ Item {
     }
 
     // A task's colour: its project's (a palette slot from the settings), else the accent.
-    function tintOf(t) { return theme.palette[settings.projectColors[t.project] || ""] || theme.accent }
+    function tintOf(t) { settings.projectColors; return theme.palette[settings.projectColor(t.project)] || theme.accent }
 
     function chipText(t) {
         return (t.startHasTime ? Fmt.time(t.start) + "  " : "") + (t.deadlineOnly ? "⚑ " : "") + t.title
@@ -170,6 +170,7 @@ Item {
             anchors.leftMargin: 7
             anchors.rightMargin: 4
             verticalAlignment: Text.AlignVCenter
+            textFormat: Text.PlainText
             text: cal.chipText(chip.task)
             elide: Text.ElideRight
             font.pixelSize: 11
@@ -407,6 +408,7 @@ Item {
                                 Text {
                                     font.family: theme.fontFamily
                                     width: parent.width
+                                    textFormat: Text.PlainText
                                     text: block.task.title
                                     color: block.done ? theme.muted : theme.foreground
                                     font.strikeout: block.done
@@ -418,6 +420,7 @@ Item {
                                     font.family: theme.fontFamily
                                     width: parent.width
                                     visible: block.height > 34
+                                    textFormat: Text.PlainText
                                     text: { Fmt.lang; return Fmt.timeRange(block.task.start, block.task.durationMinutes)
                                             + (block.task.project !== "" ? " · " + block.task.project : "") }
                                     color: theme.muted
@@ -609,6 +612,7 @@ Item {
             font.family: theme.fontFamily
             anchors.fill: parent
             anchors.margins: 5
+            textFormat: Text.PlainText
             text: ghost.text
             color: theme.accentForeground
             font.pixelSize: 12

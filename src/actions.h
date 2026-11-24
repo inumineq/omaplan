@@ -142,6 +142,8 @@ public:
     // The settings panel's Test button, and only that: one short real
     // request to the engine, answered by engineTested. Stores nothing.
     Q_INVOKABLE void guiTestEngine(const QString &id);
+    // Stops that engine's running Test (its process is killed); no signal.
+    Q_INVOKABLE void guiCancelTest(const QString &id);
     Q_INVOKABLE QJsonObject guiApprove(const QJsonObject &proposalJson, const QString &captureId);
 
 signals:

@@ -118,6 +118,8 @@ ActionResult Actions::configSet(const QString &name, const QString &rawValue, Ca
         return {false, invalid, {}, {}};
     if (key.section == QLatin1String("projects"))
         value = ConfigKeys::paletteSlot(value); // color4 -> blue; "" stays ""
+    if (key.name == QLatin1String("engine.timeout") && !value.isEmpty())
+        value = QString::number(value.toInt()); // 090 -> 90: a TOML integer has no leading zeros
     if (key.name == QLatin1String("engine.compare")) {
         const QStringList ids = value.split(QLatin1Char(','), Qt::SkipEmptyParts);
         if (ids.size() == 2)
@@ -231,13 +233,18 @@ QJsonObject Actions::guiConfigSet(const QString &key, const QString &value) {
 
 QJsonObject Actions::guiEngines() const { return engines().payload; }
 
+void Actions::guiCancelTest(const QString &id) {
+    auto running = m_tests.find(id);
+    if (running == m_tests.end())
+        return;
+    running->second->disconnect(this);
+    running->second->cancel();
+    m_tests.erase(running);
+}
+
 void Actions::guiTestEngine(const QString &id) {
     // One test per engine: pressing Test again restarts that engine's test.
-    if (auto running = m_tests.find(id); running != m_tests.end()) {
-        running->second->disconnect(this);
-        running->second->cancel();
-        m_tests.erase(running);
-    }
+    guiCancelTest(id);
     QString error;
     std::unique_ptr<AiEngine> engine = createEngine(id, {}, {}, &error);
     if (!engine) {
@@ -257,14 +264,24 @@ void Actions::guiTestEngine(const QString &id) {
     auto timer = std::make_shared<QElapsedTimer>();
     timer->start();
     AiEngine *test = engine.get();
-    connect(test, &AiEngine::finished, this, [this, id, timer](const Proposal &p, const QString &) {
+    // A finished test is dropped later, not inside its own signal.
+    auto done = [this, id, test] {
+        auto it = m_tests.find(id);
+        if (it != m_tests.end() && it->second.get() == test) {
+            it->second.release()->deleteLater();
+            m_tests.erase(it);
+        }
+    };
+    connect(test, &AiEngine::finished, this, [this, id, timer, done](const Proposal &p, const QString &) {
+        done();
         const QString first = p.tasks.isEmpty() ? QString() : p.tasks.first().title;
         emit engineTested(id, true,
                           p.tasks.isEmpty() ? tr("Answered, but proposed no tasks.")
                                             : tr("Answered with %n task(s): %1", nullptr, int(p.tasks.size())).arg(first),
                           int(timer->elapsed()));
     });
-    connect(test, &AiEngine::failed, this, [this, id, timer](const QString &message) {
+    connect(test, &AiEngine::failed, this, [this, id, timer, done](const QString &message) {
+        done();
         emit engineTested(id, false, message, int(timer->elapsed()));
     });
     m_tests[id] = std::move(engine);

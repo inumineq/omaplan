@@ -1229,16 +1229,24 @@ command = &quot;...&quot;</translation>
         <translation>klar</translation>
     </message>
     <message>
-        <source>Testing…</source>
-        <translation>Tester …</translation>
+        <source>Cancelled.</source>
+        <translation>Afbrudt.</translation>
     </message>
     <message>
         <source>Test</source>
         <translation>Test</translation>
     </message>
     <message>
+        <source>Cancel</source>
+        <translation>Afbryd</translation>
+    </message>
+    <message>
         <source>Send one short request to %1</source>
         <translation>Send én kort forespørgsel til %1</translation>
+    </message>
+    <message>
+        <source>Stop the test</source>
+        <translation>Stop testen</translation>
     </message>
     <message>
         <source>API</source>

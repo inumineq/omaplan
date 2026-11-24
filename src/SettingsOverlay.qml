@@ -14,6 +14,7 @@ import Omaplan
 // Esc closes.
 Rectangle {
     id: panel
+    objectName: "settingsPanel"
     color: Qt.alpha(theme.background, 0.82) // a scrim in the theme's own colour, light or dark
     visible: false
 
@@ -23,25 +24,56 @@ Rectangle {
     property var projectNames: []
     // engine id -> { running, ok, message, ms }
     property var tests: ({})
+    // True while closing: a field that loses the focus then saves nothing.
+    property bool closing: false
+    readonly property var engineIds: ["vibe", "claude", "local", "command"]
 
     signal closeRequested()
 
     function open() {
         problem = ""
         refresh()
+        flick.contentY = 0
         visible = true
         sectionChoice.forceActiveFocus()
     }
+    // Closes without saving a half-typed field, and stops a running Test.
+    function close() {
+        closing = true
+        const f = Window.activeFocusItem
+        if (f && f.configField)
+            f.text = f.configField.stored
+        for (const id in tests)
+            if (tests[id].running)
+                cancelTest(id)
+        visible = false
+        closing = false
+    }
+    // Esc: first undoes a field's unsaved typing, then closes.
+    function handleEscape() {
+        const f = Window.activeFocusItem
+        if (f && f.configField && f.text !== f.configField.stored) {
+            f.text = f.configField.stored
+            return
+        }
+        closeRequested()
+    }
+    // Only real changes are assigned: a new array would rebuild the
+    // Repeaters and drop the focus.
     function refresh() {
-        engineInfo = actions.guiEngines()
+        const info = actions.guiEngines()
+        if (JSON.stringify(info) !== JSON.stringify(engineInfo))
+            engineInfo = info
         const r = actions.guiProjects()
         const names = r.ok ? r.payload.projects.map(p => p.name) : []
-        for (const name in settings.projectColors)
+        for (const name of Object.keys(settings.projectColors))
             if (names.indexOf(name) < 0)
                 names.push(name)
         names.sort((a, b) => a.localeCompare(b))
-        projectNames = names
+        if (JSON.stringify(names) !== JSON.stringify(projectNames))
+            projectNames = names
     }
+    function engine(id) { return engineInfo.engines.find(e => e.id === id) || ({ "id": id, "name": id }) }
     // Writes one key; an empty value removes it, so the default applies.
     function set(key, value) {
         const r = actions.guiConfigSet(key, value)
@@ -91,8 +123,14 @@ Rectangle {
         tests = t
         actions.guiTestEngine(id)
     }
+    function cancelTest(id) {
+        actions.guiCancelTest(id)
+        const t = Object.assign({}, tests)
+        t[id] = { "running": false, "ok": false, "message": qsTr("Cancelled."), "ms": 0 }
+        tests = t
+    }
 
-    Shortcut { sequence: "Esc"; enabled: panel.visible; onActivated: panel.closeRequested() }
+    Shortcut { sequence: "Esc"; enabled: panel.visible; onActivated: panel.handleEscape() }
     Shortcut { sequence: "Alt+1"; enabled: panel.visible; onActivated: panel.section = "engine" }
     Shortcut { sequence: "Alt+2"; enabled: panel.visible; onActivated: panel.section = "dates" }
     Shortcut { sequence: "Alt+3"; enabled: panel.visible; onActivated: panel.section = "projects" }
@@ -136,6 +174,8 @@ Rectangle {
         Text { font.family: theme.fontFamily; text: fieldBox.label; color: theme.muted; font.pixelSize: 11 }
         TextField {
             id: input
+            objectName: fieldBox.saves ? "field:" + fieldBox.key : ""
+            readonly property var configField: fieldBox.saves ? fieldBox : null
             Layout.fillWidth: true
             selectedTextColor: theme.accentForeground
             font.pixelSize: 13
@@ -151,7 +191,13 @@ Rectangle {
                 color: theme.background
                 border.color: input.activeFocus ? theme.accent : theme.border
             }
-            onEditingFinished: if (fieldBox.saves && text.trim() !== fieldBox.stored) panel.set(fieldBox.key, text.trim())
+            // A rejected value goes back to the stored one; the error stays shown.
+            onEditingFinished: {
+                if (!fieldBox.saves || panel.closing || text.trim() === fieldBox.stored)
+                    return
+                if (!panel.set(fieldBox.key, text.trim()))
+                    text = fieldBox.stored
+            }
         }
     }
     // A choice setting as a row of buttons.
@@ -174,6 +220,7 @@ Rectangle {
 
         Flickable {
             id: flick
+            objectName: "settingsFlick"
             anchors.fill: parent
             anchors.margins: 20
             contentHeight: content.implicitHeight
@@ -226,16 +273,19 @@ Rectangle {
                         value: panel.engineInfo.default || "vibe"
                     }
                     Repeater {
-                        model: panel.engineInfo.engines
+                        // A fixed list: a saved field updates the card's
+                        // bindings instead of rebuilding it (and its focus).
+                        model: panel.engineIds
                         delegate: Rectangle {
                             id: card
-                            required property var modelData
-                            readonly property var test: panel.tests[modelData.id]
+                            required property string modelData
+                            readonly property var info: panel.engine(modelData)
+                            readonly property var test: panel.tests[modelData]
                             Layout.fillWidth: true
                             implicitHeight: cardBody.implicitHeight + 20
                             radius: Math.min(4, theme.radius)
                             color: theme.background
-                            border.color: modelData.default ? theme.accent : theme.border
+                            border.color: card.info.default ? theme.accent : theme.border
 
                             ColumnLayout {
                                 id: cardBody
@@ -249,11 +299,11 @@ Rectangle {
                                     spacing: 8
                                     Rectangle {
                                         width: 8; height: 8; radius: 4
-                                        color: card.modelData.ready ? theme.success : theme.danger
+                                        color: card.info.ready ? theme.success : theme.danger
                                     }
                                     Text {
                                         font.family: theme.fontFamily
-                                        text: card.modelData.name
+                                        text: card.info.name
                                         color: theme.foreground
                                         font.pixelSize: 13
                                         font.bold: true
@@ -262,18 +312,19 @@ Rectangle {
                                         font.family: theme.fontFamily
                                         Layout.fillWidth: true
                                         elide: Text.ElideMiddle
-                                        text: card.modelData.ready
-                                              ? (card.modelData.path ? qsTr("found: %1").arg(card.modelData.path) : qsTr("ready"))
-                                              : card.modelData.problem
-                                        color: card.modelData.ready ? theme.muted : theme.danger
+                                        text: card.info.ready
+                                              ? (card.info.path ? qsTr("found: %1").arg(card.info.path) : qsTr("ready"))
+                                              : (card.info.problem || "")
+                                        color: card.info.ready ? theme.muted : theme.danger
                                         font.pixelSize: 11
                                     }
                                     HeaderButton {
-                                        text: card.test && card.test.running ? qsTr("Testing…") : qsTr("Test")
+                                        objectName: "test:" + card.modelData
+                                        readonly property bool running: !!card.test && card.test.running
+                                        text: running ? qsTr("Cancel") : qsTr("Test")
                                         focusable: true
-                                        enabled: !(card.test && card.test.running)
-                                        toolTip: qsTr("Send one short request to %1").arg(card.modelData.name)
-                                        onClicked: panel.test(card.modelData.id)
+                                        toolTip: running ? qsTr("Stop the test") : qsTr("Send one short request to %1").arg(card.info.name)
+                                        onClicked: running ? panel.cancelTest(card.modelData) : panel.test(card.modelData)
                                     }
                                 }
                                 // vibe and claude: the model; local: API, endpoint
@@ -282,29 +333,29 @@ Rectangle {
                                     Layout.fillWidth: true
                                     spacing: 10
                                     ConfigChoice {
-                                        visible: card.modelData.id === "local"
+                                        visible: card.modelData === "local"
                                         Layout.alignment: Qt.AlignBottom
                                         key: "engine.local.api"
                                         label: qsTr("API")
                                         options: [["ollama", "Ollama"], ["openai", qsTr("OpenAI-compatible")]]
-                                        value: card.modelData.api || "ollama"
+                                        value: card.info.api || "ollama"
                                     }
                                     ConfigField {
-                                        visible: card.modelData.id === "local"
+                                        visible: card.modelData === "local"
                                         Layout.fillWidth: true
                                         key: "engine.local.endpoint"
                                         label: qsTr("Endpoint")
                                         placeholder: "http://127.0.0.1:11434"
                                     }
                                     ConfigField {
-                                        visible: card.modelData.id !== "command"
+                                        visible: card.modelData !== "command"
                                         Layout.fillWidth: true
-                                        key: "engine." + card.modelData.id + ".model"
+                                        key: "engine." + card.modelData + ".model"
                                         label: qsTr("Model")
-                                        placeholder: card.modelData.id === "local" ? "llama3.2" : qsTr("the tool's default")
+                                        placeholder: card.modelData === "local" ? "llama3.2" : qsTr("the tool's default")
                                     }
                                     ConfigField {
-                                        visible: card.modelData.id === "command"
+                                        visible: card.modelData === "command"
                                         Layout.fillWidth: true
                                         key: "engine.command"
                                         label: qsTr("Command line (prompt on stdin, JSON on stdout)")
@@ -348,7 +399,6 @@ Rectangle {
                         key: "engine.timeout"
                         label: qsTr("Timeout in seconds (10–600)")
                         placeholder: "90"
-                        input.validator: IntValidator { bottom: 1; top: 9999 }
                     }
                     Note { text: qsTr("Test sends one short request and stores nothing. Omaplan never stores API keys; the tools keep their own login.") }
                 }
@@ -458,7 +508,9 @@ Rectangle {
                         delegate: FocusScope {
                             id: projectRow
                             required property string modelData
-                            readonly property string current: settings.projectColors[modelData] || ""
+                            // projectColor(), not a property lookup: a project may be
+                            // called "constructor" or "toString".
+                            readonly property string current: { settings.projectColors; return settings.projectColor(modelData) }
                             readonly property var choices: [""].concat(settings.paletteSlots)
                             Layout.fillWidth: true
                             implicitHeight: 34
@@ -486,7 +538,10 @@ Rectangle {
                                 Item {
                                     Layout.preferredWidth: 180
                                     Layout.fillHeight: true
+                                    Layout.rightMargin: 8
+                                    clip: true
                                     Tag {
+                                        objectName: "tag:" + projectRow.modelData
                                         anchors.verticalCenter: parent.verticalCenter
                                         width: Math.min(implicitWidth, parent.width)
                                         text: projectRow.modelData
@@ -498,6 +553,7 @@ Rectangle {
                                     delegate: Rectangle {
                                         id: swatch
                                         required property string modelData
+                                        objectName: "swatch:" + projectRow.modelData + ":" + modelData
                                         readonly property bool chosen: projectRow.current === modelData
                                         width: 22
                                         height: 22

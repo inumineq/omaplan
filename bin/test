@@ -27,6 +27,13 @@ qmake6 "$ROOT/tests/unit/unit.pro"
 make -j"$(nproc)"
 QT_QPA_PLATFORM=offscreen ./ai-unit-tests
 
+# The settings panel in the real window, offscreen, with a fake engine.
+mkdir -p "$ROOT/build/panel-tests"
+cd "$ROOT/build/panel-tests"
+qmake6 "$ROOT/tests/panel/panel.pro"
+make -j"$(nproc)"
+QT_QPA_PLATFORM=offscreen ./panel-tests
+
 # The read-only page's JavaScript against the same reference pages, when
 # Node is installed (it is not a build dependency).
 if command -v node >/dev/null 2>&1; then

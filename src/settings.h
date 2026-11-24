@@ -41,6 +41,9 @@ public:
     int weekStart() const { return m_convention.weekStart; }
     bool clock24() const { return m_convention.clock24; }
     QVariantMap projectColors() const;
+    // A project's palette slot, "" without one. For QML: a lookup in the
+    // projectColors map would hit JavaScript's own names ("constructor").
+    Q_INVOKABLE QString projectColor(const QString &project) const { return m_config.projectColors.value(project); }
     QVariantMap values() const { return m_values; }
     QStringList languages() const;
     QStringList paletteSlots() const { return ConfigKeys::paletteSlots(); }
