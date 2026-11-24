@@ -23,6 +23,21 @@
 #include "theme.h"
 #include "uilanguage.h"
 
+namespace {
+// Every QML warning since the last check. Some runtime warnings (binding
+// loops, "Unable to assign", TypeErrors) only reach the message handler, so
+// it collects any warning that names a QML file besides QQmlEngine::warnings.
+QStringList qmlWarnings;
+QtMessageHandler previousHandler = nullptr;
+
+void collectQmlWarnings(QtMsgType type, const QMessageLogContext &context, const QString &message) {
+    static const QRegularExpression qmlLocation(QStringLiteral("qrc:/\\S+\\.qml"));
+    if ((type == QtWarningMsg || type == QtCriticalMsg) && qmlLocation.match(message).hasMatch())
+        qmlWarnings << message;
+    previousHandler(type, context, message);
+}
+} // namespace
+
 class PanelTests : public QObject {
     Q_OBJECT
 
@@ -116,11 +131,17 @@ class PanelTests : public QObject {
         QFile f(m_cfg);
         return f.open(QIODevice::ReadOnly) ? QString::fromUtf8(f.readAll()) : QString();
     }
+    // Any QML warning fails the test it was reported in.
+    static void verifyNoQmlWarnings() {
+        pump(50);
+        QStringList found = std::exchange(qmlWarnings, {});
+        found.removeDuplicates();
+        QVERIFY2(found.isEmpty(), qPrintable(QStringLiteral("QML warnings:\n") + found.join(QLatin1Char('\n'))));
+    }
 
 private slots:
     void initTestCase() {
-        // Any QML error in the window fails the test that caused it.
-        QTest::failOnWarning(QRegularExpression(QStringLiteral("qml|Unable to assign|TypeError|ReferenceError")));
+        previousHandler = qInstallMessageHandler(collectQmlWarnings);
         QVERIFY(m_dir.isValid());
         qputenv("OMAPLAN_DB", m_dir.filePath("plan.db").toLocal8Bit());
         qputenv("OMAPLAN_SNAPSHOT", m_dir.filePath("plan.json").toLocal8Bit());
@@ -175,6 +196,10 @@ private slots:
         m_model->reload();
 
         m_engine = std::make_unique<QQmlApplicationEngine>();
+        connect(m_engine.get(), &QQmlEngine::warnings, this, [](const QList<QQmlError> &errors) {
+            for (const QQmlError &error : errors)
+                qmlWarnings << error.toString();
+        });
         QQmlContext *context = m_engine->rootContext();
         context->setContextProperty(QStringLiteral("uiLanguage"), m_language.get());
         context->setContextProperty(QStringLiteral("theme"), m_theme.get());
@@ -191,7 +216,9 @@ private slots:
         pump(300);
         m_panel = item(QStringLiteral("settingsPanel"));
         QVERIFY(m_panel);
+        verifyNoQmlWarnings();
     }
+    void cleanup() { verifyNoQmlWarnings(); }
 
     // M1: saving a field in an engine card keeps the card, and the focus moves on.
     void savingAnEngineFieldKeepsTheFocus() {
@@ -469,7 +496,11 @@ private slots:
         pump();
     }
 
-    void cleanupTestCase() { m_engine.reset(); }
+    void cleanupTestCase() {
+        m_engine.reset();
+        verifyNoQmlWarnings();
+        qInstallMessageHandler(previousHandler);
+    }
 
 private:
     // QML types have class names like "ProposalTask_QMLTYPE_12".
