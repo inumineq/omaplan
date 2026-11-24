@@ -6,6 +6,7 @@
 #include <QJsonDocument>
 #include <QProcess>
 #include <QHostInfo>
+#include <QImage>
 #include <QTcpSocket>
 #include <QRegularExpression>
 #include <QJsonObject>
@@ -3497,6 +3498,38 @@ private slots:
         }
         qunsetenv("OMAPLAN_CONFIG");
         QLocale::setDefault(QLocale::c());
+    }
+
+    // `omarchy agent look app` has the app draw itself offscreen, press keys
+    // through its Shortcuts, save the window and quit.
+    void lookScreenshotDrawsTheWindowAndQuits() {
+        QTemporaryDir dir;
+        const QString shot = dir.filePath(QStringLiteral("look.png"));
+        QProcess process;
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        env.insert(QStringLiteral("HOME"), dir.path());
+        env.insert(QStringLiteral("OMAPLAN_DB"), dir.filePath(QStringLiteral("plan.db")));
+        env.insert(QStringLiteral("OMAPLAN_CONFIG"), dir.filePath(QStringLiteral("config.toml")));
+        env.insert(QStringLiteral("OMAPLAN_SNAPSHOT"), dir.filePath(QStringLiteral("plan.json")));
+        env.insert(QStringLiteral("QT_QPA_PLATFORM"), QStringLiteral("offscreen"));
+        env.insert(QStringLiteral("QT_QUICK_BACKEND"), QStringLiteral("software"));
+        env.insert(QStringLiteral("QT_FORCE_STDERR_LOGGING"), QStringLiteral("1"));
+        env.insert(QStringLiteral("OMARCHY_LOOK_SCREENSHOT"), shot);
+        env.insert(QStringLiteral("OMARCHY_LOOK_SIZE"), QStringLiteral("900x600"));
+        // "?" is one of a Shortcut's `sequences`, "4" a plain `sequence`.
+        env.insert(QStringLiteral("OMARCHY_LOOK_KEYS"), QStringLiteral("4 ?"));
+        env.insert(QStringLiteral("OMARCHY_LOOK_DELAY_MS"), QStringLiteral("300"));
+        env.remove(QStringLiteral("QT_QPA_PLATFORMTHEME"));
+        process.setProcessEnvironment(env);
+        process.setProcessChannelMode(QProcess::MergedChannels);
+        process.start(QCoreApplication::applicationDirPath() + QStringLiteral("/../omaplan"), {QStringLiteral("open")});
+        QVERIFY(process.waitForFinished(20000));
+        const QString log = QString::fromUtf8(process.readAll());
+        QCOMPARE(process.exitCode(), 0);
+        const QImage image(shot);
+        QCOMPARE(image.size(), QSize(900, 600));
+        // The window as it opens logs no QML warning either.
+        QVERIFY2(!log.contains(QStringLiteral("qrc:/")), qPrintable(log));
     }
 
     // Runs the real binary with a private database and config.
