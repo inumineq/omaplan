@@ -138,7 +138,7 @@ Result uninstall(const QString &home)
             return r;
         }
         // Remove the skill dir too when it is now empty.
-        QDir(QFileInfo(target).absolutePath()).rmdir(QStringLiteral("."));
+        QDir().rmdir(QFileInfo(target).absolutePath());
         r.removed.append(root);
     }
     return r;

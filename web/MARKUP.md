@@ -148,8 +148,8 @@ Every view shows tasks with the same `<li>`:
 <section id="overview" class="view" aria-label="Overview">
   <h2>Overview</h2>
   <p class="description">Today and the next 7 days – overdue tasks first.</p>
-  <section class="day overdue" data-date="2026-11-18">
-    <h3><time datetime="2026-11-18">Wednesday 18 November 2026</time><span class="badge badge-overdue">overdue</span></h3>
+  <section class="day overdue" data-date="2026-11-20">
+    <h3><time datetime="2026-11-20">Friday 20 November 2026</time><span class="badge badge-overdue">overdue</span></h3>
     <ul class="tasks">…</ul>
   </section>
   <section class="day today" data-date="2026-11-23">
@@ -160,11 +160,13 @@ Every view shows tasks with the same `<li>`:
 </section>
 ```
 
-- First every overdue day (status `todo` and the earlier of `start`/`deadline` before `data-today`), ascending,
-  each with `class="day overdue"` and the badge `overdue`.
+- First every overdue day, ascending, each with `class="day overdue"` and the badge `overdue`. Overdue is the rule
+  of `src/task.h`: status `todo` and the `deadline` before `data-today`, or, with no deadline, the `start` before
+  it. An overdue task shows on its `deadline` date, else its `start` date.
 - Then the days `data-today` … `data-today + 7` (8 days in all), each `class="day"` (today also `today`) with
   the badge `today` on the first. Days without tasks get `<p class="empty">No tasks.</p>` instead of `<ul>`.
-- A task shows on its `start` date (tasks without `start` are not in the overview). Order within a day: tasks
+- A task shows on its `start` date, else its `deadline` date; an open task that started earlier and is due later
+  shows today (tasks without `start` and `deadline` are not in the overview). Order within a day: tasks
   with a time first (by time), then all-day tasks, then priority (1 before 3), then title (collated in the page's
   language).
 
@@ -182,8 +184,8 @@ Every view shows tasks with the same `<li>`:
 </section>
 ```
 
-Every task, grouped by `start` date, dates ascending, the same order within a day as the overview.
-**Tasks without `start` go in the group `No date` at the end**:
+Every task, grouped by `start` date (else `deadline` date), dates ascending, the same order within a day as the
+overview. **Tasks without `start` and `deadline` go in the group `No date` at the end**:
 
 ```html
 <section class="group" data-group="no-date">
@@ -192,7 +194,8 @@ Every task, grouped by `start` date, dates ascending, the same order within a da
 </section>
 ```
 
-Undated tasks are not shown in the overview or the timeline (only their deadline mark, if they have a deadline).
+Undated tasks are not shown in the overview. Tasks without `start` have no bar in the timeline (only their deadline
+mark, if they have a deadline).
 
 ## 3. List by project — `<section id="list-project" class="view">`
 
@@ -279,4 +282,4 @@ Omarchy's `colors.toml`, fallback `#FFD60A`):
 
 `serve` sets the variables inline on `<html>` from the theme of the machine it runs on (or else the `theme` in
 `plan.json`); `app.js` does the same from `plan.json`'s `theme` when the page is opened statically. `--radius`
-defaults to `8px`.
+defaults to `0px`, the sharp corners of Omarchy's default; tags and bars round at most 3–4 px.

@@ -4,12 +4,13 @@ Planning for Omarchy: write or dictate your tasks in plain text, let an AI put t
 overview, calendar, list or timeline. The GUI and the command line share the same database, so changes from the CLI
 or an agent show up in the window at once (and can be undone from there).
 
-Build with `bin/build`, run the tests with `bin/test`, install as an Arch package with `bin/install`. See `SPEC.md`
-and `docs/architecture.md`.
+Build with `bin/build`, run the tests with `bin/test`, install as an Arch package with `bin/install`. See `SPEC.md`,
+`docs/architecture.md` and, for what is planned, `docs/roadmap.md`.
 
 ## Keys (in the window)
 
-Everything can be done with the keyboard. `?` shows every key in the window.
+Everything can be done with the keyboard. `?` (or the small `?` at the top right) shows every key in the window, and
+hovering a button shows its key.
 
 | Key | Action |
 | --- | --- |
@@ -46,7 +47,7 @@ timeline, dragging the right edge of a bar changes the duration.
 
 ## Command line
 
-Every command takes `--json`, exits 0/1 and writes errors on stderr. Dates accept ISO
+Every command except `serve` and `mcp` takes `--json`, exits 0/1 and writes errors on stderr. Dates accept ISO
 (`2026-12-01`, `2026-12-01 14:30`) and English or Danish expressions (`"tomorrow"`, `"friday 12"`,
 `"next monday"`, optionally `"at 14:30"`; `"i morgen"`, `"kl. 14:30"`). An empty value clears a field:
 `--project ""`.
@@ -90,8 +91,8 @@ Add it to Claude Code:
 claude mcp add omaplan -- omaplan mcp
 ```
 
-`propose` stores nothing: show the proposal to the user, and store it with `approve` (with `capture_id` from the
-answer). `add` stores at once and is only for when the user has asked for that. Tasks in `--json` and MCP answers
+`propose` stores no tasks (only the text and the answer, as a capture): show the proposal to the user, and store it
+with `approve` (with `capture_id` from the answer). `add` stores at once and is only for when the user has asked for that. Tasks in `--json` and MCP answers
 list the fields the AI guessed under `guessed`, the same key as in proposals and `plan.json`.
 
 ## Read-only edition (phone and other machines)
@@ -105,12 +106,20 @@ it in `config.toml` or with `OMAPLAN_SNAPSHOT`:
 path = "~/Sync/omaplan/plan.json"
 ```
 
+The configured path belongs to the standard database; with `--db` or `OMAPLAN_DB` the snapshot goes next to that
+database instead, unless `OMAPLAN_SNAPSHOT` is set.
+
 `omaplan snapshot [path]` writes it at once (e.g. the first time, or to another path).
 
-`omaplan serve [--port N] [--bind ADDR] [--snapshot PATH]` shows the snapshot as a small, server-rendered page with
-overview, list and timeline, plus `/plan.json`. It only reads `plan.json` (never the database), cannot write, and
-the page works without JavaScript. It binds to `127.0.0.1:8787`; share it on your tailnet with `tailscale serve`, so
-access to the page equals access to the tailnet:
+`plan.json` is private (0600): only the user that writes it can read it, so a `serve` running as another user or
+service needs a copy it owns, e.g. with rsync as below.
+
+`omaplan serve [--port N] [--bind ADDR] [--host NAME,...] [--snapshot PATH]` shows the snapshot as a small,
+server-rendered page with overview, list and timeline, plus `/plan.json`. It only reads `plan.json` (never the
+database), cannot write, and the page works without JavaScript. It binds to `127.0.0.1:8787`; share it on your
+tailnet with `tailscale serve`, so access to the page equals access to the tailnet. It answers only to `localhost`,
+IP addresses, the machine's own name, `<machine>.local` and `<machine>.<tailnet>.ts.net`; add other names with
+`--host`, so a web page cannot read the plan by pointing its own name at `127.0.0.1`:
 
 ```sh
 omaplan serve &                  # http://127.0.0.1:8787/

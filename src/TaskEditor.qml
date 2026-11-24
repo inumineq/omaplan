@@ -73,8 +73,28 @@ Rectangle {
             "priority": String(priority), "status": done ? "done" : "todo"
         }
     }
+    // Only the fields that differ from the task as it was opened, so a save
+    // never overwrites what an agent or the CLI changed meanwhile.
+    function changedFields() {
+        const now = fields()
+        const t = original
+        const before = {
+            "title": t.title, "start": isoText(t.start, t.start_has_time), "duration": String(t.duration_minutes),
+            "deadline": isoText(t.deadline, t.deadline_has_time), "project": t.project, "notes": t.notes,
+            "priority": String(t.priority), "status": t.status
+        }
+        const changed = {}
+        for (const key in now)
+            if (now[key] !== before[key])
+                changed[key] = now[key]
+        return changed
+    }
     function save() {
-        const r = taskId === "" ? actions.guiNew(fields()) : actions.guiEdit(taskId, fields())
+        if (taskId !== "" && Object.keys(changedFields()).length === 0) {
+            visible = false
+            return
+        }
+        const r = taskId === "" ? actions.guiNew(fields()) : actions.guiEdit(taskId, changedFields())
         if (!r.ok) {
             problem = r.error
             return
@@ -171,8 +191,8 @@ Rectangle {
 
             Text {
                 text: editor.taskId === "" ? qsTr("New task") : qsTr("Edit task")
-                font.bold: true
-                font.pixelSize: 18
+                font.weight: Font.DemiBold
+                font.pixelSize: 16
                 color: theme.foreground
             }
             Field {
@@ -241,10 +261,11 @@ Rectangle {
                     visible: editor.taskId !== ""
                     text: qsTr("Delete")
                     keyHint: "Ctrl+Del"
+                    keyInline: true
                     onClicked: editor.remove()
                 }
-                HeaderButton { text: qsTr("Cancel"); keyHint: "Esc"; onClicked: editor.close() }
-                HeaderButton { text: qsTr("Save"); keyHint: "Enter"; primary: true; onClicked: editor.save() }
+                HeaderButton { text: qsTr("Cancel"); keyHint: "Esc"; keyInline: true; onClicked: editor.close() }
+                HeaderButton { text: qsTr("Save"); keyHint: "Enter"; keyInline: true; primary: true; onClicked: editor.save() }
             }
             Text {
                 Layout.fillWidth: true

@@ -11,6 +11,7 @@ struct PromptContext {
     QDate today = QDate::currentDate();
     QString language = QStringLiteral("en"); // the app's UI language
     QStringList existingTasks;                // one line per task, for context
+    QString timeZone;                         // IANA id; empty = this machine's
 };
 
 // The system prompt: today's date and weekday (so "on Tuesday" can be

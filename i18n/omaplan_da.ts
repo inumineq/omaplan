@@ -74,6 +74,10 @@
         <translation>Forslaget har ingen opgaver</translation>
     </message>
     <message>
+        <source>The from date %1 is after the to date %2</source>
+        <translation>Fra-datoen %1 ligger efter til-datoen %2</translation>
+    </message>
+    <message>
         <source>id: %1</source>
         <translation>id: %1</translation>
     </message>
@@ -145,6 +149,10 @@
         <translation>status skal være todo eller done</translation>
     </message>
     <message>
+        <source>%1 does not exist on %2 (daylight saving time): %3</source>
+        <translation>%1 findes ikke den %2 (sommertid): %3</translation>
+    </message>
+    <message>
         <source>empty date</source>
         <translation>tom dato</translation>
     </message>
@@ -170,6 +178,10 @@
     <message>
         <source>The &apos;%1&apos; command was not found on PATH. Install it to use the %2 engine.</source>
         <translation>Kommandoen &apos;%1&apos; blev ikke fundet på PATH. Installér den for at bruge motoren %2.</translation>
+    </message>
+    <message>
+        <source>The text is %1 characters long; the limit is %2 characters.</source>
+        <translation>Teksten er %1 tegn lang; grænsen er %2 tegn.</translation>
     </message>
     <message>
         <source>The command is not installed or not on PATH.</source>
@@ -202,6 +214,14 @@
     <message>
         <source>The configured command is not installed or not on PATH.</source>
         <translation>Den valgte kommando er ikke installeret eller ikke på PATH.</translation>
+    </message>
+    <message>
+        <source>Local</source>
+        <translation>Lokal</translation>
+    </message>
+    <message>
+        <source>Local (%1)</source>
+        <translation>Lokal (%1)</translation>
     </message>
     <message>
         <source>The local engine needs a model and an endpoint. Example config (~/.config/omaplan/config.toml):
@@ -256,8 +276,8 @@ Råt svar:
 %2</translation>
     </message>
     <message>
-        <source>Could not create a temporary file for the system prompt.</source>
-        <translation>Kunne ikke oprette en midlertidig fil til systemprompten.</translation>
+        <source>Could not create a temporary file for the prompt.</source>
+        <translation>Kunne ikke oprette en midlertidig fil til prompten.</translation>
     </message>
 </context>
 <context>
@@ -321,8 +341,16 @@ Råt svar:
 <context>
     <name>GanttView</name>
     <message>
+        <source>Previous</source>
+        <translation>Forrige</translation>
+    </message>
+    <message>
         <source>Today</source>
         <translation>I dag</translation>
+    </message>
+    <message>
+        <source>Next</source>
+        <translation>Næste</translation>
     </message>
     <message>
         <source>Zoom</source>
@@ -512,12 +540,12 @@ Råt svar:
         <translation>Annullér</translation>
     </message>
     <message>
-        <source>Keys</source>
-        <translation>Taster</translation>
+        <source>Keyboard shortcuts</source>
+        <translation>Tastaturgenveje</translation>
     </message>
     <message>
-        <source>Esc, ? or a click closes this</source>
-        <translation>Esc, ? eller et klik lukker</translation>
+        <source>Esc closes</source>
+        <translation>Esc lukker</translation>
     </message>
 </context>
 <context>
@@ -598,8 +626,8 @@ Råt svar:
         <translation>Ny opgave</translation>
     </message>
     <message>
-        <source>Keys</source>
-        <translation>Taster</translation>
+        <source>Keyboard shortcuts</source>
+        <translation>Tastaturgenveje</translation>
     </message>
     <message>
         <source>1 task added · Ctrl+Z takes it back</source>
@@ -648,8 +676,16 @@ Råt svar:
 <context>
     <name>PlanCalendar</name>
     <message>
+        <source>Previous</source>
+        <translation>Forrige</translation>
+    </message>
+    <message>
         <source>Today</source>
         <translation>I dag</translation>
+    </message>
+    <message>
+        <source>Next</source>
+        <translation>Næste</translation>
     </message>
     <message>
         <source>Week</source>
@@ -780,8 +816,8 @@ Råt svar:
         <translation>Ctrl+%1 godkender</translation>
     </message>
     <message>
-        <source>Waiting for %1 …</source>
-        <translation>Venter på %1 …</translation>
+        <source>Waiting for %1…</source>
+        <translation>Venter på %1…</translation>
     </message>
     <message>
         <source>+ Add task</source>
@@ -866,6 +902,7 @@ Råt svar:
     <name>QObject</name>
     <message>
         <source>Usage: omaplan [--db &lt;path&gt;] [--lang da|en] &lt;command&gt; [options] [--json]
+       omaplan --version | --help
 
 Commands:
   open                  Open the window (default without arguments)
@@ -876,14 +913,14 @@ Commands:
   move &lt;id&gt; &lt;when&gt;
   done &lt;id&gt; | undone &lt;id&gt;
   rm &lt;id&gt;
-  undo
+  undo | redo           undo the newest change, or redo the newest undo
   projects
   summary [--week|--month]
   add &lt;text&gt; [--engine ...] [--yes] [--model M] [--endpoint URL]   AI proposal; --yes stores it
   skill install [--force]|uninstall   install/remove the bundled agent skill
   mcp                   MCP server over stdio (claude mcp add omaplan -- omaplan mcp)
   snapshot [path]       write plan.json for the read-only edition (also automatic after every change)
-  serve [--port N] [--bind ADDR] [--snapshot PATH]   read-only web page (default 127.0.0.1:8787)
+  serve [--port N] [--bind ADDR] [--host NAME,...] [--snapshot PATH]   read-only web page (default 127.0.0.1:8787)
 
 Dates accept ISO (2026-12-01, 2026-12-01 14:30) and English/Danish expressions
 (&quot;tomorrow&quot;, &quot;friday 12&quot;, &quot;next monday&quot;, optional &quot;at 14:30&quot;; &quot;i morgen&quot;, &quot;kl. 14:30&quot;).
@@ -898,6 +935,7 @@ Examples:
   omaplan skill install --force   replace customized skill files
 </source>
         <translation>Brug: omaplan [--db &lt;sti&gt;] [--lang da|en] &lt;kommando&gt; [tilvalg] [--json]
+       omaplan --version | --help
 
 Kommandoer:
   open                  Åbn vinduet (standard uden argumenter)
@@ -908,14 +946,14 @@ Kommandoer:
   move &lt;id&gt; &lt;tidspunkt&gt;
   done &lt;id&gt; | undone &lt;id&gt;
   rm &lt;id&gt;
-  undo
+  undo | redo           fortryd den nyeste ændring, eller gentag den nyeste fortrydelse
   projects
   summary [--week|--month]
   add &lt;tekst&gt; [--engine ...] [--yes] [--model M] [--endpoint URL]   AI-forslag; --yes gemmer det
   skill install [--force]|uninstall   installér/fjern den bundtede agent-skill
   mcp                   MCP-server over stdio (claude mcp add omaplan -- omaplan mcp)
   snapshot [sti]        skriv plan.json til læseudgaven (sker også automatisk efter hver ændring)
-  serve [--port N] [--bind ADR] [--snapshot STI]   læseudgave som webside (standard 127.0.0.1:8787)
+  serve [--port N] [--bind ADR] [--host NAVN,...] [--snapshot STI]   læseudgave som webside (standard 127.0.0.1:8787)
 
 Datoer accepterer ISO (2026-12-01, 2026-12-01 14:30) og danske/engelske udtryk
 (&quot;i morgen&quot;, &quot;fredag 12&quot;, &quot;kl. 14:30&quot;; &quot;tomorrow&quot;, &quot;next monday&quot;, &quot;at 14:30&quot;).
@@ -929,6 +967,10 @@ Eksempler:
   omaplan undo --json
   omaplan skill install --force   erstat tilpassede skill-filer
 </translation>
+    </message>
+    <message>
+        <source>Unknown option --%1 for %2; see omaplan --help</source>
+        <translation>Ukendt tilvalg --%1 til %2; se omaplan --help</translation>
     </message>
     <message>
         <source>Installed skill in %1</source>
@@ -1007,6 +1049,10 @@ Eksempler:
         <translation>Brug: omaplan edit &lt;id&gt; [felter]</translation>
     </message>
     <message>
+        <source>Nothing to change: give at least one field</source>
+        <translation>Intet at ændre: angiv mindst ét felt</translation>
+    </message>
+    <message>
         <source>Usage: omaplan move &lt;id&gt; &lt;when&gt;</source>
         <translation>Brug: omaplan move &lt;id&gt; &lt;tidspunkt&gt;</translation>
     </message>
@@ -1069,6 +1115,10 @@ command = &quot;...&quot;</translation>
     <message>
         <source>title is longer than 200 characters</source>
         <translation>titlen er længere end 200 tegn</translation>
+    </message>
+    <message>
+        <source>project is longer than 100 characters</source>
+        <translation>projekt er længere end 100 tegn</translation>
     </message>
     <message>
         <source>priority must be 1..3, got %1</source>

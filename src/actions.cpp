@@ -52,7 +52,31 @@ ActionResult Actions::create(const Task &task, const QString &source) {
     return {true, {}, tr("Created %1: %2").arg(id, stored.title), payload};
 }
 
-ActionResult Actions::update(const QString &id, const QJsonObject &given, const QString &source) {
+// Runs a read-modify-write under one write lock (BEGIN IMMEDIATE), so a
+// concurrent writer in another process is never overwritten by a copy read
+// before its commit. planChanged follows the commit.
+ActionResult Actions::locked(const std::function<ActionResult()> &body) {
+    QString error;
+    if (!m_store->begin(&error))
+        return {false, error, {}, {}};
+    ActionResult result = body();
+    if (!result.ok) {
+        m_store->rollback();
+        return result;
+    }
+    if (!m_store->commit(&error)) {
+        m_store->rollback();
+        return {false, error, {}, {}};
+    }
+    emit planChanged();
+    return result;
+}
+
+ActionResult Actions::update(const QString &id, const QJsonObject &patch, const QString &source) {
+    return locked([&] { return updateLocked(id, patch, source); });
+}
+
+ActionResult Actions::updateLocked(const QString &id, const QJsonObject &given, const QString &source) {
     QString error;
     Task current;
     if (!m_store->task(id, &current, &error))
@@ -84,11 +108,14 @@ ActionResult Actions::update(const QString &id, const QJsonObject &given, const 
         return {false, error, {}, {}};
     QJsonObject payload;
     payload["task"] = patched.toJson();
-    emit planChanged();
     return {true, {}, tr("Updated %1: %2").arg(id, patched.title), payload};
 }
 
 ActionResult Actions::move(const QString &id, const QDateTime &when, bool hasTime, const QString &source) {
+    return locked([&] { return moveLocked(id, when, hasTime, source); });
+}
+
+ActionResult Actions::moveLocked(const QString &id, const QDateTime &when, bool hasTime, const QString &source) {
     QString error;
     Task task;
     if (!m_store->task(id, &task, &error))
@@ -99,25 +126,41 @@ ActionResult Actions::move(const QString &id, const QDateTime &when, bool hasTim
         return {false, error, {}, {}};
     QJsonObject payload;
     payload["task"] = task.toJson();
-    emit planChanged();
     const QString whenText = hasTime ? when.toString(QStringLiteral("yyyy-MM-dd HH:mm"))
                                      : when.date().toString(Qt::ISODate);
     return {true, {}, tr("Moved %1 to %2").arg(id, whenText), payload};
 }
 
-ActionResult Actions::setDone(const QString &id, bool done, const QString &source) {
+ActionResult Actions::moveTo(const QString &id, const QString &whenText, const QString &source) {
+    QDateTime when;
+    bool hasTime = false;
     QString error;
-    Task task;
-    if (!m_store->task(id, &task, &error))
+    if (!parseDateTime(whenText, QDateTime::currentDateTime().date(), &when, &hasTime, &error))
         return {false, error, {}, {}};
-    task.status = done ? Task::Status::Done : Task::Status::Todo;
-    if (!m_store->updateTask(task, source, &error))
-        return {false, error, {}, {}};
-    QJsonObject payload;
-    payload["task"] = task.toJson();
-    emit planChanged();
-    return {true, {}, done ? tr("Marked done: %1").arg(task.title)
-                           : tr("Marked undone: %1").arg(task.title), payload};
+    return locked([&]() -> ActionResult {
+        Task task;
+        if (!m_store->task(id, &task, &error))
+            return {false, error, {}, {}};
+        if (!hasTime && task.startHasTime && task.start.isValid())
+            return moveLocked(id, QDateTime(when.date(), task.start.time()), true, source);
+        return moveLocked(id, when, hasTime, source);
+    });
+}
+
+ActionResult Actions::setDone(const QString &id, bool done, const QString &source) {
+    return locked([&]() -> ActionResult {
+        QString error;
+        Task task;
+        if (!m_store->task(id, &task, &error))
+            return {false, error, {}, {}};
+        task.status = done ? Task::Status::Done : Task::Status::Todo;
+        if (!m_store->updateTask(task, source, &error))
+            return {false, error, {}, {}};
+        QJsonObject payload;
+        payload["task"] = task.toJson();
+        return {true, {}, done ? tr("Marked done: %1").arg(task.title)
+                               : tr("Marked undone: %1").arg(task.title), payload};
+    });
 }
 
 ActionResult Actions::remove(const QString &id, const QString &source) {
@@ -587,6 +630,9 @@ QJsonObject Actions::guiApprove(const QJsonObject &proposalJson, const QString &
 }
 
 ActionResult Actions::list(const ListFilter &filter) {
+    if (filter.hasFrom && filter.hasTo && filter.from > filter.to)
+        return {false, tr("The from date %1 is after the to date %2").arg(filter.from.toString(Qt::ISODate),
+                                                                       filter.to.toString(Qt::ISODate)), {}, {}};
     QString error;
     const QList<Task> all = m_store->tasks(&error);
     if (!error.isEmpty())
@@ -598,6 +644,10 @@ ActionResult Actions::list(const ListFilter &filter) {
         if (!filter.project.isEmpty() && task.project != filter.project)
             continue;
         if (!filter.status.isEmpty() && Task::statusToString(task.status) != filter.status)
+            continue;
+        // A date filter leaves out tasks without start and deadline; their
+        // effective date (the day they were created) is no plan date.
+        if ((filter.hasFrom || filter.hasTo) && !task.start.isValid() && !task.deadline.isValid())
             continue;
         const QDate date = effectiveDate(task);
         if (filter.hasFrom && date < filter.from)
@@ -746,9 +796,14 @@ static bool dateField(const QString &key, const QString &text, QDateTime *when, 
 
 // A number field must be a whole number; "1h" or "high" is an error instead
 // of silently becoming 0.
-static bool intField(const Actions::Fields &fields, const QString &key, int *out, QString *error) {
+// An empty value clears the field to `emptyValue`, like every other field.
+static bool intField(const Actions::Fields &fields, const QString &key, int *out, QString *error, int emptyValue) {
     if (!fields.contains(key))
         return true;
+    if (fields.value(key).trimmed().isEmpty()) {
+        *out = emptyValue;
+        return true;
+    }
     bool ok = false;
     const int value = fields.value(key).trimmed().toInt(&ok);
     if (!ok) {
@@ -802,8 +857,8 @@ bool Actions::taskFromFields(const Fields &given, Task *task, QString *error) {
     task->title = fields.value(QStringLiteral("title")).trimmed();
     task->notes = fields.value(QStringLiteral("notes"));
     task->project = fields.value(QStringLiteral("project")).trimmed();
-    if (!intField(fields, QStringLiteral("priority"), &task->priority, error)
-        || !intField(fields, QStringLiteral("duration"), &task->durationMinutes, error))
+    if (!intField(fields, QStringLiteral("priority"), &task->priority, error, 3)
+        || !intField(fields, QStringLiteral("duration"), &task->durationMinutes, error, 0))
         return false;
     if (fields.contains(QStringLiteral("status"))) {
         bool ok = false;
@@ -829,12 +884,12 @@ bool Actions::patchFromFields(const Fields &given, QJsonObject *patch, QString *
     if (fields.contains(QStringLiteral("status"))) (*patch)["status"] = fields.value(QStringLiteral("status"));
     int number = 0;
     if (fields.contains(QStringLiteral("priority"))) {
-        if (!intField(fields, QStringLiteral("priority"), &number, error))
+        if (!intField(fields, QStringLiteral("priority"), &number, error, 3))
             return false;
         (*patch)["priority"] = number;
     }
     if (fields.contains(QStringLiteral("duration"))) {
-        if (!intField(fields, QStringLiteral("duration"), &number, error))
+        if (!intField(fields, QStringLiteral("duration"), &number, error, 0))
             return false;
         (*patch)["duration_minutes"] = number;
     }
@@ -877,8 +932,29 @@ static bool dayOfMonthDate(const QDate &base, int day, QDate *out) {
     return false;
 }
 
+// A local time in the spring daylight saving gap (02:30 on the last Sunday
+// of March in Europe) does not exist; QDateTime would quietly move it.
+static bool existsLocally(const QDate &date, const QTime &time, const QString &text, QString *error) {
+    if (QDateTime(date, time).time() == time)
+        return true;
+    if (error)
+        *error = QCoreApplication::translate("Actions", "%1 does not exist on %2 (daylight saving time): %3")
+                     .arg(time.toString(QStringLiteral("HH:mm")), date.toString(Qt::ISODate), text);
+    return false;
+}
+
+bool Actions::parseFilterDate(const QString &text, const QDate &today, QDate *out, QString *error) {
+    QDateTime when;
+    bool hasTime = false;
+    if (!parseDateTime(text, today, &when, &hasTime, error, DateReading::InPeriod))
+        return false;
+    *out = when.date();
+    return true;
+}
+
 bool Actions::parseDateTime(const QString &text, const QDate &today, QDateTime *out, bool *hasTime,
-                            QString *error) {
+                            QString *error, DateReading reading) {
+    const bool upcoming = reading == DateReading::Upcoming;
     if (hasTime)
         *hasTime = false;
     const QString trimmed = text.trimmed();
@@ -908,6 +984,8 @@ bool Actions::parseDateTime(const QString &text, const QDate &today, QDateTime *
             if (error) *error = QCoreApplication::translate("Actions", "invalid time: %1").arg(trimmed);
             return false;
         }
+        if (!existsLocally(date, time, trimmed, error))
+            return false;
         *out = QDateTime(date, time);
         *hasTime = true;
         return true;
@@ -918,14 +996,18 @@ bool Actions::parseDateTime(const QString &text, const QDate &today, QDateTime *
     // Optional trailing time: "kl. 14:30", "kl 9", "at 14:30", "14:30",
     // "friday 12" (weekday + 0-23 = hour), "tomorrow 10". A trailing number
     // above 23 without minutes is not a time; it stays for the date part
-    // ("25" = the 25th). The prefixes come from every language in datewords.
+    // ("25" = the 25th), and so does a bare number right after a day article
+    // ("fredag den 12", "the 12" = the 12th). The prefixes come from every
+    // language in datewords.
     static const QRegularExpression timeRe(
         QStringLiteral("(?:^|\\s)(?:\\b(?:%1)(?=\\s|\\d|$))?\\s*(\\d{1,2})(?:[:.](\\d{2}))?\\s*$")
             .arg(DateVocabulary::timePrefixPattern()));
     QTime time(0, 0);
     bool withTime = false;
     const auto timeMatch = timeRe.match(rest);
-    if (timeMatch.hasMatch()) {
+    const bool dayAfterArticle = timeMatch.hasMatch() && timeMatch.captured(2).isEmpty()
+            && DateVocabulary::isDayArticle(rest.left(timeMatch.capturedStart(1)).trimmed().section(QLatin1Char(' '), -1));
+    if (timeMatch.hasMatch() && !dayAfterArticle) {
         const int hour = timeMatch.captured(1).toInt();
         const int minute = timeMatch.captured(2).isEmpty() ? 0 : timeMatch.captured(2).toInt();
         if (hour <= 23) {
@@ -987,6 +1069,8 @@ bool Actions::parseDateTime(const QString &text, const QDate &today, QDateTime *
             } else if (auto m = daySlash.match(part); m.hasMatch()) {
                 day = m.captured(1).toInt();
                 month = m.captured(2).toInt();
+                if (month < 1 || month > 12)
+                    bad = true;
             } else if (DateVocabulary::month(part)) {
                 month = DateVocabulary::month(part);
             } else if (bareNumber.match(part).hasMatch()) {
@@ -1006,16 +1090,17 @@ bool Actions::parseDateTime(const QString &text, const QDate &today, QDateTime *
             return false;
         }
         if (day != 0 && month != 0) {
-            // "12/12" or "12. december": explicit day and month.
-            int year = today.year();
-            QDate candidate(year, month, 1);
-            if (day > candidate.daysInMonth()) {
+            // "12/12" or "12. december": explicit day and month, this year's
+            // or (upcoming) the next one that exists from today on, so
+            // 29 February finds the next leap year.
+            QDate candidate(today.year(), month, day);
+            for (int year = today.year() + 1; upcoming && (!candidate.isValid() || candidate < today)
+                                               && year <= today.year() + 8; ++year)
+                candidate = QDate(year, month, day);
+            if (!candidate.isValid()) {
                 if (error) *error = QCoreApplication::translate("Actions", "invalid date: %1").arg(trimmed);
                 return false;
             }
-            candidate = candidate.addDays(day - 1);
-            if (candidate < today)
-                candidate = QDate(year + 1, month, 1).addDays(day - 1);
             date = candidate;
             if (weekday != 0 && date.dayOfWeek() != weekday) {
                 if (error) *error = QCoreApplication::translate("Actions", "%1 is not a %2")
@@ -1026,7 +1111,13 @@ bool Actions::parseDateTime(const QString &text, const QDate &today, QDateTime *
             // "den 12.", "12.", bare "25": day of the month, first occurrence
             // from today on; a day the month lacks rolls to a later month
             // instead of being clamped.
-            if (!dayOfMonthDate(today, day, &date)) {
+            if (!upcoming) {
+                date = QDate(today.year(), today.month(), day);
+                if (!date.isValid()) {
+                    if (error) *error = QCoreApplication::translate("Actions", "invalid date: %1").arg(trimmed);
+                    return false;
+                }
+            } else if (!dayOfMonthDate(today, day, &date)) {
                 if (error) *error = QCoreApplication::translate("Actions", "invalid date: %1").arg(trimmed);
                 return false;
             }
@@ -1045,13 +1136,18 @@ bool Actions::parseDateTime(const QString &text, const QDate &today, QDateTime *
             // Weekday only: the next occurrence of that weekday. When the
             // weekday IS today, a bare weekday means next week ("til mandag"
             // on a Monday = +7 days), unless "i dag"/"today" is also present.
+            // In a period (a filter), a bare weekday is this week's.
             int delta = (weekday - today.dayOfWeek() + 7) % 7;
             if (delta == 0 && (strictlyNext || !todayMentioned))
                 delta = 7;
+            if (!upcoming && !strictlyNext)
+                delta = weekday - today.dayOfWeek();
             date = today.addDays(delta);
         }
     }
 
+    if (withTime && !existsLocally(date, time, trimmed, error))
+        return false;
     *out = QDateTime(date, withTime ? time : QTime(0, 0));
     *hasTime = withTime;
     return true;

@@ -117,9 +117,9 @@ Item {
         RowLayout {
             Layout.fillWidth: true
             spacing: 6
-            HeaderButton { text: "‹"; onClicked: gantt.page(-1) }
+            HeaderButton { text: "‹"; toolTip: qsTr("Previous"); keyHint: "h"; onClicked: gantt.page(-1) }
             HeaderButton { text: qsTr("Today"); keyHint: "t"; onClicked: gantt.goToday() }
-            HeaderButton { text: "›"; onClicked: gantt.page(1) }
+            HeaderButton { text: "›"; toolTip: qsTr("Next"); keyHint: "l"; onClicked: gantt.page(1) }
             Text {
                 Layout.leftMargin: 10
                 text: {
@@ -308,8 +308,10 @@ Item {
                                     barItem.width = Math.max(6, startWidth + mapToItem(lanesArea, mouse.x, 0).x - pressX)
                             }
                             onReleased: {
+                                // A click on the edge is no resize: it must not give a
+                                // task without a duration one.
                                 const minutes = Math.max(15, Math.round(barItem.width / gantt.dayWidth * gantt.spanMinutes / 15) * 15)
-                                if (minutes !== barItem.task.durationMinutes)
+                                if (Math.abs(barItem.width - startWidth) >= 3 && minutes !== barItem.task.durationMinutes)
                                     win.check(actions.guiEdit(barItem.task.taskId, { "duration": String(minutes) }))
                                 barItem.width = Qt.binding(() => barItem.modelData.w)
                             }

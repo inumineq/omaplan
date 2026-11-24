@@ -90,8 +90,9 @@ QJsonObject McpServer::toolList() {
                   {{QStringLiteral("period"), QJsonObject{{QStringLiteral("type"), QStringLiteral("string")},
                                                           {QStringLiteral("enum"), QJsonArray{QStringLiteral("week"), QStringLiteral("month")}}}}},
                   {}, true)
-          << tool(QStringLiteral("propose"), QStringLiteral("Ask the AI engine to turn free text into tasks. Stores nothing: "
-                                                            "show the proposal to the user, then call approve."),
+          << tool(QStringLiteral("propose"), QStringLiteral("Ask the AI engine to turn free text into tasks. Stores no tasks "
+                                                            "(the text and the answer are kept as a capture): show the "
+                                                            "proposal to the user, then call approve."),
                   proposeFields, {QStringLiteral("text")})
           << tool(QStringLiteral("approve"), QStringLiteral("Store a proposal from propose (optionally edited)."),
                   {{QStringLiteral("proposal"), QJsonObject{{QStringLiteral("type"), QStringLiteral("object"),},
@@ -131,7 +132,70 @@ static Actions::Fields fieldsOf(const QJsonObject &arguments, const QStringList 
     return fields;
 }
 
-QJsonObject McpServer::callTool(const QString &name, const QJsonObject &args) {
+// Holds the arguments to the tool's inputSchema, in the subset the tools use:
+// required keys, no unknown keys, types, enums and integer bounds. Integer
+// fields also take text ("2", or "" to clear), as the CLI does; `aliases`
+// are the 0.1 field names, still accepted.
+static QString schemaError(const QJsonObject &schema, const QJsonObject &args, const QHash<QString, QString> &aliases) {
+    const QJsonObject properties = schema.value(QStringLiteral("properties")).toObject();
+    for (const QJsonValue &required : schema.value(QStringLiteral("required")).toArray()) {
+        const QString key = required.toString();
+        if (!args.contains(key) && !args.contains(aliases.key(key)))
+            return QStringLiteral("Missing %1").arg(key);
+    }
+    for (auto it = args.begin(); it != args.end(); ++it) {
+        if (!properties.contains(it.key())) {
+            if (aliases.contains(it.key()))
+                continue;
+            return QStringLiteral("Unknown argument: %1 (expected one of: %2)")
+                .arg(it.key(), properties.keys().join(QStringLiteral(", ")));
+        }
+        const QJsonObject property = properties.value(it.key()).toObject();
+        const QString type = property.value(QStringLiteral("type")).toString();
+        const QJsonValue value = it.value();
+        bool typeOk = true;
+        if (type == QLatin1String("string"))
+            typeOk = value.isString();
+        else if (type == QLatin1String("integer"))
+            typeOk = value.isString() || (value.isDouble() && value.toDouble() == double(qint64(value.toDouble())));
+        else if (type == QLatin1String("object"))
+            typeOk = value.isObject();
+        if (!typeOk)
+            return QStringLiteral("%1 must be a%2 %3").arg(it.key(), type == QLatin1String("integer") ? QStringLiteral("n") : QString(), type);
+        const QJsonArray allowed = property.value(QStringLiteral("enum")).toArray();
+        if (!allowed.isEmpty() && !allowed.contains(value)) {
+            QStringList names;
+            for (const QJsonValue &v : allowed)
+                names << v.toString();
+            return QStringLiteral("%1 must be one of: %2").arg(it.key(), names.join(QStringLiteral(", ")));
+        }
+        if (value.isDouble()) {
+            if (property.contains(QStringLiteral("minimum")) && value.toDouble() < property.value(QStringLiteral("minimum")).toDouble())
+                return QStringLiteral("%1 must be at least %2").arg(it.key()).arg(property.value(QStringLiteral("minimum")).toInt());
+            if (property.contains(QStringLiteral("maximum")) && value.toDouble() > property.value(QStringLiteral("maximum")).toDouble())
+                return QStringLiteral("%1 must be at most %2").arg(it.key()).arg(property.value(QStringLiteral("maximum")).toInt());
+        }
+    }
+    return {};
+}
+
+QJsonObject McpServer::callTool(const QString &name, const QJsonObject &given) {
+    // null means "not given": some clients send it for every unused field.
+    QJsonObject args;
+    for (auto it = given.begin(); it != given.end(); ++it)
+        if (!it.value().isNull())
+            args.insert(it.key(), it.value());
+    QJsonObject schema;
+    for (const QJsonValue &tool : toolList().value(QStringLiteral("tools")).toArray())
+        if (tool.toObject().value(QStringLiteral("name")).toString() == name)
+            schema = tool.toObject().value(QStringLiteral("inputSchema")).toObject();
+    if (schema.isEmpty())
+        return {};
+    const bool taskFields = name == QLatin1String("new") || name == QLatin1String("edit");
+    const QString invalid = schemaError(schema, args, taskFields ? Actions::legacyFieldNames() : QHash<QString, QString>());
+    if (!invalid.isEmpty())
+        return textResult(failure(invalid));
+
     const QString source = QStringLiteral("mcp");
     const QString id = args.value(QStringLiteral("id")).toString();
     const auto needId = [&]() { return id.isEmpty() ? failure(QStringLiteral("Missing id")) : ActionResult{true, {}, {}, {}}; };
@@ -139,20 +203,13 @@ QJsonObject McpServer::callTool(const QString &name, const QJsonObject &args) {
 
     if (name == QLatin1String("list")) {
         ListFilter filter;
-        QDateTime when;
-        bool hasTime = false;
-        for (const QString key : {QStringLiteral("from"), QStringLiteral("to")}) {
+        for (const QString &key : {QStringLiteral("from"), QStringLiteral("to")}) {
             if (!args.contains(key))
                 continue;
-            if (!Actions::parseDateTime(args.value(key).toString(), QDate::currentDate(), &when, &hasTime, &error))
+            QDate *date = key == QLatin1String("from") ? &filter.from : &filter.to;
+            if (!Actions::parseFilterDate(args.value(key).toString(), QDate::currentDate(), date, &error))
                 return textResult(failure(key + QStringLiteral(": ") + error));
-            if (key == QLatin1String("from")) {
-                filter.hasFrom = true;
-                filter.from = when.date();
-            } else {
-                filter.hasTo = true;
-                filter.to = when.date();
-            }
+            (key == QLatin1String("from") ? filter.hasFrom : filter.hasTo) = true;
         }
         filter.project = args.value(QStringLiteral("project")).toString();
         filter.status = args.value(QStringLiteral("status")).toString();
@@ -179,12 +236,7 @@ QJsonObject McpServer::callTool(const QString &name, const QJsonObject &args) {
     if (name == QLatin1String("move")) {
         if (id.isEmpty())
             return textResult(needId());
-        QDateTime when;
-        bool hasTime = false;
-        if (!Actions::parseDateTime(args.value(QStringLiteral("when")).toString(), QDate::currentDate(), &when,
-                                    &hasTime, &error))
-            return textResult(failure(error));
-        return textResult(m_actions->move(id, when, hasTime, source));
+        return textResult(m_actions->moveTo(id, args.value(QStringLiteral("when")).toString(), source));
     }
     if (name == QLatin1String("done") || name == QLatin1String("undone"))
         return textResult(id.isEmpty() ? needId() : m_actions->setDone(id, name == QLatin1String("done"), source));

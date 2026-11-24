@@ -1,4 +1,4 @@
-QT += core gui sql network testlib dbus qml
+QT += core gui sql network testlib qml
 
 CONFIG += c++17 testcase console
 TARGET = omaplan_tests

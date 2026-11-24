@@ -38,6 +38,8 @@ QString Task::validate() const {
         return QCoreApplication::translate("Task", "title is empty");
     if (title.size() > 200)
         return QCoreApplication::translate("Task", "title is longer than 200 characters");
+    if (project.size() > 100)
+        return QCoreApplication::translate("Task", "project is longer than 100 characters");
     if (priority < 1 || priority > 3)
         return QCoreApplication::translate("Task", "priority must be 1..3, got %1").arg(priority);
     if (durationMinutes < 0)

@@ -20,7 +20,8 @@ from.
 
 - "Put it in my plan" → `omaplan add "<text>"`.
 - "What's on my plan this week?" → `omaplan summary --week --json` or
-  `omaplan list --from today --json`.
+  `omaplan list --from monday --to sunday --json` (filter dates mean this
+  week's monday; tasks without a date are left out).
 - "Remind me to ..." → `omaplan add "<text>"` (dates are parsed from the
   text, e.g. "tomorrow", "friday 12", "next week", or Danish "i morgen").
 
@@ -37,7 +38,8 @@ language.
 - `omaplan show <id>`, `omaplan edit <id> --deadline friday`,
   `omaplan move <id> "tuesday at 14:00"`, `omaplan done <id>`, `omaplan rm <id>`
 - `omaplan projects`, `omaplan summary [--week|--month] --json`
-- `omaplan undo` — reverts the newest change from GUI, CLI or agent.
+- `omaplan undo` — reverts the newest change from GUI, CLI or agent;
+  `omaplan redo` re-applies the newest undo.
 
 Dates accept ISO (`2026-12-01`, `2026-12-01 14:30`) and English or Danish
 expressions ("tomorrow", "friday 12", "next monday", "at 14:30", "i morgen",

@@ -3,6 +3,7 @@
 #include <QFile>
 #include <QJsonDocument>
 #include <QProcess>
+#include <QHostInfo>
 #include <QTcpSocket>
 #include <QRegularExpression>
 #include <QJsonObject>
@@ -10,13 +11,18 @@
 #include <QSqlQuery>
 #include <QTemporaryDir>
 #include <QTextStream>
+#include <QTimeZone>
 #include <QtTest>
+
+#include <sys/stat.h>
 
 #include "actions.h"
 #include "cli.h"
 #include "config.h"
 #include "dateannotate.h"
+#include "mcp.h"
 #include "planmodel.h"
+#include "proposal.h"
 #include "render.h"
 #include "server.h"
 #include "snapshot.h"
@@ -173,11 +179,47 @@ private slots:
             cfg.write("[snapshot]\npath = \"~/x/plan.json\"  # comment\n");
         }
         qputenv("OMAPLAN_CONFIG", dir.filePath(QStringLiteral("c.toml")).toLocal8Bit());
-        QCOMPARE(Snapshot::path(db), QDir::homePath() + QStringLiteral("/x/plan.json"));
+        // The configured path belongs to the standard database; a scratch
+        // database (--db, OMAPLAN_DB) must not overwrite the real plan.json.
+        QCOMPARE(Snapshot::path(Store::standardPath()), QDir::homePath() + QStringLiteral("/x/plan.json"));
+        QCOMPARE(Snapshot::path(db), dir.filePath(QStringLiteral("plan.json")));
         qputenv("OMAPLAN_SNAPSHOT", "/elsewhere/plan.json");
         QCOMPARE(Snapshot::path(db), QStringLiteral("/elsewhere/plan.json"));
         qputenv("OMAPLAN_CONFIG", "");
         qputenv("OMAPLAN_SNAPSHOT", saved);
+    }
+
+    // The plan, raw AI input and answers are private: the data directory is
+    // created 0700, and the database, its -wal/-shm and plan.json are 0600
+    // whatever the umask.
+    void filesArePrivate() {
+        QTemporaryDir dir;
+        const QString dataDir = dir.filePath(QStringLiteral("data"));
+        const QString db = dataDir + QStringLiteral("/omaplan.db");
+        const QString snapshot = dir.filePath(QStringLiteral("snap/plan.json"));
+        const mode_t savedMask = umask(022);
+        {
+            Store store(db);
+            QVERIFY(store.open());
+            Snapshotter snapshotter(&store, snapshot);
+            Task task;
+            task.title = QStringLiteral("Blog");
+            QVERIFY(!store.createTask(task, QStringLiteral("test")).isEmpty());
+            const auto ownerOnly = QFileDevice::ReadOwner | QFileDevice::WriteOwner;
+            const auto mask = QFileDevice::ReadGroup | QFileDevice::WriteGroup | QFileDevice::ExeGroup
+                              | QFileDevice::ReadOther | QFileDevice::WriteOther | QFileDevice::ExeOther;
+            QCOMPARE(QFileInfo(dataDir).permissions() & mask, QFileDevice::Permissions());
+            QVERIFY(QFileInfo(dataDir).permissions() & QFileDevice::ExeOwner);
+            for (const QString &file : {db, db + QStringLiteral("-wal"), db + QStringLiteral("-shm"), snapshot}) {
+                QVERIFY2(QFileInfo::exists(file), qPrintable(file));
+                QCOMPARE(QFileInfo(file).permissions() & (mask | ownerOnly), ownerOnly);
+            }
+        }
+        umask(savedMask);
+        // The README says so, for a serve that runs as another user.
+        QFile readme(repoFile(QStringLiteral("README.md")));
+        QVERIFY(readme.open(QIODevice::ReadOnly));
+        QVERIFY(QString::fromUtf8(readme.readAll()).contains(QStringLiteral("`plan.json` is private (0600)")));
     }
 
     // Every change rewrites plan.json, valid against docs/export-schema.json.
@@ -358,6 +400,79 @@ private slots:
         QCOMPARE(actual, expected);
     }
 
+    // The page follows src/task.h like web/app.js (web/test.mjs has the same
+    // cases): started earlier and due later is in progress today, not
+    // overdue; a deadline-only task shows on its deadline day.
+    void renderUsesTheTaskRuleForOverdueAndDeadlines() {
+        const QDate today(2026, 11, 23);
+        const auto task = [](const QString &id, const QString &start, const QString &deadline) {
+            return QJsonObject{{QStringLiteral("id"), id}, {QStringLiteral("title"), id}, {QStringLiteral("priority"), 2},
+                               {QStringLiteral("status"), QStringLiteral("todo")},
+                               {QStringLiteral("start"), start.isEmpty() ? QJsonValue() : QJsonValue(start)},
+                               {QStringLiteral("deadline"), deadline.isEmpty() ? QJsonValue() : QJsonValue(deadline)},
+                               {QStringLiteral("guessed"), QJsonArray()}};
+        };
+        const QJsonObject plan{{QStringLiteral("tasks"), QJsonArray{task(QStringLiteral("in-progress"), QStringLiteral("2026-11-22"), QStringLiteral("2026-11-27")),
+                                                                    task(QStringLiteral("late"), QStringLiteral("2026-11-20"), QStringLiteral("2026-11-22")),
+                                                                    task(QStringLiteral("deadline-only"), {}, QStringLiteral("2026-11-27")),
+                                                                    task(QStringLiteral("late-start"), QStringLiteral("2026-11-25"), QStringLiteral("2026-11-20"))}}};
+        const QString page = Render::page(plan, today, QStringLiteral("en"));
+        const auto day = [&](const QString &date) {
+            const qsizetype at = page.indexOf(QStringLiteral("class=\"day")
+                                              + (date == QLatin1String("2026-11-23") ? QStringLiteral(" today") : QString())
+                                              + QStringLiteral("\" data-date=\"") + date);
+            return at < 0 ? QString() : page.mid(at, page.indexOf(QStringLiteral("</section>"), at) - at);
+        };
+        // Overdue tasks are grouped under their deadline: under the start, a
+        // task due before it was to start would stand under a future day.
+        const auto overdueDay = [&](const QString &date) {
+            const qsizetype at = page.indexOf(QStringLiteral("class=\"day overdue\" data-date=\"") + date + '"');
+            return at < 0 ? QString() : page.mid(at, page.indexOf(QStringLiteral("</section>"), at) - at);
+        };
+        QVERIFY(overdueDay(QStringLiteral("2026-11-22")).contains(QStringLiteral("data-id=\"late\"")));
+        QVERIFY(overdueDay(QStringLiteral("2026-11-20")).contains(QStringLiteral("data-id=\"late-start\"")));
+        QVERIFY(!overdueDay(QStringLiteral("2026-11-20")).contains(QStringLiteral("data-id=\"late\"")));
+        QVERIFY(!page.contains(QStringLiteral("class=\"day overdue\" data-date=\"2026-11-25\"")));
+        QVERIFY(day(QStringLiteral("2026-11-23")).contains(QStringLiteral("data-id=\"in-progress\"")));
+        QVERIFY(day(QStringLiteral("2026-11-27")).contains(QStringLiteral("data-id=\"deadline-only\"")));
+        QVERIFY(page.contains(QStringLiteral("data-group=\"date:2026-11-27\"")));
+        QVERIFY(!page.contains(QStringLiteral("data-group=\"no-date\"")));
+    }
+
+    // DNS rebinding: a page on evil.example whose name resolves to 127.0.0.1
+    // must not read the plan. Only loopback names, IP addresses, the
+    // machine's own name and the --host names are served.
+    void serveChecksTheHostHeader() {
+        QTemporaryDir dir;
+        const QString snapshot = dir.filePath(QStringLiteral("plan.json"));
+        QVERIFY(QFile::copy(repoFile(QStringLiteral("web/example/plan.json")), snapshot));
+        PlanServer::Options options;
+        options.snapshotPath = snapshot;
+        options.port = 0;
+        options.themeDirectory = dir.filePath(QStringLiteral("no-theme"));
+        options.hosts = {QStringLiteral("plan.example.ts.net")};
+        PlanServer server(options);
+        QVERIFY(server.listen());
+        const QByteArray self = QHostInfo::localHostName().toLower().toUtf8();
+        const auto status = [&](const QByteArray &host) {
+            return http(server.port(), "GET /plan.json HTTP/1.1\r\nHost: " + host + "\r\n\r\n").status;
+        };
+        for (const QByteArray &host : {QByteArrayLiteral("localhost"), QByteArrayLiteral("localhost:8787"),
+                                       QByteArrayLiteral("127.0.0.1:8787"), QByteArrayLiteral("[::1]:8787"),
+                                       QByteArrayLiteral("192.0.2.10"), QByteArrayLiteral("plan.example.ts.net"),
+                                       QByteArrayLiteral("PLAN.example.ts.net:443"), self, self + ".local",
+                                       self + ".example.ts.net", self.toUpper() + ".Example.TS.net:443"})
+            QVERIFY2(status(host) == 200, host.constData());
+        // The machine's name as the first label of someone else's domain is
+        // no proof of anything: such a name can resolve to 127.0.0.1 too.
+        for (const QByteArray &host :
+             {QByteArrayLiteral("evil.example"), QByteArrayLiteral("evil.example:8787"),
+              QByteArrayLiteral("localhost.evil.example"), QByteArrayLiteral(""), self + ".evil.example",
+              self + ".local.evil.example", self + ".ts.net", self + ".a.b.ts.net", self + ".example.ts.net.evil.example",
+              "x" + self + ".example.ts.net"})
+            QVERIFY2(status(host) == 421, host.constData());
+    }
+
     void serveOverLoopback() {
         QTemporaryDir dir;
         const QString snapshot = dir.filePath(QStringLiteral("plan.json"));
@@ -396,7 +511,7 @@ private slots:
             "<main id=\"plan\" class=\"plan\" data-today=\"2026-11-23\">",
             // Overview: overdue first, today, empty days
             "<section id=\"overview\" class=\"view\" aria-label=\"Overview\">",
-            "<section class=\"day overdue\" data-date=\"2026-11-18\">",
+            "<section class=\"day overdue\" data-date=\"2026-11-20\">",
             "<span class=\"badge badge-overdue\">overdue</span>",
             "<section class=\"day today\" data-date=\"2026-11-23\">",
             "<span class=\"badge badge-today\">today</span>",
@@ -672,17 +787,16 @@ private slots:
         }
     }
 
-    void migrationFromV1Database()
+    // A database as schema v1 left it: no undo_of column.
+    static bool makeV1Database(const QString &path)
     {
-        QTemporaryDir dir;
-        const QString path = dir.filePath("v1.db");
+        bool ok = true;
         {
-            // A database as trin 1's schema v1 left it: no undo_of column.
             QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("v1test"));
             db.setDatabaseName(path);
-            QVERIFY(db.open());
+            ok = ok && (db.open());
             QSqlQuery q(db);
-            QVERIFY(q.exec(QStringLiteral("CREATE TABLE tasks (id TEXT PRIMARY KEY, title TEXT NOT NULL,"
+            ok = ok && (q.exec(QStringLiteral("CREATE TABLE tasks (id TEXT PRIMARY KEY, title TEXT NOT NULL,"
                                           " notes TEXT NOT NULL DEFAULT '', project TEXT NOT NULL DEFAULT '',"
                                           " priority INTEGER NOT NULL DEFAULT 3, status TEXT NOT NULL DEFAULT 'todo',"
                                           " start TEXT, start_has_time INTEGER NOT NULL DEFAULT 0,"
@@ -690,18 +804,26 @@ private slots:
                                           " deadline_has_time INTEGER NOT NULL DEFAULT 0,"
                                           " guesses TEXT NOT NULL DEFAULT '[]', capture_id TEXT NOT NULL DEFAULT '',"
                                           " created TEXT NOT NULL, modified TEXT NOT NULL)")));
-            QVERIFY(q.exec(QStringLiteral("CREATE TABLE captures (id TEXT PRIMARY KEY, raw_text TEXT NOT NULL,"
+            ok = ok && (q.exec(QStringLiteral("CREATE TABLE captures (id TEXT PRIMARY KEY, raw_text TEXT NOT NULL,"
                                           " engine TEXT NOT NULL DEFAULT '', model TEXT NOT NULL DEFAULT '',"
                                           " response TEXT NOT NULL DEFAULT '', created TEXT NOT NULL)")));
-            QVERIFY(q.exec(QStringLiteral("CREATE TABLE changes (id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            ok = ok && (q.exec(QStringLiteral("CREATE TABLE changes (id INTEGER PRIMARY KEY AUTOINCREMENT,"
                                           " at TEXT NOT NULL, source TEXT NOT NULL, kind TEXT NOT NULL,"
                                           " task_id TEXT NOT NULL, before_json TEXT, after_json TEXT)")));
-            QVERIFY(q.exec(QStringLiteral("PRAGMA user_version=1")));
+            ok = ok && (q.exec(QStringLiteral("PRAGMA user_version=1")));
             q.finish();
             db.close();
             db = QSqlDatabase();
             QSqlDatabase::removeDatabase(QStringLiteral("v1test"));
         }
+        return ok;
+    }
+
+    void migrationFromV1Database()
+    {
+        QTemporaryDir dir;
+        const QString path = dir.filePath("v1.db");
+        QVERIFY(makeV1Database(path));
         Store store(path);
         QString error;
         QVERIFY2(store.open(&error), qPrintable(error));
@@ -719,6 +841,123 @@ private slots:
         while (q.next())
             captureColumns << q.value(1).toString();
         QVERIFY(captureColumns.contains(QStringLiteral("annotated_text")));
+    }
+
+    // The race the migration lock now prevents left databases with all the
+    // columns but user_version behind them; such a database opens again.
+    void migrationRepairsAVersionBehindItsColumns_data()
+    {
+        QTest::addColumn<int>("version");
+        for (int version = 0; version < 5; ++version)
+            QTest::newRow(qPrintable(QStringLiteral("v%1").arg(version))) << version;
+    }
+
+    void migrationRepairsAVersionBehindItsColumns()
+    {
+        QFETCH(int, version);
+        QTemporaryDir dir;
+        const QString path = dir.filePath(QStringLiteral("behind.db"));
+        QString id;
+        {
+            Store store(path);
+            QVERIFY(store.open());
+            Task task;
+            task.title = QStringLiteral("Blog");
+            id = store.createTask(task, QStringLiteral("test"));
+            QVERIFY(!id.isEmpty());
+            QSqlQuery q(store.database());
+            QVERIFY(q.exec(QStringLiteral("PRAGMA user_version=%1").arg(version)));
+        }
+        Store store(path);
+        QString error;
+        QVERIFY2(store.open(&error), qPrintable(error));
+        QCOMPARE(store.schemaVersion(), 5);
+        Task task;
+        QVERIFY(store.task(id, &task));
+        QCOMPARE(task.title, QStringLiteral("Blog"));
+    }
+
+    // Starts the real binary on `db` without waiting for it.
+    static QProcess *startOmaplan(const QString &db, const QStringList &args, QObject *parent) {
+        auto *process = new QProcess(parent);
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        env.insert(QStringLiteral("OMAPLAN_DB"), db);
+        env.insert(QStringLiteral("OMAPLAN_CONFIG"), QFileInfo(db).absolutePath() + QStringLiteral("/config.toml"));
+        env.insert(QStringLiteral("OMAPLAN_SNAPSHOT"), QFileInfo(db).absolutePath() + QStringLiteral("/plan.json"));
+        process->setProcessEnvironment(env);
+        process->start(QCoreApplication::applicationDirPath() + QStringLiteral("/../omaplan"), args);
+        return process;
+    }
+
+    // The window and an `omaplan mcp` often open a new or older database at
+    // the same moment. Only one of them may migrate; the others must see the
+    // finished schema instead of failing half-way and leaving user_version
+    // behind the columns (which made every later open fail).
+    void concurrentFirstOpenMigratesOnce_data()
+    {
+        QTest::addColumn<bool>("v1");
+        QTest::newRow("fresh") << false;
+        QTest::newRow("from v1") << true;
+    }
+
+    void concurrentFirstOpenMigratesOnce()
+    {
+        QFETCH(bool, v1);
+        for (int round = 0; round < 3; ++round) {
+            QTemporaryDir dir;
+            const QString db = dir.filePath(QStringLiteral("race.db"));
+            if (v1)
+                QVERIFY(makeV1Database(db));
+            QObject owner;
+            QList<QProcess *> processes;
+            for (int i = 0; i < 12; ++i)
+                processes << startOmaplan(db, {QStringLiteral("new"), QStringLiteral("--title"),
+                                               QStringLiteral("Task %1").arg(i)}, &owner);
+            for (QProcess *process : processes) {
+                QVERIFY(process->waitForFinished(30000));
+                QVERIFY2(process->exitCode() == 0, process->readAllStandardError().constData());
+            }
+            int code = -1;
+            const QString listed = runOmaplan(db, {QStringLiteral("list"), QStringLiteral("--json")}, &code);
+            QVERIFY2(code == 0, qPrintable(listed));
+            QCOMPARE(QJsonDocument::fromJson(listed.toUtf8()).object()[QStringLiteral("tasks")].toArray().size(), 12);
+            Store store(db);
+            QVERIFY(store.open());
+            QCOMPARE(store.schemaVersion(), 5);
+        }
+    }
+
+    // Two writers that change different fields of the same task at the same
+    // moment must both win: the read, merge and write happen under one write
+    // lock, so neither works from a stale copy.
+    void concurrentEditsKeepBothFields()
+    {
+        QTemporaryDir dir;
+        const QString db = dir.filePath(QStringLiteral("lost.db"));
+        for (int round = 0; round < 10; ++round) {
+            int code = -1;
+            const QJsonObject created = QJsonDocument::fromJson(
+                runOmaplan(db, {QStringLiteral("new"), QStringLiteral("--title"), QStringLiteral("Blog"),
+                                QStringLiteral("--json")}, &code).toUtf8()).object();
+            QCOMPARE(code, 0);
+            const QString id = created[QStringLiteral("task")].toObject()[QStringLiteral("id")].toString();
+            QObject owner;
+            QProcess *done = startOmaplan(db, {QStringLiteral("done"), id}, &owner);
+            QProcess *edit = startOmaplan(db, {QStringLiteral("edit"), id, QStringLiteral("--notes"),
+                                               QStringLiteral("changed")}, &owner);
+            QProcess *move = startOmaplan(db, {QStringLiteral("edit"), id, QStringLiteral("--project"),
+                                               QStringLiteral("Client A")}, &owner);
+            for (QProcess *p : {done, edit, move}) {
+                QVERIFY(p->waitForFinished(30000));
+                QCOMPARE(p->exitCode(), 0);
+            }
+            const QJsonObject task = QJsonDocument::fromJson(
+                runOmaplan(db, {QStringLiteral("show"), id, QStringLiteral("--json")}).toUtf8())
+                                         .object()[QStringLiteral("task")].toObject();
+            QCOMPARE(task[QStringLiteral("status")].toString(), QStringLiteral("done"));
+            QCOMPARE(task[QStringLiteral("notes")].toString(), QStringLiteral("changed"));
+            QCOMPARE(task[QStringLiteral("project")].toString(), QStringLiteral("Client A"));
+        }
     }
 
     void changeLogRecordsBeforeAfterAndSource()
@@ -1094,6 +1333,213 @@ private slots:
         QVERIFY(!Actions::parseDateTime(QStringLiteral("2026-13-40"), today, &out, &hasTime, &error));
     }
 
+    // An agent that reads the help of `undo` or `rm` must not change the plan.
+    void helpAnywhereOnTheLineChangesNothing()
+    {
+        QTemporaryDir dir;
+        const QString db = dir.filePath(QStringLiteral("help.db"));
+        int code = -1;
+        runOmaplan(db, {QStringLiteral("new"), QStringLiteral("--title"), QStringLiteral("Blog")}, &code);
+        QCOMPARE(code, 0);
+        const QString listed = runOmaplan(db, {QStringLiteral("list"), QStringLiteral("--json")});
+        const QString id = QJsonDocument::fromJson(listed.toUtf8()).object()[QStringLiteral("tasks")].toArray()
+                               .first().toObject()[QStringLiteral("id")].toString();
+        QVERIFY(!id.isEmpty());
+        const QString snapshot = dir.filePath(QStringLiteral("elsewhere.json"));
+        const QList<QStringList> lines = {
+            {QStringLiteral("undo"), QStringLiteral("--help")},
+            {QStringLiteral("undo"), QStringLiteral("--json"), QStringLiteral("-h")},
+            {QStringLiteral("rm"), id, QStringLiteral("--help")},
+            {QStringLiteral("done"), QStringLiteral("--help"), id},
+            {QStringLiteral("new"), QStringLiteral("--title"), QStringLiteral("X"), QStringLiteral("--help")},
+            {QStringLiteral("snapshot"), snapshot, QStringLiteral("--help")},
+        };
+        for (const QStringList &line : lines) {
+            const QString output = runOmaplan(db, line, &code);
+            QVERIFY2(code == 0, qPrintable(line.join(' ')));
+            QVERIFY2(output.contains(QStringLiteral("Usage:")), qPrintable(line.join(' ') + ": " + output));
+        }
+        const QJsonObject after = QJsonDocument::fromJson(
+            runOmaplan(db, {QStringLiteral("show"), id, QStringLiteral("--json")}).toUtf8()).object();
+        QCOMPARE(after[QStringLiteral("task")].toObject()[QStringLiteral("status")].toString(), QStringLiteral("todo"));
+        QCOMPARE(QJsonDocument::fromJson(runOmaplan(db, {QStringLiteral("list"), QStringLiteral("--json")}).toUtf8())
+                     .object()[QStringLiteral("tasks")].toArray().size(), 1);
+        QVERIFY(!QFile::exists(snapshot));
+    }
+
+    // "-h" as the value of a flag is that value, not a request for help.
+    void helpFlagAsAValueIsAValue()
+    {
+        QTemporaryDir dir;
+        const QString db = dir.filePath(QStringLiteral("value.db"));
+        int code = -1;
+        const QJsonObject created = QJsonDocument::fromJson(
+            runOmaplan(db, {QStringLiteral("new"), QStringLiteral("--title"), QStringLiteral("-h"),
+                            QStringLiteral("--json")}, &code).toUtf8()).object();
+        QCOMPARE(code, 0);
+        QCOMPARE(created[QStringLiteral("task")].toObject()[QStringLiteral("title")].toString(), QStringLiteral("-h"));
+        const QString id = created[QStringLiteral("task")].toObject()[QStringLiteral("id")].toString();
+        runOmaplan(db, {QStringLiteral("edit"), id, QStringLiteral("--notes"), QStringLiteral("-h")}, &code);
+        QCOMPARE(code, 0);
+        const QJsonObject shown = QJsonDocument::fromJson(
+            runOmaplan(db, {QStringLiteral("show"), id, QStringLiteral("--json")}).toUtf8()).object();
+        QCOMPARE(shown[QStringLiteral("task")].toObject()[QStringLiteral("notes")].toString(), QStringLiteral("-h"));
+        // Where a flag name can stand, it is still the help.
+        QVERIFY(runOmaplan(db, {QStringLiteral("edit"), id, QStringLiteral("-h")}, &code).contains(QStringLiteral("Usage:")));
+        QCOMPARE(code, 0);
+        QVERIFY(runOmaplan(db, {QStringLiteral("edit"), id, QStringLiteral("--title"), QStringLiteral("--help")}, &code)
+                    .contains(QStringLiteral("Usage:")));
+        QVERIFY(runOmaplan(db, {QStringLiteral("--db"), db, QStringLiteral("-h")}, &code).contains(QStringLiteral("Usage:")));
+    }
+
+    // What the README, SPEC and --help promise, the binary does.
+    void docsPromisesHold()
+    {
+        QTemporaryDir dir;
+        const QString db = dir.filePath(QStringLiteral("promise.db"));
+        int code = -1;
+        // redo on the command line.
+        const QString id = QJsonDocument::fromJson(runOmaplan(db, {QStringLiteral("new"), QStringLiteral("--title"),
+                                                                   QStringLiteral("Blog"), QStringLiteral("--json")}).toUtf8())
+                               .object()[QStringLiteral("task")].toObject()[QStringLiteral("id")].toString();
+        runOmaplan(db, {QStringLiteral("undo")}, &code);
+        QCOMPARE(code, 0);
+        runOmaplan(db, {QStringLiteral("show"), id}, &code);
+        QCOMPARE(code, 1);
+        const QString redone = runOmaplan(db, {QStringLiteral("redo")}, &code);
+        QVERIFY2(code == 0, qPrintable(redone));
+        runOmaplan(db, {QStringLiteral("show"), id}, &code);
+        QCOMPARE(code, 0);
+        QVERIFY(runOmaplan(db, {QStringLiteral("--help")}).contains(QStringLiteral("redo")));
+
+        // One version, from omaplan.pro, in --version, MCP and the PKGBUILD.
+        QFile pro(repoFile(QStringLiteral("omaplan.pro")));
+        QVERIFY(pro.open(QIODevice::ReadOnly));
+        const QString version = QRegularExpression(QStringLiteral("(?m)^VERSION = (\\S+)$"))
+                                    .match(QString::fromUtf8(pro.readAll())).captured(1);
+        QCOMPARE(version, QStringLiteral("0.2.0"));
+        QCOMPARE(runOmaplan(db, {QStringLiteral("--version")}, &code).trimmed(), QStringLiteral("omaplan ") + version);
+        QCOMPARE(code, 0);
+        QFile pkgbuild(repoFile(QStringLiteral("pkgbuild/PKGBUILD")));
+        QVERIFY(pkgbuild.open(QIODevice::ReadOnly));
+        QVERIFY(QString::fromUtf8(pkgbuild.readAll()).contains(QStringLiteral("\npkgver=") + version + QStringLiteral("\n")));
+        QString stderrText;
+        const QList<QJsonObject> init = mcpSession(db, {rpc(1, QStringLiteral("initialize"),
+                                                            {{QStringLiteral("protocolVersion"), QStringLiteral("2024-11-05")}})},
+                                                   &stderrText);
+        QVERIFY(!init.isEmpty());
+        QCOMPARE(init.first()[QStringLiteral("result")].toObject()[QStringLiteral("serverInfo")].toObject()
+                     [QStringLiteral("version")].toString(), version);
+
+        // An empty value clears --duration and --priority too.
+        runOmaplan(db, {QStringLiteral("edit"), id, QStringLiteral("--duration"), QStringLiteral("45"),
+                        QStringLiteral("--priority"), QStringLiteral("1")}, &code);
+        QCOMPARE(code, 0);
+        const QString cleared = runOmaplan(db, {QStringLiteral("edit"), id, QStringLiteral("--duration"), QString(),
+                                                QStringLiteral("--priority"), QString(), QStringLiteral("--json")}, &code);
+        QVERIFY2(code == 0, qPrintable(cleared));
+        const QJsonObject task = QJsonDocument::fromJson(cleared.toUtf8()).object()[QStringLiteral("task")].toObject();
+        QCOMPARE(task[QStringLiteral("duration_minutes")].toInt(), 0);
+        QCOMPARE(task[QStringLiteral("priority")].toInt(), 3);
+
+        // Date filters leave out tasks without start and deadline.
+        const QJsonArray listed = QJsonDocument::fromJson(runOmaplan(db, {QStringLiteral("list"), QStringLiteral("--from"),
+                                                                          QStringLiteral("today"), QStringLiteral("--json")}).toUtf8())
+                                      .object()[QStringLiteral("tasks")].toArray();
+        QCOMPARE(listed.size(), 0);
+        QCOMPARE(QJsonDocument::fromJson(runOmaplan(db, {QStringLiteral("list"), QStringLiteral("--json")}).toUtf8())
+                     .object()[QStringLiteral("tasks")].toArray().size(), 1);
+    }
+
+    // Smaller promises of the docs and schemas.
+    void smallDocumentedRules()
+    {
+        QTemporaryDir dir;
+        Store store(dir.filePath(QStringLiteral("s.db")));
+        QVERIFY(store.open());
+        QString out, err;
+        int code = -1;
+        const QString id = cliJson(store, {QStringLiteral("new"), QStringLiteral("--title"), QStringLiteral("Blog"),
+                                           QStringLiteral("--json")}, &err, &code)[QStringLiteral("task")].toObject()
+                               [QStringLiteral("id")].toString();
+        // An unknown flag is an error, not ignored (list --statsu done).
+        err.clear();
+        QCOMPARE(cli(store, {QStringLiteral("list"), QStringLiteral("--statsu"), QStringLiteral("done")}, &out, &err), 1);
+        QVERIFY2(err.contains(QStringLiteral("--statsu")), qPrintable(err));
+        err.clear();
+        QCOMPARE(cli(store, {QStringLiteral("summary"), QStringLiteral("--weak")}, &out, &err), 1);
+        QVERIFY2(err.contains(QStringLiteral("--weak")), qPrintable(err));
+        // The 0.1 names still work.
+        QCOMPARE(cli(store, {QStringLiteral("list"), QStringLiteral("--fra"), QStringLiteral("today")}, &out, &err), 0);
+        // edit without fields is an error on the CLI too (as in MCP).
+        err.clear();
+        QCOMPARE(cli(store, {QStringLiteral("edit"), id}, &out, &err), 1);
+        QVERIFY(!err.isEmpty());
+        // A project over 100 characters breaks docs/export-schema.json.
+        err.clear();
+        QCOMPARE(cli(store, {QStringLiteral("edit"), id, QStringLiteral("--project"), QString(101, QLatin1Char('p'))}, &out, &err), 1);
+        QVERIFY2(err.contains(QStringLiteral("100")), qPrintable(err));
+        // Proposals give times as THH:MM, as docs/ai-schema.json asks.
+        ProposedTask proposed;
+        proposed.title = QStringLiteral("Blog");
+        proposed.start = QDateTime(QDate(2026, 12, 1), QTime(14, 30));
+        proposed.startHasTime = true;
+        QCOMPARE(proposed.toJson()[QStringLiteral("start")].toString(), QStringLiteral("2026-12-01T14:30"));
+    }
+
+    // MCP holds callers to the tool schemas: enums, types and unknown keys
+    // are errors, not a silently different answer.
+    void mcpValidatesArguments()
+    {
+        QTemporaryDir dir;
+        Store store(dir.filePath(QStringLiteral("v.db")));
+        QVERIFY(store.open());
+        Actions actions(&store);
+        McpServer mcp(&actions);
+        const auto result = [&](const QString &tool, const QJsonObject &args) {
+            return mcp.handle(call(1, tool, args)).toObject()[QStringLiteral("result")].toObject();
+        };
+        const auto errorText = [&](const QString &tool, const QJsonObject &args) {
+            const QJsonObject r = result(tool, args);
+            return r[QStringLiteral("isError")].toBool()
+                       ? r[QStringLiteral("content")].toArray().first().toObject()[QStringLiteral("text")].toString()
+                       : QString();
+        };
+        QVERIFY(errorText(QStringLiteral("list"), {{QStringLiteral("status"), QStringLiteral("bogus")}}).contains(QStringLiteral("status")));
+        QVERIFY(errorText(QStringLiteral("summary"), {{QStringLiteral("period"), QStringLiteral("year")}}).contains(QStringLiteral("period")));
+        QVERIFY(errorText(QStringLiteral("list"), {{QStringLiteral("stauts"), QStringLiteral("done")}}).contains(QStringLiteral("stauts")));
+        QVERIFY(errorText(QStringLiteral("new"), {{QStringLiteral("title"), 5}}).contains(QStringLiteral("title")));
+        QVERIFY(errorText(QStringLiteral("new"), {{QStringLiteral("title"), QStringLiteral("X")}, {QStringLiteral("priority"), 7}})
+                    .contains(QStringLiteral("priority")));
+        QVERIFY(errorText(QStringLiteral("show"), {}).contains(QStringLiteral("id")));
+        // Valid calls still work, and so do the 0.1 field names.
+        QVERIFY(errorText(QStringLiteral("list"), {{QStringLiteral("status"), QStringLiteral("todo")}}).isEmpty());
+        QVERIFY(errorText(QStringLiteral("summary"), {{QStringLiteral("period"), QStringLiteral("month")}}).isEmpty());
+        QVERIFY(errorText(QStringLiteral("new"), {{QStringLiteral("titel"), QStringLiteral("Blog")}}).isEmpty());
+        // null for an optional field means "not given": some clients send it
+        // for every field they do not use. It never clears a field.
+        const QJsonObject made = result(QStringLiteral("new"), {{QStringLiteral("title"), QStringLiteral("Client A")},
+                                                                 {QStringLiteral("project"), QStringLiteral("Blog")},
+                                                                 {QStringLiteral("notes"), QJsonValue::Null}});
+        QVERIFY2(!made[QStringLiteral("isError")].toBool(),
+                 qPrintable(made[QStringLiteral("content")].toArray().first().toObject()[QStringLiteral("text")].toString()));
+        const QString id = made[QStringLiteral("structuredContent")].toObject()[QStringLiteral("task")].toObject()[QStringLiteral("id")].toString();
+        QVERIFY(!id.isEmpty());
+        QVERIFY(errorText(QStringLiteral("edit"), {{QStringLiteral("id"), id},
+                                                   {QStringLiteral("title"), QStringLiteral("Client B")},
+                                                   {QStringLiteral("project"), QJsonValue::Null},
+                                                   {QStringLiteral("priority"), QJsonValue::Null}})
+                    .isEmpty());
+        Task edited;
+        QVERIFY(store.task(id, &edited));
+        QCOMPARE(edited.title, QStringLiteral("Client B"));
+        QCOMPARE(edited.project, QStringLiteral("Blog"));
+        QVERIFY(errorText(QStringLiteral("edit"), {{QStringLiteral("id"), id}, {QStringLiteral("project"), QJsonValue::Null}})
+                    .contains(QStringLiteral("Nothing to change")));
+        QVERIFY(errorText(QStringLiteral("list"), {{QStringLiteral("status"), QJsonValue::Null}}).isEmpty());
+        QVERIFY(errorText(QStringLiteral("show"), {{QStringLiteral("id"), QJsonValue::Null}}).contains(QStringLiteral("id")));
+    }
+
     void cliExitCodesAndJson()
     {
         QTemporaryDir dir;
@@ -1245,6 +1691,38 @@ private slots:
         qputenv("OMAPLAN_CONFIG", "");
     }
 
+    // --yes, --force, --week and --month never take the next word as their
+    // value, and a config string may hold \" (TOML's escape).
+    void booleanFlagsAndEscapedConfigStrings()
+    {
+        QTemporaryDir dir;
+        Store store(dir.filePath(QStringLiteral("b.db")));
+        QVERIFY(store.open());
+        const QString fixture = QDir(QCoreApplication::applicationDirPath())
+                                    .filePath(QStringLiteral("../../tests/ai-fixtures/envelopes/command-valid.json"));
+        const QString cfgPath = dir.filePath(QStringLiteral("config.toml"));
+        {
+            QFile f(cfgPath);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write("[engine]\ndefault = \"command\"\ncommand = \"sh -c \\\"cat >/dev/null; cat '" + fixture.toUtf8()
+                    + "'\\\"\"  # the prompt is read and dropped\n");
+        }
+        QCOMPARE(AppConfig::load(cfgPath).command,
+                 QStringLiteral("sh -c \"cat >/dev/null; cat '") + fixture + QStringLiteral("'\""));
+        qputenv("OMAPLAN_CONFIG", cfgPath.toLocal8Bit());
+        QString out, err;
+        QCOMPARE(cli(store, {QStringLiteral("add"), QStringLiteral("--yes"), QStringLiteral("buy"), QStringLiteral("milk"),
+                             QStringLiteral("tomorrow")}, &out, &err), 0);
+        const auto captures = store.captures();
+        QCOMPARE(captures.size(), 1);
+        QCOMPARE(captures.first().rawText, QStringLiteral("buy milk tomorrow"));
+        QCOMPARE(store.tasks().size(), 1); // --yes stored it
+        out.clear();
+        QCOMPARE(cli(store, {QStringLiteral("summary"), QStringLiteral("--month"), QStringLiteral("--json")}, &out, &err), 0);
+        QVERIFY2(QJsonDocument::fromJson(out.toUtf8()).isObject(), qPrintable(out));
+        qputenv("OMAPLAN_CONFIG", "");
+    }
+
     void dateAnnotation()
     {
         const QDate today(2026, 11, 23); // Monday
@@ -1278,6 +1756,150 @@ private slots:
         // Text without dates is left alone.
         QCOMPARE(annotateDates(QStringLiteral("skriv noget"), today),
                  QStringLiteral("skriv noget"));
+    }
+
+    // "den 12"/"the 12" is the 12th, never 12:00; a number followed by a
+    // duration unit is never a clock time ("onsdag 3 timer" is not 03:00).
+    void dayArticleAndDurationAreNotTimes()
+    {
+        const QDate today(2026, 11, 23); // Monday; the 12th of December is a Saturday
+        QDateTime out;
+        bool hasTime = true;
+        QString error;
+        for (const QString &text : {QStringLiteral("lørdag den 12"), QStringLiteral("saturday the 12"),
+                                    QStringLiteral("den 12"), QStringLiteral("the 12")}) {
+            QVERIFY2(Actions::parseDateTime(text, today, &out, &hasTime, &error), qPrintable(text + ": " + error));
+            QCOMPARE(out.date(), QDate(2026, 12, 12));
+            QVERIFY2(!hasTime, qPrintable(text));
+        }
+        // Friday the 12th does not exist next: an error, never "next Friday 12:00".
+        for (const QString &text : {QStringLiteral("fredag den 12"), QStringLiteral("friday the 12")}) {
+            error.clear();
+            QVERIFY2(!Actions::parseDateTime(text, today, &out, &hasTime, &error), qPrintable(text));
+            QVERIFY2(error.contains(QStringLiteral("2026-12-12")), qPrintable(error));
+        }
+        // With a time prefix or minutes it is still a time.
+        QVERIFY(Actions::parseDateTime(QStringLiteral("lørdag den 12. kl. 9"), today, &out, &hasTime, &error));
+        QCOMPARE(out, QDateTime(QDate(2026, 12, 12), QTime(9, 0)));
+        QVERIFY(Actions::parseDateTime(QStringLiteral("fredag 12"), today, &out, &hasTime, &error));
+        QCOMPARE(out, QDateTime(QDate(2026, 11, 27), QTime(12, 0)));
+
+        QCOMPARE(annotateDates(QStringLiteral("research onsdag 3 timer"), today),
+                 QStringLiteral("research onsdag [Wednesday 2026-11-25] 3 timer"));
+        QCOMPARE(annotateDates(QStringLiteral("research wednesday 3 hours"), today),
+                 QStringLiteral("research wednesday [Wednesday 2026-11-25] 3 hours"));
+        QCOMPARE(annotateDates(QStringLiteral("skriv fredag 2 t, så pause"), today),
+                 QStringLiteral("skriv fredag [Friday 2026-11-27] 2 t, så pause"));
+        QCOMPARE(annotateDates(QStringLiteral("møde lørdag den 12"), today),
+                 QStringLiteral("møde lørdag den 12 [Saturday 2026-12-12]"));
+        QCOMPARE(annotateDates(QStringLiteral("call on saturday the 12"), today),
+                 QStringLiteral("call on saturday the 12 [Saturday 2026-12-12]"));
+        // Still a time when no unit follows.
+        QCOMPARE(annotateDates(QStringLiteral("møde onsdag 3 med kunde"), today),
+                 QStringLiteral("møde onsdag 3 [Wednesday 2026-11-25 03:00] med kunde"));
+    }
+
+    // A filter date names a period, not the next occurrence: "1. november"
+    // late in November is this year's, "monday" is this week's.
+    void filterDatesDoNotRollForward()
+    {
+        const QDate today(2026, 11, 24); // Tuesday
+        const auto read = [&](const QString &text) {
+            QDate date;
+            QString error;
+            if (!Actions::parseFilterDate(text, today, &date, &error))
+                return QStringLiteral("error: ") + error;
+            return date.toString(Qt::ISODate);
+        };
+        QCOMPARE(read(QStringLiteral("1. november")), QStringLiteral("2026-11-01"));
+        QCOMPARE(read(QStringLiteral("20. november")), QStringLiteral("2026-11-20"));
+        QCOMPARE(read(QStringLiteral("november 1st")), QStringLiteral("2026-11-01"));
+        QCOMPARE(read(QStringLiteral("den 3.")), QStringLiteral("2026-11-03"));
+        QCOMPARE(read(QStringLiteral("monday")), QStringLiteral("2026-11-23"));
+        QCOMPARE(read(QStringLiteral("mandag")), QStringLiteral("2026-11-23"));
+        QCOMPARE(read(QStringLiteral("friday")), QStringLiteral("2026-11-27"));
+        QCOMPARE(read(QStringLiteral("today")), QStringLiteral("2026-11-24"));
+        QCOMPARE(read(QStringLiteral("next monday")), QStringLiteral("2026-11-30"));
+        QCOMPARE(read(QStringLiteral("2027-01-05")), QStringLiteral("2027-01-05"));
+
+        // From after to is an error, not an empty list.
+        QTemporaryDir dir;
+        Store store(dir.filePath(QStringLiteral("f.db")));
+        QVERIFY(store.open());
+        QString out, err;
+        QCOMPARE(cli(store, {QStringLiteral("list"), QStringLiteral("--from"), QStringLiteral("2026-11-30"),
+                             QStringLiteral("--to"), QStringLiteral("2026-11-27")}, &out, &err), 1);
+        QVERIFY2(err.contains(QStringLiteral("2026-11-30")) && err.contains(QStringLiteral("2026-11-27")), qPrintable(err));
+    }
+
+    // `move <id> monday` moves the day and keeps the task's time.
+    void moveKeepsTheTime()
+    {
+        QTemporaryDir dir;
+        Store store(dir.filePath(QStringLiteral("m.db")));
+        QVERIFY(store.open());
+        QString err;
+        int code = -1;
+        const QString id = cliJson(store, {QStringLiteral("new"), QStringLiteral("--title"), QStringLiteral("Meeting"),
+                                           QStringLiteral("--start"), QStringLiteral("2026-12-01 14:00"),
+                                           QStringLiteral("--duration"), QStringLiteral("60"), QStringLiteral("--json")},
+                                   &err, &code)[QStringLiteral("task")].toObject()[QStringLiteral("id")].toString();
+        QCOMPARE(code, 0);
+        QJsonObject task = cliJson(store, {QStringLiteral("move"), id, QStringLiteral("2026-12-07"), QStringLiteral("--json")},
+                                   &err, &code)[QStringLiteral("task")].toObject();
+        QCOMPARE(code, 0);
+        QCOMPARE(task[QStringLiteral("start")].toString(), QStringLiteral("2026-12-07T14:00"));
+        QCOMPARE(task[QStringLiteral("duration_minutes")].toInt(), 60);
+        // An explicit time still wins.
+        task = cliJson(store, {QStringLiteral("move"), id, QStringLiteral("2026-12-08 09:30"), QStringLiteral("--json")},
+                       &err, &code)[QStringLiteral("task")].toObject();
+        QCOMPARE(task[QStringLiteral("start")].toString(), QStringLiteral("2026-12-08T09:30"));
+        // MCP moves the same way.
+        Actions actions(&store);
+        McpServer mcp(&actions);
+        const QJsonObject result = mcp.handle(call(1, QStringLiteral("move"), {{QStringLiteral("id"), id},
+                                                                             {QStringLiteral("when"), QStringLiteral("2026-12-10")}}))
+                                       .toObject()[QStringLiteral("result")].toObject();
+        QVERIFY(!result[QStringLiteral("isError")].toBool());
+        QCOMPARE(result[QStringLiteral("structuredContent")].toObject()[QStringLiteral("task")].toObject()
+                     [QStringLiteral("start")].toString(), QStringLiteral("2026-12-10T09:30"));
+    }
+
+    // The small date holes from the audit.
+    void dateEdgeCases()
+    {
+        QDateTime out;
+        bool hasTime = false;
+        QString error;
+        // 29 February is the next one that exists, not an error in a common year.
+        QVERIFY2(Actions::parseDateTime(QStringLiteral("29. februar"), QDate(2027, 1, 10), &out, &hasTime, &error), qPrintable(error));
+        QCOMPARE(out.date(), QDate(2028, 2, 29));
+        QVERIFY(Actions::parseDateTime(QStringLiteral("february 29th"), QDate(2028, 3, 1), &out, &hasTime, &error));
+        QCOMPARE(out.date(), QDate(2032, 2, 29));
+        QVERIFY(Actions::parseDateTime(QStringLiteral("29/2"), QDate(2028, 1, 5), &out, &hasTime, &error));
+        QCOMPARE(out.date(), QDate(2028, 2, 29));
+        QVERIFY(!Actions::parseDateTime(QStringLiteral("30. februar"), QDate(2027, 1, 10), &out, &hasTime, &error));
+        // A month of 0 or above 12 is an error, not "the 5th".
+        for (const QString &text : {QStringLiteral("5/0"), QStringLiteral("5/13")}) {
+            error.clear();
+            QVERIFY2(!Actions::parseDateTime(text, QDate(2026, 11, 23), &out, &hasTime, &error), qPrintable(text));
+            QVERIFY(!error.isEmpty());
+        }
+        // A clock time that does not exist (the spring daylight saving gap)
+        // is an error, not silently an hour later.
+        const QTimeZone zone = QTimeZone::systemTimeZone();
+        QDate gapDay;
+        for (QDate d(2027, 1, 1); d < QDate(2028, 1, 1) && !gapDay.isValid(); d = d.addDays(1))
+            if (QDateTime(d, QTime(2, 30)).time() != QTime(2, 30))
+                gapDay = d;
+        if (gapDay.isValid()) {
+            error.clear();
+            QVERIFY(!Actions::parseDateTime(gapDay.toString(Qt::ISODate) + QStringLiteral(" 02:30"), QDate(2026, 11, 23),
+                                            &out, &hasTime, &error));
+            QVERIFY2(error.contains(QStringLiteral("02:30")), qPrintable(error));
+        } else {
+            qInfo("no daylight saving gap at 02:30 in %s; gap check not exercised", zone.id().constData());
+        }
     }
 
     void dateAnnotationInEnglish()
@@ -2434,8 +3056,10 @@ private slots:
         const Skill::Result un = Skill::uninstall(home);
         QVERIFY(un.ok);
         QCOMPARE(un.removed.size(), 2);
-        for (const QString &root : un.removed)
+        for (const QString &root : un.removed) {
             QVERIFY(!QFile::exists(QDir(root).filePath(QStringLiteral("omaplan/SKILL.md"))));
+            QVERIFY2(!QFileInfo::exists(QDir(root).filePath(QStringLiteral("omaplan"))), qPrintable(root));
+        }
         // Idempotent.
         QVERIFY(Skill::uninstall(home).ok);
 

@@ -1,6 +1,8 @@
 #include "store.h"
 
 #include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QSqlError>
@@ -17,6 +19,10 @@ QString Store::defaultPath() {
     const QByteArray override = qgetenv("OMAPLAN_DB");
     if (!override.isEmpty())
         return QString::fromLocal8Bit(override);
+    return standardPath();
+}
+
+QString Store::standardPath() {
     return QDir(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)).filePath("omaplan.db");
 }
 
@@ -43,12 +49,23 @@ bool Store::open(QString *error) {
     if (m_db.isOpen())
         return true;
 
-    if (m_path != QLatin1String(":memory:")) {
-        const QDir dir = QFileInfo(m_path).absoluteDir();
-        if (!dir.exists() && !dir.mkpath(".")) {
-            if (error) *error = QStringLiteral("cannot create directory %1").arg(dir.path());
+    const bool onDisk = m_path != QLatin1String(":memory:");
+    if (onDisk) {
+        const QString dir = QFileInfo(m_path).absolutePath();
+        if (!makePrivateDirectory(dir)) {
+            if (error) *error = QStringLiteral("cannot create directory %1").arg(dir);
             return false;
         }
+        // The plan and the raw AI input and answers are private. SQLite
+        // gives -wal and -shm the database file's permissions; files from
+        // before 0.2 are tightened here too.
+        const QString files[] = {m_path, m_path + QStringLiteral("-wal"), m_path + QStringLiteral("-shm")};
+        QFile db(m_path);
+        if (!db.exists() && db.open(QIODevice::WriteOnly))
+            db.close();
+        for (const QString &file : files)
+            if (QFileInfo::exists(file))
+                QFile::setPermissions(file, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
     }
 
     m_db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), m_connectionName);
@@ -62,13 +79,25 @@ bool Store::open(QString *error) {
     // WAL plus a busy timeout are what make concurrent writers from separate
     // processes (GUI, CLI, MCP) safe instead of failing with "database is
     // locked".
+    // The busy timeout comes first so that switching to WAL waits for a
+    // concurrent first open instead of failing.
     QSqlQuery pragma(m_db);
-    pragma.exec(QStringLiteral("PRAGMA journal_mode=WAL"));
     pragma.exec(QStringLiteral("PRAGMA busy_timeout=5000"));
+    pragma.exec(QStringLiteral("PRAGMA journal_mode=WAL"));
     pragma.exec(QStringLiteral("PRAGMA foreign_keys=ON"));
     pragma.exec(QStringLiteral("PRAGMA synchronous=NORMAL"));
 
     return migrate(error);
+}
+
+bool Store::makePrivateDirectory(const QString &path) {
+    QDir dir(path);
+    if (dir.exists())
+        return true;
+    if (!dir.mkpath(QStringLiteral(".")))
+        return false;
+    QFile::setPermissions(path, QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner);
+    return true;
 }
 
 int Store::schemaVersion() const {
@@ -93,8 +122,14 @@ int Store::dataVersion(bool *ok) const {
     return query.value(0).toInt();
 }
 
+// The whole migration is one BEGIN IMMEDIATE transaction, and the version is
+// read again once the write lock is held: when several processes open a new
+// or older database at once, one migrates and the others find the work done.
+// An interrupted migration rolls back completely.
 bool Store::migrate(QString *error) {
     int version = schemaVersion();
+    if (version == kSchemaVersion)
+        return true;
     if (version > kSchemaVersion) {
         if (error) *error = QStringLiteral("database schema version %1 is newer than this build (%2)")
                                 .arg(version).arg(kSchemaVersion);
@@ -102,55 +137,79 @@ bool Store::migrate(QString *error) {
     }
 
     QSqlQuery query(m_db);
+    if (!query.exec(QStringLiteral("BEGIN IMMEDIATE"))) {
+        if (error) *error = query.lastError().text();
+        return false;
+    }
+    if (!migrateLocked(query, error)) {
+        QSqlQuery(m_db).exec(QStringLiteral("ROLLBACK"));
+        return false;
+    }
+    if (!query.exec(QStringLiteral("COMMIT"))) {
+        if (error) *error = query.lastError().text();
+        QSqlQuery(m_db).exec(QStringLiteral("ROLLBACK"));
+        return false;
+    }
+    return true;
+}
+
+bool Store::migrateLocked(QSqlQuery &query, QString *error) {
+    int version = schemaVersion();
+    if (version > kSchemaVersion) {
+        if (error) *error = QStringLiteral("database schema version %1 is newer than this build (%2)")
+                                .arg(version).arg(kSchemaVersion);
+        return false;
+    }
+    // Adds a column unless it is there: the migration race of older builds
+    // left databases with the columns but user_version behind them.
+    const auto addColumn = [&](const QString &table, const QString &column, const QString &definition) {
+        if (!query.exec(QStringLiteral("PRAGMA table_info(%1)").arg(table))) {
+            if (error) *error = query.lastError().text();
+            return false;
+        }
+        while (query.next())
+            if (query.value(1).toString() == column)
+                return true;
+        if (query.exec(QStringLiteral("ALTER TABLE %1 ADD COLUMN %2 %3").arg(table, column, definition)))
+            return true;
+        if (error) *error = query.lastError().text();
+        return false;
+    };
     while (version < kSchemaVersion) {
         if (version == 0) {
             // Version 1: the three tables (see below).
             if (!createTables(query, error))
                 return false;
-            version = 1;
         } else if (version == 1) {
             // Version 2: changes.undo_of links an undo to the change it
             // inverted, so repeated undo walks back through the history
             // instead of inverting the same change twice.
-            if (!query.exec(QStringLiteral("ALTER TABLE changes ADD COLUMN undo_of INTEGER"))) {
-                if (error) *error = query.lastError().text();
+            if (!addColumn(QStringLiteral("changes"), QStringLiteral("undo_of"), QStringLiteral("INTEGER")))
                 return false;
-            }
-            version = 2;
         } else if (version == 2) {
             // Version 3: changes.redo_of marks an undo as re-applied by a
             // redo, so redo walks forward through the undos.
-            if (!query.exec(QStringLiteral("ALTER TABLE changes ADD COLUMN redo_of INTEGER"))) {
-                if (error) *error = query.lastError().text();
+            if (!addColumn(QStringLiteral("changes"), QStringLiteral("redo_of"), QStringLiteral("INTEGER")))
                 return false;
-            }
-            version = 3;
         } else if (version == 3) {
             // Version 4: captures.annotated_text keeps the date-annotated
             // text next to the raw input, so a proposal stays traceable.
-            if (!query.exec(QStringLiteral(
-                    "ALTER TABLE captures ADD COLUMN annotated_text TEXT NOT NULL DEFAULT ''"))) {
-                if (error) *error = query.lastError().text();
+            if (!addColumn(QStringLiteral("captures"), QStringLiteral("annotated_text"), QStringLiteral("TEXT NOT NULL DEFAULT ''")))
                 return false;
-            }
-            version = 4;
         } else if (version == 4) {
             // Version 5: changes.batch groups changes made as one step (an
             // approved AI proposal), so undo/redo handle them together.
-            if (!query.exec(QStringLiteral("ALTER TABLE changes ADD COLUMN batch TEXT"))) {
-                if (error) *error = query.lastError().text();
+            if (!addColumn(QStringLiteral("changes"), QStringLiteral("batch"), QStringLiteral("TEXT")))
                 return false;
-            }
-            version = 5;
         } else {
             if (error) *error = QStringLiteral("unknown schema version %1").arg(version);
             return false;
         }
-        query.prepare(QStringLiteral("PRAGMA user_version=%1").arg(version));
-        if (!query.exec()) {
-            if (error) *error = query.lastError().text();
-            return false;
-        }
+        ++version;
+    }
+    if (!query.exec(QStringLiteral("PRAGMA user_version=%1").arg(version))) {
+        if (error) *error = query.lastError().text();
+        return false;
     }
     return true;
 }

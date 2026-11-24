@@ -46,6 +46,10 @@ void AiEngine::propose(const QString &text, const PromptContext &context)
     m_stdout.clear();
     m_stderr.clear();
     m_startFailed = false;
+    if (text.size() > maxTextLength) {
+        fail(tr("The text is %1 characters long; the limit is %2 characters.").arg(text.size()).arg(maxTextLength));
+        return;
+    }
     m_timer->start(m_timeoutMs);
     start(buildSystemPrompt(context), buildUserPrompt(text, context.existingTasks));
 }

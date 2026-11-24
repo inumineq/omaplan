@@ -15,6 +15,11 @@ static DateWords danish() {
     w.inDaysPattern = QStringLiteral("^om (\\d{1,3}) dag(?:e)?$");
     w.timePrefixes = {QStringLiteral("kl\\.?")};
     w.dayArticles = {QStringLiteral("den")};
+    w.durationUnits = {QStringLiteral("min"),    QStringLiteral("min."),    QStringLiteral("minut"),
+                       QStringLiteral("minutter"), QStringLiteral("t"),     QStringLiteral("t."),
+                       QStringLiteral("time"),   QStringLiteral("timer"),   QStringLiteral("timers"),
+                       QStringLiteral("dag"),    QStringLiteral("dage"),    QStringLiteral("dages"),
+                       QStringLiteral("uge"),    QStringLiteral("uger"),    QStringLiteral("ugers")};
     w.weekdays = {{QStringLiteral("mandag"), 1}, {QStringLiteral("tirsdag"), 2}, {QStringLiteral("onsdag"), 3},
                   {QStringLiteral("torsdag"), 4}, {QStringLiteral("fredag"), 5}, {QStringLiteral("lørdag"), 6},
                   {QStringLiteral("søndag"), 7}};
@@ -45,6 +50,11 @@ static DateWords english() {
     w.inDaysPattern = QStringLiteral("^in (\\d{1,3}) days?$");
     w.timePrefixes = {QStringLiteral("at")};
     w.dayArticles = {QStringLiteral("the")};
+    w.durationUnits = {QStringLiteral("m"),      QStringLiteral("min"),     QStringLiteral("mins"),
+                       QStringLiteral("minute"), QStringLiteral("minutes"), QStringLiteral("h"),
+                       QStringLiteral("hr"),     QStringLiteral("hrs"),     QStringLiteral("hour"),
+                       QStringLiteral("hours"),  QStringLiteral("day"),     QStringLiteral("days"),
+                       QStringLiteral("week"),   QStringLiteral("weeks")};
     w.weekdays = {{QStringLiteral("monday"), 1}, {QStringLiteral("tuesday"), 2}, {QStringLiteral("wednesday"), 3},
                   {QStringLiteral("thursday"), 4}, {QStringLiteral("friday"), 5}, {QStringLiteral("saturday"), 6},
                   {QStringLiteral("sunday"), 7}};
@@ -92,6 +102,11 @@ bool isDayAfterTomorrow(const QString &phrase) {
 bool isNextWeek(const QString &phrase) { return anyContains(phrase, [](const DateWords &w) { return w.nextWeek; }); }
 bool isWeekend(const QString &phrase) { return anyContains(phrase, [](const DateWords &w) { return w.weekend; }); }
 bool isDayArticle(const QString &word) { return anyContains(word, [](const DateWords &w) { return w.dayArticles; }); }
+bool isDurationUnit(const QString &word) {
+    static const QRegularExpression trailingPunctuation(QStringLiteral("[,;:!?)]+$"));
+    const QString bare = word.toLower().remove(trailingPunctuation);
+    return anyContains(bare, [](const DateWords &w) { return w.durationUnits; });
+}
 
 int weekday(const QString &word) { return anyValue(word, [](const DateWords &w) { return w.weekdays; }); }
 int month(const QString &word) { return anyValue(word, [](const DateWords &w) { return w.months; }); }

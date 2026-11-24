@@ -28,8 +28,8 @@ Rectangle {
 
     implicitHeight: content.implicitHeight + 14
     radius: Math.min(4, theme.radius)
-    color: selected ? theme.raised : hover.hovered ? Qt.alpha(theme.raised, 0.5) : "transparent"
-    border.color: selected ? theme.accent : "transparent"
+    // Selection as in Folio: an accent tint, no frame; hover barely shows.
+    color: selected ? Qt.alpha(theme.accent, 0.18) : hover.hovered ? Qt.alpha(theme.foreground, 0.05) : "transparent"
 
     // Priority as a colored edge: red for high, accent for medium.
     Rectangle {

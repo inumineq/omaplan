@@ -1,0 +1,50 @@
+name: Test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    # The app ships as an Arch package built against Arch's Qt, so it is tested there.
+    container: archlinux:latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install git for the checkout
+        run: pacman -Syu --noconfirm --needed git
+
+      - uses: actions/checkout@v4
+
+      - name: Install the package's dependencies
+        # pkgbuild/PKGBUILD is the one list of what the app needs (nodejs as a check dependency for web/test.mjs),
+        # so CI reads it rather than keeping a copy.
+        run: |
+          source pkgbuild/PKGBUILD
+          deps=("${depends[@]}" "${makedepends[@]}" "${checkdepends[@]}")
+          pacman -S --noconfirm --needed base-devel "${deps[@]%%[<>=]*}"
+
+      - name: Set up a user and a locale like a desktop's
+        # Root ignores file permissions, so the tests of private files need an ordinary user; the container
+        # generates no locale.
+        run: |
+          useradd -m tester
+          chown -R tester .
+          sed -i 's/^#en_US.UTF-8/en_US.UTF-8/' /etc/locale.gen
+          locale-gen
+
+      - name: Build
+        run: su tester -c bin/build
+
+      - name: Test
+        # bin/test also runs web/test.mjs when node is installed; fail here if it is not.
+        run: |
+          command -v node
+          su tester -c 'LANG=en_US.UTF-8 bin/test'

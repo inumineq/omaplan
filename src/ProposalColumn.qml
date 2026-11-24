@@ -60,7 +60,7 @@ Rectangle {
             BusyIndicator { Layout.alignment: Qt.AlignHCenter; running: parent.visible }
             Text {
                 Layout.alignment: Qt.AlignHCenter
-                text: qsTr("Waiting for %1 …").arg(column.info.engine)
+                text: qsTr("Waiting for %1…").arg(column.info.engine)
                 color: theme.muted
             }
             Item { Layout.fillHeight: true }
@@ -111,6 +111,7 @@ Rectangle {
                     anchors.verticalCenter: parent.verticalCenter
                     text: qsTr("+ Add task")
                     keyHint: "Ctrl+N"
+                    keyInline: true
                     onClicked: column.view.addTask(column.col)
                 }
             }

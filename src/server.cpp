@@ -1,7 +1,9 @@
 #include "server.h"
 
 #include <QFile>
+#include <QHostInfo>
 #include <QJsonDocument>
+#include <QRegularExpression>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTimer>
@@ -49,6 +51,7 @@ static const char *reason(int status) {
     case 400: return "Bad Request";
     case 404: return "Not Found";
     case 405: return "Method Not Allowed";
+    case 421: return "Misdirected Request";
     case 431: return "Request Header Fields Too Large";
     case 500: return "Internal Server Error";
     default: return "Error";
@@ -84,13 +87,57 @@ void PlanServer::readRequest(QTcpSocket *socket) {
         send(socket, text(400, "Bad request"), false);
         return;
     }
-    QByteArray acceptLanguage;
+    QByteArray acceptLanguage, host;
+    bool hasHost = false;
     for (const QByteArray &line : buffer.left(end).split('\n').mid(1)) {
         const int colon = line.indexOf(':');
-        if (colon > 0 && line.left(colon).trimmed().toLower() == "accept-language")
+        if (colon <= 0)
+            continue;
+        const QByteArray name = line.left(colon).trimmed().toLower();
+        if (name == "accept-language")
             acceptLanguage = line.mid(colon + 1).trimmed();
+        else if (name == "host") {
+            host = line.mid(colon + 1).trimmed();
+            hasHost = true;
+        }
+    }
+    // Browsers always send Host; a request without one is no rebinding.
+    if (hasHost && !hostAllowed(host)) {
+        send(socket, {421, "text/plain; charset=utf-8",
+                      "Unknown host. Start omaplan serve with --host " + host + " to serve this name.\n", {}},
+             parts[0] == "HEAD");
+        return;
     }
     send(socket, respond(parts[0], parts[1], acceptLanguage), parts[0] == "HEAD");
+}
+
+bool PlanServer::hostAllowed(const QByteArray &header) const {
+    QString host = QString::fromLatin1(header).trimmed().toLower();
+    if (host.startsWith(QLatin1Char('['))) {
+        host = host.mid(1, host.indexOf(QLatin1Char(']')) - 1); // [::1]:8787
+    } else if (host.count(QLatin1Char(':')) == 1) {
+        host = host.left(host.indexOf(QLatin1Char(':')));
+    }
+    if (host.endsWith(QLatin1Char('.')))
+        host.chop(1);
+    if (host.isEmpty())
+        return false;
+    // An address is no name a site can rebind.
+    if (!QHostAddress(host).isNull() || host == QLatin1String("localhost"))
+        return true;
+    const QString self = QHostInfo::localHostName().toLower();
+    if (!self.isEmpty() && host.startsWith(self)) {
+        // The machine itself, on the local network, or on its tailnet
+        // (<name>.<tailnet>.ts.net); <name>.<any domain> could be anyone's.
+        const QString rest = host.mid(self.size());
+        static const QRegularExpression own(QStringLiteral("^(|\\.local|\\.[a-z0-9-]+\\.ts\\.net)$"));
+        if (own.match(rest).hasMatch())
+            return true;
+    }
+    for (const QString &allowed : m_options.hosts)
+        if (host == allowed.trimmed().toLower())
+            return true;
+    return false;
 }
 
 QString PlanServer::language(const QByteArray &acceptLanguage) const {

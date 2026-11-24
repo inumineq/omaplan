@@ -20,7 +20,8 @@ It follows the Omarchy spirit:
 - **Keyboard first, agent first.** Everything the window can do, the CLI (with `--json`) and `omaplan mcp` can do
   too. All three go through `src/actions.cpp`, so they cannot drift apart.
 
-Read `SPEC.md`, `docs/architecture.md` and the ADRs in `docs/adr/` before larger changes.
+Read `SPEC.md`, `docs/architecture.md` and the ADRs in `docs/adr/` before larger changes. Planned work is in
+[`docs/roadmap.md`](docs/roadmap.md); open an issue before starting on an item.
 
 ## Build and run from source
 
@@ -48,7 +49,8 @@ bin/test
 `bin/test` builds the app, checks that every UI string is translated (`bin/i18n-check`), runs the Qt Test suites
 offscreen and, when Node is installed, the read-only page's JavaScript tests (`node web/test.mjs`). Node is not a
 build dependency, but please run those tests before a pull request that touches `web/`, `src/render.*` or the
-export format.
+export format. CI (`.github/workflows/test.yml`) runs `bin/test`, Node included, in an Arch container on every
+pull request.
 
 No test calls a real AI. Engines are replaced by fakes or by the `command` engine with a fixture. To try a real
 engine by hand, run `bin/smoke-ai [engine]` with a temporary `OMAPLAN_DB`. It is never part of `bin/test`.

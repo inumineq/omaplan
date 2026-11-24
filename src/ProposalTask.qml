@@ -104,10 +104,11 @@ Rectangle {
                 Layout.fillWidth: true
                 text: card.task.title
                 placeholderText: text === "" ? qsTr("Title") : ""
-                font.pixelSize: 15
-                font.bold: true
+                font.pixelSize: 14
+                font.weight: Font.DemiBold
                 color: theme.foreground
                 selectByMouse: true
+                leftPadding: 0  // flush with the fields below
                 background: Rectangle {
                     color: "transparent"
                     Rectangle {

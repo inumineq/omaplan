@@ -25,6 +25,11 @@ public:
     ~Store() override;
 
     static QString defaultPath();
+    // ~/.local/share/omaplan/omaplan.db, whatever OMAPLAN_DB says.
+    static QString standardPath();
+    // Creates `path` (and missing parents) with the last one 0700; an
+    // existing directory is left as it is.
+    static bool makePrivateDirectory(const QString &path);
     QString path() const { return m_path; }
 
     bool open(QString *error = nullptr);
@@ -109,6 +114,7 @@ public:
 
 private:
     bool migrate(QString *error);
+    bool migrateLocked(QSqlQuery &query, QString *error);
     bool createTables(QSqlQuery &query, QString *error);
     bool writeTask(const Task &task, bool replace, QString *error);
     Task rowToTask(const QSqlQuery &query) const;

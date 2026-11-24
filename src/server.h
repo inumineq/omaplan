@@ -6,6 +6,7 @@
 #include <QJsonObject>
 #include <QObject>
 #include <QString>
+#include <QStringList>
 #include <functional>
 
 class QTcpServer;
@@ -32,6 +33,11 @@ public:
         // The page language when Accept-Language names no supported one
         // (Render::kLanguages); empty = "en".
         QString language;
+        // Host names served besides loopback names, IP addresses and this
+        // machine's own name (e.g. its tailnet name, --host). Any other Host
+        // header gets 421, so a site that rebinds its name to 127.0.0.1
+        // cannot read the plan.
+        QStringList hosts;
     };
 
     static constexpr int kMaxRequestBytes = 8 * 1024;
@@ -60,6 +66,7 @@ private:
     void readRequest(QTcpSocket *socket);
     void send(QTcpSocket *socket, const Response &response, bool head);
     QString htmlStyle(const QJsonObject &plan) const;
+    bool hostAllowed(const QByteArray &host) const;
 
     Options m_options;
     QTcpServer *m_server;

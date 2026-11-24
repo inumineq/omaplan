@@ -9,6 +9,7 @@
 #include <QDir>
 #include <QEventLoop>
 #include <QFile>
+#include <QFileInfo>
 #include <QHostAddress>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -134,6 +135,7 @@ static bool runEngine(AiEngine &engine, const QString &text, Proposal *proposalO
     guard.start(guardMs);
     PromptContext ctx;
     ctx.today = QDate(2026, 11, 23); // the fixed fixture date (a Monday)
+    ctx.timeZone = QStringLiteral("Europe/Copenhagen");
     ctx.language = QStringLiteral("da");
     engine.propose(text, ctx);
     if (!done) // process-based engines answer asynchronously
@@ -178,6 +180,7 @@ private slots:
         ctx.today = QDate(2026, 11, 23); // Monday
         ctx.language = QStringLiteral("da");
         ctx.existingTasks = {QStringLiteral("2026-11-24 09:00 Research (Blog)")};
+        ctx.timeZone = QStringLiteral("Europe/Copenhagen");
         const QString prompt = buildSystemPrompt(ctx);
         QVERIFY(prompt.contains(QStringLiteral("2026-11-23")));
         QVERIFY(prompt.contains(QStringLiteral("Monday")));
@@ -188,6 +191,12 @@ private slots:
         QVERIFY(prompt.contains(QStringLiteral("tasks")));   // the schema is embedded
         QVERIFY(prompt.contains(QStringLiteral("guessed")));       // guessing rules
         QVERIFY(prompt.contains(QStringLiteral("unresolved")));
+        // The machine's own time zone by default, not a fixed one.
+        PromptContext local;
+        local.today = ctx.today;
+        QVERIFY(buildSystemPrompt(local).contains(QString::fromUtf8(QTimeZone::systemTimeZoneId())));
+        local.timeZone = QStringLiteral("America/New_York");
+        QVERIFY(buildSystemPrompt(local).contains(QStringLiteral("America/New_York")));
         QVERIFY(prompt.contains(QStringLiteral("på tirsdag"))); // Danish date expressions mentioned
         // eval-vibe-2: engines must not wander into prose or tool calls.
         QVERIFY(prompt.contains(QStringLiteral("no tool calls"), Qt::CaseInsensitive));
@@ -772,9 +781,11 @@ private slots:
             "#!/bin/sh\n"
             "dir=\"%1\"\n"
             "printf '%s\\n' \"$@\" > \"$dir/args.txt\"\n"
+            "cat > \"$dir/stdin.txt\"\n"
             "prev=\n"
             "for a in \"$@\"; do\n"
             "  if [ \"$prev\" = \"--system-prompt-file\" ]; then f=\"$a\"; fi\n"
+            "  if [ \"$prev\" = \"--prompt-file\" ]; then p=\"$a\"; fi\n"
             "  prev=\"$a\"\n"
             "done\n"
             "if [ -f \"$f\" ]; then\n"
@@ -783,6 +794,15 @@ private slots:
             "else\n"
             "  echo missing > \"$dir/marker\"\n"
             "fi\n"
+            // Like the real vibe, a prompt piped through /dev/stdin from
+            // QProcess does not count: only a regular, non-empty file does.
+            "if [ ! -f \"$p\" ] || [ ! -s \"$p\" ]; then\n"
+            "  echo 'Error: No prompt provided for programmatic mode' >&2\n"
+            "  exit 1\n"
+            "fi\n"
+            "echo \"$p\" > \"$dir/prompt-path.txt\"\n"
+            "stat -c %a \"$p\" > \"$dir/prompt-mode.txt\"\n"
+            "cp \"$p\" \"$dir/prompt.txt\"\n"
             "cat \"$dir/response.json\"\n").arg(dir.path());
         QVERIFY(writeFakeTool(dir.path(), QStringLiteral("vibe"), script));
 
@@ -815,6 +835,21 @@ private slots:
         QVERIFY(argsText.contains(QStringLiteral("--enabled-tools")));
         QVERIFY(argsText.contains(QStringLiteral("__omaplan_no_tools__")));
         QVERIFY(argsText.contains(QStringLiteral("--max-turns")));
+        // The user prompt goes in a private file, not in the arguments.
+        QVERIFY(!argsText.contains(QStringLiteral("køb mælk")));
+        QVERIFY(!argsText.contains(QStringLiteral("/dev/stdin")));
+        QFile prompt(dir.filePath(QStringLiteral("prompt.txt")));
+        QVERIFY(prompt.open(QIODevice::ReadOnly));
+        QVERIFY(QString::fromUtf8(prompt.readAll()).contains(QStringLiteral("køb mælk")));
+        QFile mode(dir.filePath(QStringLiteral("prompt-mode.txt")));
+        QVERIFY(mode.open(QIODevice::ReadOnly));
+        QCOMPARE(QString::fromUtf8(mode.readAll()).trimmed(), QStringLiteral("600"));
+        // The prompt file is removed once the run is over.
+        QFile pathFile(dir.filePath(QStringLiteral("prompt-path.txt")));
+        QVERIFY(pathFile.open(QIODevice::ReadOnly));
+        const QString promptPath = QString::fromUtf8(pathFile.readAll()).trimmed();
+        QVERIFY(!promptPath.isEmpty());
+        QVERIFY2(!QFileInfo::exists(promptPath), qPrintable(promptPath));
     }
 
     void claudeEngineUnwrapsResultEnvelope()
@@ -833,6 +868,7 @@ private slots:
             "#!/bin/sh\n"
             "dir=\"%1\"\n"
             "printf '%s\\n' \"$@\" > \"$dir/args.txt\"\n"
+            "cat > \"$dir/stdin.txt\"\n"
             "cat \"$dir/response.json\"\n").arg(dir.path());
         QVERIFY(writeFakeTool(dir.path(), QStringLiteral("claude"), script));
 
@@ -848,19 +884,44 @@ private slots:
         }
         qputenv("PATH", oldPath);
 
-        // The full prompt went to -p, with the json output format requested.
-        // (The prompt itself contains newlines, so inspect the raw file.)
+        // The full prompt goes on stdin, never in the arguments (visible in
+        // ps, and capped at 128 kB by the kernel).
         QFile args(dir.filePath(QStringLiteral("args.txt")));
         QVERIFY(args.open(QIODevice::ReadOnly));
         const QString argsText = QString::fromUtf8(args.readAll());
-        const QStringList argLines = argsText.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+        const QStringList argLines = argsText.split(QLatin1Char('\n'));
+        QVERIFY(!argsText.contains(QStringLiteral("skriv blogindlæg")));
+        QFile in(dir.filePath(QStringLiteral("stdin.txt")));
+        QVERIFY(in.open(QIODevice::ReadOnly));
+        const QString stdinText = QString::fromUtf8(in.readAll());
+        QVERIFY(stdinText.contains(QStringLiteral("skriv blogindlæg")));   // user text
+        QVERIFY(stdinText.contains(QStringLiteral("2026-11-23")));         // system prompt included
+
+        // A plain text-in/JSON-out run: no tools, no MCP servers, none of
+        // the user's settings, hooks or slash commands, no saved session.
         QVERIFY(argLines.contains(QStringLiteral("-p")));
-        QVERIFY(argLines.contains(QStringLiteral("--output-format")));
-        QVERIFY(argLines.contains(QStringLiteral("json")));
-        const int p = argLines.indexOf(QStringLiteral("-p"));
-        QVERIFY(p >= 0 && p + 1 < argLines.size());
-        QVERIFY(argsText.contains(QStringLiteral("skriv blogindlæg")));   // user text
-        QVERIFY(argsText.contains(QStringLiteral("2026-11-23")));         // system prompt included
+        const int format = argLines.indexOf(QStringLiteral("--output-format"));
+        QVERIFY(format >= 0 && argLines.value(format + 1) == QStringLiteral("json"));
+        const int tools = argLines.indexOf(QStringLiteral("--tools"));
+        QVERIFY(tools >= 0 && argLines.value(tools + 1).isEmpty());
+        const int sources = argLines.indexOf(QStringLiteral("--setting-sources"));
+        QVERIFY(sources >= 0 && argLines.value(sources + 1).isEmpty());
+        QVERIFY(argLines.contains(QStringLiteral("--strict-mcp-config")));
+        QVERIFY(!argLines.contains(QStringLiteral("--mcp-config")));
+        QVERIFY(argLines.contains(QStringLiteral("--disable-slash-commands")));
+        QVERIFY(argLines.contains(QStringLiteral("--no-session-persistence")));
+    }
+
+    // A text too long for any engine fails up front with its length, instead
+    // of a misleading "install the CLI" error from a failed exec.
+    void tooLongTextNamesItsLength()
+    {
+        auto engine = createClaudeEngine();
+        QString error;
+        const QString text(150000, QLatin1Char('x'));
+        QVERIFY(!runEngine(*engine, text, nullptr, &error));
+        QVERIFY2(error.contains(QStringLiteral("150000")), qPrintable(error));
+        QVERIFY2(!error.contains(QStringLiteral("Install")), qPrintable(error));
     }
 
     void localEngineOllamaProtocol()

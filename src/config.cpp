@@ -35,7 +35,18 @@ AppConfig AppConfig::load(const QString &path) {
         QString value = line.mid(eq + 1).trimmed();
         // A quoted value ends at its closing quote, so a comment after it
         // ("vibe"   # default engine) is dropped; an unquoted value ends at #.
-        if (!value.isEmpty() && (value.front() == QLatin1Char('"') || value.front() == QLatin1Char('\''))) {
+        // In "double quotes" \" and \\ are escapes, as in TOML ('single'
+        // quotes are literal).
+        if (!value.isEmpty() && value.front() == QLatin1Char('"')) {
+            QString unescaped;
+            for (int i = 1; i < value.size() && value.at(i) != QLatin1Char('"'); ++i) {
+                if (value.at(i) == QLatin1Char('\\') && i + 1 < value.size()
+                    && (value.at(i + 1) == QLatin1Char('"') || value.at(i + 1) == QLatin1Char('\\')))
+                    ++i;
+                unescaped += value.at(i);
+            }
+            value = unescaped;
+        } else if (!value.isEmpty() && value.front() == QLatin1Char('\'')) {
             const int close = value.indexOf(value.front(), 1);
             value = close > 0 ? value.mid(1, close - 1) : value.mid(1);
         } else if (value.contains(QLatin1Char('#'))) {

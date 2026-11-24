@@ -22,6 +22,9 @@ class AiEngine : public QObject {
     Q_OBJECT
 public:
     static constexpr int defaultTimeoutMs = 90 * 1000;
+    // Longer input fails at once with its length. Far beyond any plan text,
+    // and well inside what the engines accept.
+    static constexpr int maxTextLength = 100 * 1000;
 
     explicit AiEngine(QObject *parent = nullptr);
     ~AiEngine() override;

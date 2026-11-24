@@ -38,6 +38,9 @@ public:
     ActionResult create(const Task &task, const QString &source);
     ActionResult update(const QString &id, const QJsonObject &patch, const QString &source);
     ActionResult move(const QString &id, const QDateTime &when, bool hasTime, const QString &source);
+    // `move <id> <when>` from the CLI and MCP: `when` as text; without a time
+    // in it the task keeps its own ("move <id> monday" keeps 14:00).
+    ActionResult moveTo(const QString &id, const QString &when, const QString &source);
     ActionResult setDone(const QString &id, bool done, const QString &source);
     ActionResult remove(const QString &id, const QString &source);
     // Inverts the newest change that no undo has inverted yet, so undo works
@@ -55,8 +58,15 @@ public:
     // expressions ("i morgen", "fredag 12", "tomorrow", "next monday", with an
     // optional time like "kl. 14:30"). `today` is the reference date, so tests
     // can pass a fixed one.
+    // Upcoming (the default) reads a date as its next occurrence: "monday",
+    // "the 3rd" or "1 november" never lie before today. InPeriod reads it in
+    // today's week, month or year instead, for filters: "monday" is this
+    // week's, "1 november" this year's. "next ..." is upcoming either way.
+    enum class DateReading { Upcoming, InPeriod };
     static bool parseDateTime(const QString &text, const QDate &today, QDateTime *out, bool *hasTime,
-                              QString *error = nullptr);
+                              QString *error = nullptr, DateReading reading = DateReading::Upcoming);
+    // A --from/--to date (DateReading::InPeriod), without the time.
+    static bool parseFilterDate(const QString &text, const QDate &today, QDate *out, QString *error);
 
     // Task fields by their CLI/MCP names (title, notes, project, priority,
     // start, duration, deadline, status), as text: dates take everything
@@ -120,6 +130,9 @@ signals:
     void compareFailed(int side, const QString &message, const QString &engine);
 
 private:
+    ActionResult locked(const std::function<ActionResult()> &body);
+    ActionResult updateLocked(const QString &id, const QJsonObject &patch, const QString &source);
+    ActionResult moveLocked(const QString &id, const QDateTime &when, bool hasTime, const QString &source);
     ActionResult runEngine(const QString &rawText, const QString &engineChoice, const QString &modelOverride,
                            const QString &endpointOverride, QString *captureIdOut, bool wait);
 

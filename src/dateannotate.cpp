@@ -94,6 +94,11 @@ QString annotateDates(const QString &text, const QDate &today) {
             // A bare number alone is usually a duration ("3 hours"), not a date.
             if (len == 1 && isBareNumber(words[i].text))
                 break;
+            // A number followed by a duration unit is never a clock time:
+            // "onsdag 3 timer" is Wednesday, not Wednesday 03:00.
+            if (isBareNumber(words[i + len - 1].text) && i + len < words.size()
+                && DateVocabulary::isDurationUnit(words[i + len].text))
+                continue;
             const QString annotation = annotationFor(phrase.toLower(), today);
             if (annotation.isEmpty())
                 continue;

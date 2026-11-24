@@ -19,11 +19,14 @@ QString path(const QString &databasePath) {
     const QByteArray override = qgetenv("OMAPLAN_SNAPSHOT");
     if (!override.isEmpty())
         return QString::fromLocal8Bit(override);
-    const AppConfig config = AppConfig::load();
-    if (!config.snapshotPath.isEmpty())
-        return config.snapshotPath;
     if (databasePath.isEmpty() || databasePath == QLatin1String(":memory:"))
         return {};
+    // The configured path is the standard plan's; another database (--db,
+    // OMAPLAN_DB) writes beside itself instead of overwriting it.
+    const AppConfig config = AppConfig::load();
+    if (!config.snapshotPath.isEmpty()
+        && QFileInfo(databasePath).absoluteFilePath() == QFileInfo(Store::standardPath()).absoluteFilePath())
+        return config.snapshotPath;
     return QFileInfo(databasePath).absoluteDir().filePath(QStringLiteral("plan.json"));
 }
 
@@ -132,13 +135,15 @@ bool write(Store *store, const QString &path, QString *error, const QString &lan
         return false;
     }
     const QByteArray bytes = QJsonDocument(build(tasks, QDateTime::currentDateTime(), omarchyTheme(), language)).toJson();
-    const QDir dir = QFileInfo(path).absoluteDir();
-    if (!dir.exists() && !dir.mkpath(QStringLiteral("."))) {
-        if (error) *error = QStringLiteral("cannot create directory %1").arg(dir.path());
+    const QString dir = QFileInfo(path).absolutePath();
+    if (!Store::makePrivateDirectory(dir)) {
+        if (error) *error = QStringLiteral("cannot create directory %1").arg(dir);
         return false;
     }
+    // Owner only: the plan is private, whatever the umask.
     QSaveFile file(path);
-    if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size() || !file.commit()) {
+    if (!file.open(QIODevice::WriteOnly) || !file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner)
+        || file.write(bytes) != bytes.size() || !file.commit()) {
         if (error) *error = QStringLiteral("%1: %2").arg(path, file.errorString());
         return false;
     }

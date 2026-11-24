@@ -26,6 +26,7 @@ static void printJson(QTextStream &out, const QJsonObject &object) {
 static void printHelp(QTextStream &out) {
     out << QObject::tr(
         "Usage: omaplan [--db <path>] [--lang da|en] <command> [options] [--json]\n"
+        "       omaplan --version | --help\n"
         "\n"
         "Commands:\n"
         "  open                  Open the window (default without arguments)\n"
@@ -36,14 +37,14 @@ static void printHelp(QTextStream &out) {
         "  move <id> <when>\n"
         "  done <id> | undone <id>\n"
         "  rm <id>\n"
-        "  undo\n"
+        "  undo | redo           undo the newest change, or redo the newest undo\n"
         "  projects\n"
         "  summary [--week|--month]\n"
         "  add <text> [--engine ...] [--yes] [--model M] [--endpoint URL]   AI proposal; --yes stores it\n"
         "  skill install [--force]|uninstall   install/remove the bundled agent skill\n"
         "  mcp                   MCP server over stdio (claude mcp add omaplan -- omaplan mcp)\n"
         "  snapshot [path]       write plan.json for the read-only edition (also automatic after every change)\n"
-        "  serve [--port N] [--bind ADDR] [--snapshot PATH]   read-only web page (default 127.0.0.1:8787)\n"
+        "  serve [--port N] [--bind ADDR] [--host NAME,...] [--snapshot PATH]   read-only web page (default 127.0.0.1:8787)\n"
         "\n"
         "Dates accept ISO (2026-12-01, 2026-12-01 14:30) and English/Danish expressions\n"
         "(\"tomorrow\", \"friday 12\", \"next monday\", optional \"at 14:30\"; \"i morgen\", \"kl. 14:30\").\n"
@@ -75,14 +76,23 @@ static const QHash<QString, QString> &legacyFlags() {
 }
 
 // Splits "--flag value" pairs from positional arguments. A flag at the end, or
-// followed by another flag, gets an empty value. Old Danish flag names are
-// stored under their English names.
+// followed by another flag, gets an empty value; the switches (--yes,
+// --force, --week, --month) never take a value, so `add --yes buy milk`
+// keeps "buy". Old Danish flag names are stored under their English names.
+// Whether args[i], a flag, takes args[i + 1] as its value.
+static bool takesValue(const QStringList &args, int i) {
+    static const QStringList switches = {QStringLiteral("yes"), QStringLiteral("force"), QStringLiteral("week"),
+                                         QStringLiteral("month")};
+    const QString key = legacyFlags().value(args[i].mid(2), args[i].mid(2));
+    return !switches.contains(key) && i + 1 < args.size() && !args[i + 1].startsWith(QLatin1String("--"));
+}
+
 static QHash<QString, QString> parseFlags(const QStringList &args, QStringList *positional) {
     QHash<QString, QString> flags;
     for (int i = 0; i < args.size(); ++i) {
         if (args[i].startsWith(QLatin1String("--"))) {
             const QString key = legacyFlags().value(args[i].mid(2), args[i].mid(2));
-            if (i + 1 < args.size() && !args[i + 1].startsWith(QLatin1String("--")))
+            if (takesValue(args, i))
                 flags[key] = args[++i];
             else
                 flags[key] = QString();
@@ -90,6 +100,43 @@ static QHash<QString, QString> parseFlags(const QStringList &args, QStringList *
             positional->append(args[i]);
         }
     }
+    return flags;
+}
+
+// Whether one of `names` stands where a flag can, not as a flag's value:
+// `edit <id> --notes -h` sets the notes to "-h".
+static bool hasFlag(const QStringList &args, const QStringList &names) {
+    for (int i = 0; i < args.size(); ++i) {
+        if (names.contains(args[i]))
+            return true;
+        if (args[i].startsWith(QLatin1String("--")) && takesValue(args, i))
+            ++i;
+    }
+    return false;
+}
+
+// The options each command takes (after the 0.1 names are mapped); any other
+// is an error, so a typo (list --statsu done) never silently means "all".
+static const QHash<QString, QStringList> &commandFlags() {
+    static const QHash<QString, QStringList> flags = [] {
+        const QStringList fields = {QStringLiteral("title"), QStringLiteral("notes"), QStringLiteral("project"),
+                                    QStringLiteral("priority"), QStringLiteral("start"), QStringLiteral("duration"),
+                                    QStringLiteral("deadline"), QStringLiteral("status")};
+        QHash<QString, QStringList> map;
+        map.insert(QStringLiteral("new"), fields);
+        map.insert(QStringLiteral("edit"), fields);
+        map.insert(QStringLiteral("list"), {QStringLiteral("from"), QStringLiteral("to"), QStringLiteral("project"),
+                                            QStringLiteral("status")});
+        map.insert(QStringLiteral("add"), {QStringLiteral("engine"), QStringLiteral("yes"), QStringLiteral("model"),
+                                           QStringLiteral("endpoint")});
+        map.insert(QStringLiteral("skill"), {QStringLiteral("force")});
+        map.insert(QStringLiteral("serve"), {QStringLiteral("port"), QStringLiteral("bind"), QStringLiteral("host"),
+                                             QStringLiteral("snapshot")});
+        map.insert(QStringLiteral("summary"), {QStringLiteral("week"), QStringLiteral("month")});
+        for (const char *command : {"show", "move", "done", "undone", "rm", "undo", "redo", "projects", "mcp", "snapshot"})
+            map.insert(QLatin1String(command), {});
+        return map;
+    }();
     return flags;
 }
 
@@ -127,13 +174,30 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
             rest.append(args[i]);
     }
 
-    if (rest.isEmpty() || rest.first() == QLatin1String("--help") || rest.first() == QLatin1String("-h")
-        || rest.first() == QLatin1String("help")) {
+    if (hasFlag(rest, {QStringLiteral("--version")})) {
+        out << "omaplan " << QCoreApplication::applicationVersion() << "\n";
+        return 0;
+    }
+
+    // --help or -h anywhere shows the help and runs nothing: an agent that
+    // asks for the help of `undo` must not undo.
+    if (rest.isEmpty() || rest.first() == QLatin1String("help")
+        || hasFlag(rest, {QStringLiteral("--help"), QStringLiteral("-h")})) {
         printHelp(out);
         return 0;
     }
 
     const QString command = rest.takeFirst();
+
+    if (commandFlags().contains(command)) {
+        QStringList ignored;
+        const QStringList allowed = commandFlags().value(command);
+        for (const QString &flag : parseFlags(rest, &ignored).keys())
+            if (!allowed.contains(flag)) {
+                err << QObject::tr("Unknown option --%1 for %2; see omaplan --help").arg(flag, command) << "\n";
+                return 1;
+            }
+    }
 
     // Agent skill: no database needed, works off the home directory.
     if (command == QLatin1String("skill")) {
@@ -197,6 +261,7 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
             }
             options.port = quint16(port);
         }
+        options.hosts = flags.value(QStringLiteral("host")).split(QLatin1Char(','), Qt::SkipEmptyParts);
         if (flags.contains(QStringLiteral("bind")) && !options.address.setAddress(flags.value(QStringLiteral("bind")))) {
             err << QObject::tr("Invalid address: %1").arg(flags.value(QStringLiteral("bind"))) << "\n";
             return 1;
@@ -349,19 +414,16 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
         QStringList positional;
         const auto flags = parseFlags(rest, &positional);
         ListFilter filter;
-        QDateTime when;
-        bool hasTime;
-        if (flags.contains(QStringLiteral("from"))) {
-            if (!parseDateFlag(flags["from"], &when, &hasTime, err))
+        const QDate today = QDateTime::currentDateTime().date();
+        for (const QString &key : {QStringLiteral("from"), QStringLiteral("to")}) {
+            if (!flags.contains(key) || flags.value(key).isEmpty())
+                continue;
+            QDate *date = key == QLatin1String("from") ? &filter.from : &filter.to;
+            if (!Actions::parseFilterDate(flags.value(key), today, date, &error)) {
+                err << error << "\n";
                 return 1;
-            filter.hasFrom = true;
-            filter.from = when.date();
-        }
-        if (flags.contains(QStringLiteral("to"))) {
-            if (!parseDateFlag(flags["to"], &when, &hasTime, err))
-                return 1;
-            filter.hasTo = true;
-            filter.to = when.date();
+            }
+            (key == QLatin1String("from") ? filter.hasFrom : filter.hasTo) = true;
         }
         if (flags.contains(QStringLiteral("project")))
             filter.project = flags[QStringLiteral("project")];
@@ -402,6 +464,10 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
             err << error << "\n";
             return 1;
         }
+        if (patch.isEmpty()) {
+            err << QObject::tr("Nothing to change: give at least one field") << "\n";
+            return 1;
+        }
         ActionResult result = actions.update(positional.first(), patch, source);
         if (!result.ok) {
             err << result.error << "\n";
@@ -417,16 +483,8 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
             err << QObject::tr("Usage: omaplan move <id> <when>") << "\n";
             return 1;
         }
-        QDateTime when;
-        bool hasTime;
         // `move <id> tuesday 14` without quotes is the same as "tuesday 14".
-        if (!parseDateFlag(positional.mid(1).join(QLatin1Char(' ')), &when, &hasTime, err))
-            return 1;
-        if (!when.isValid()) {
-            err << QObject::tr("Usage: omaplan move <id> <when>") << "\n";
-            return 1;
-        }
-        ActionResult result = actions.move(positional.first(), when, hasTime, source);
+        ActionResult result = actions.moveTo(positional.first(), positional.mid(1).join(QLatin1Char(' ')), source);
         if (!result.ok) {
             err << result.error << "\n";
             return 1;
@@ -464,8 +522,8 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
         return emitResult(out, json, result);
     }
 
-    if (command == QLatin1String("undo")) {
-        ActionResult result = actions.undo(source);
+    if (command == QLatin1String("undo") || command == QLatin1String("redo")) {
+        ActionResult result = command == QLatin1String("undo") ? actions.undo(source) : actions.redo(source);
         if (!result.ok) {
             err << result.error << "\n";
             return 1;

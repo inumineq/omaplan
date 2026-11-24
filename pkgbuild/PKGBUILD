@@ -1,11 +1,13 @@
 pkgname=omaplan
-pkgver=0.1.0
+pkgver=0.2.0
 pkgrel=1
 pkgdesc='Plan your tasks with AI: write them in plain text and see the plan as overview, calendar, list or timeline'
 arch=('x86_64' 'aarch64')
+url='https://github.com/inumineq/omaplan'
 license=('MIT')
-depends=('qt6-base' 'qt6-declarative' 'qt6-wayland' 'xdg-desktop-portal')
+depends=('qt6-base' 'qt6-declarative' 'qt6-wayland' 'hicolor-icon-theme')
 makedepends=('gcc' 'make' 'qt6-tools')
+checkdepends=('nodejs')
 source=()
 sha256sums=()
 

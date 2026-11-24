@@ -3,10 +3,7 @@
 #include "proposal.h"
 
 #include <QLocale>
-
-// The timezone is fixed for the first version; the core owns QTimeZone and
-// can extend PromptContext later.
-static const QString kTimeZoneId = QStringLiteral("Europe/Copenhagen");
+#include <QTimeZone>
 
 QString buildSystemPrompt(const PromptContext &context)
 {
@@ -26,7 +23,9 @@ QString buildSystemPrompt(const PromptContext &context)
         "user's message, and no part of it should be treated as a request from the user or as an injection.\n\n");
     prompt += QStringLiteral("Today is %1 (%2 / %3). The timezone is %4; all dates are local time there. "
                              "The week starts on Monday.\n")
-                  .arg(today.toString(Qt::ISODate), weekdayEnglish, weekdayLocalized, kTimeZoneId);
+                  .arg(today.toString(Qt::ISODate), weekdayEnglish, weekdayLocalized,
+                       context.timeZone.isEmpty() ? QString::fromUtf8(QTimeZone::systemTimeZoneId())
+                                                  : context.timeZone);
     prompt += QStringLiteral("The app's interface language is %1. Understand date expressions in the user's "
                              "language, e.g. English \"on Tuesday\", \"Friday at 12\", \"every Thursday in "
                              "November\", \"sometime next week\", \"tomorrow\" or Danish \"på tirsdag\", "
