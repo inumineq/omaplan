@@ -52,7 +52,31 @@ ActionResult Actions::create(const Task &task, const QString &source) {
     return {true, {}, tr("Created %1: %2").arg(id, stored.title), payload};
 }
 
-ActionResult Actions::update(const QString &id, const QJsonObject &given, const QString &source) {
+// Runs a read-modify-write under one write lock (BEGIN IMMEDIATE), so a
+// concurrent writer in another process is never overwritten by a copy read
+// before its commit. planChanged follows the commit.
+ActionResult Actions::locked(const std::function<ActionResult()> &body) {
+    QString error;
+    if (!m_store->begin(&error))
+        return {false, error, {}, {}};
+    ActionResult result = body();
+    if (!result.ok) {
+        m_store->rollback();
+        return result;
+    }
+    if (!m_store->commit(&error)) {
+        m_store->rollback();
+        return {false, error, {}, {}};
+    }
+    emit planChanged();
+    return result;
+}
+
+ActionResult Actions::update(const QString &id, const QJsonObject &patch, const QString &source) {
+    return locked([&] { return updateLocked(id, patch, source); });
+}
+
+ActionResult Actions::updateLocked(const QString &id, const QJsonObject &given, const QString &source) {
     QString error;
     Task current;
     if (!m_store->task(id, &current, &error))
@@ -84,40 +108,41 @@ ActionResult Actions::update(const QString &id, const QJsonObject &given, const 
         return {false, error, {}, {}};
     QJsonObject payload;
     payload["task"] = patched.toJson();
-    emit planChanged();
     return {true, {}, tr("Updated %1: %2").arg(id, patched.title), payload};
 }
 
 ActionResult Actions::move(const QString &id, const QDateTime &when, bool hasTime, const QString &source) {
-    QString error;
-    Task task;
-    if (!m_store->task(id, &task, &error))
-        return {false, error, {}, {}};
-    task.start = when;
-    task.startHasTime = hasTime;
-    if (!m_store->updateTask(task, source, &error))
-        return {false, error, {}, {}};
-    QJsonObject payload;
-    payload["task"] = task.toJson();
-    emit planChanged();
-    const QString whenText = hasTime ? when.toString(QStringLiteral("yyyy-MM-dd HH:mm"))
-                                     : when.date().toString(Qt::ISODate);
-    return {true, {}, tr("Moved %1 to %2").arg(id, whenText), payload};
+    return locked([&]() -> ActionResult {
+        QString error;
+        Task task;
+        if (!m_store->task(id, &task, &error))
+            return {false, error, {}, {}};
+        task.start = when;
+        task.startHasTime = hasTime;
+        if (!m_store->updateTask(task, source, &error))
+            return {false, error, {}, {}};
+        QJsonObject payload;
+        payload["task"] = task.toJson();
+        const QString whenText = hasTime ? when.toString(QStringLiteral("yyyy-MM-dd HH:mm"))
+                                         : when.date().toString(Qt::ISODate);
+        return {true, {}, tr("Moved %1 to %2").arg(id, whenText), payload};
+    });
 }
 
 ActionResult Actions::setDone(const QString &id, bool done, const QString &source) {
-    QString error;
-    Task task;
-    if (!m_store->task(id, &task, &error))
-        return {false, error, {}, {}};
-    task.status = done ? Task::Status::Done : Task::Status::Todo;
-    if (!m_store->updateTask(task, source, &error))
-        return {false, error, {}, {}};
-    QJsonObject payload;
-    payload["task"] = task.toJson();
-    emit planChanged();
-    return {true, {}, done ? tr("Marked done: %1").arg(task.title)
-                           : tr("Marked undone: %1").arg(task.title), payload};
+    return locked([&]() -> ActionResult {
+        QString error;
+        Task task;
+        if (!m_store->task(id, &task, &error))
+            return {false, error, {}, {}};
+        task.status = done ? Task::Status::Done : Task::Status::Todo;
+        if (!m_store->updateTask(task, source, &error))
+            return {false, error, {}, {}};
+        QJsonObject payload;
+        payload["task"] = task.toJson();
+        return {true, {}, done ? tr("Marked done: %1").arg(task.title)
+                               : tr("Marked undone: %1").arg(task.title), payload};
+    });
 }
 
 ActionResult Actions::remove(const QString &id, const QString &source) {

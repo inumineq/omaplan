@@ -778,6 +778,39 @@ private slots:
         }
     }
 
+    // Two writers that change different fields of the same task at the same
+    // moment must both win: the read, merge and write happen under one write
+    // lock, so neither works from a stale copy.
+    void concurrentEditsKeepBothFields()
+    {
+        QTemporaryDir dir;
+        const QString db = dir.filePath(QStringLiteral("lost.db"));
+        for (int round = 0; round < 10; ++round) {
+            int code = -1;
+            const QJsonObject created = QJsonDocument::fromJson(
+                runOmaplan(db, {QStringLiteral("new"), QStringLiteral("--title"), QStringLiteral("Blog"),
+                                QStringLiteral("--json")}, &code).toUtf8()).object();
+            QCOMPARE(code, 0);
+            const QString id = created[QStringLiteral("task")].toObject()[QStringLiteral("id")].toString();
+            QObject owner;
+            QProcess *done = startOmaplan(db, {QStringLiteral("done"), id}, &owner);
+            QProcess *edit = startOmaplan(db, {QStringLiteral("edit"), id, QStringLiteral("--notes"),
+                                               QStringLiteral("changed")}, &owner);
+            QProcess *move = startOmaplan(db, {QStringLiteral("edit"), id, QStringLiteral("--project"),
+                                               QStringLiteral("Client A")}, &owner);
+            for (QProcess *p : {done, edit, move}) {
+                QVERIFY(p->waitForFinished(30000));
+                QCOMPARE(p->exitCode(), 0);
+            }
+            const QJsonObject task = QJsonDocument::fromJson(
+                runOmaplan(db, {QStringLiteral("show"), id, QStringLiteral("--json")}).toUtf8())
+                                         .object()[QStringLiteral("task")].toObject();
+            QCOMPARE(task[QStringLiteral("status")].toString(), QStringLiteral("done"));
+            QCOMPARE(task[QStringLiteral("notes")].toString(), QStringLiteral("changed"));
+            QCOMPARE(task[QStringLiteral("project")].toString(), QStringLiteral("Client A"));
+        }
+    }
+
     void changeLogRecordsBeforeAfterAndSource()
     {
         QTemporaryDir dir;

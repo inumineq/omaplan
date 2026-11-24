@@ -120,6 +120,8 @@ signals:
     void compareFailed(int side, const QString &message, const QString &engine);
 
 private:
+    ActionResult locked(const std::function<ActionResult()> &body);
+    ActionResult updateLocked(const QString &id, const QJsonObject &patch, const QString &source);
     ActionResult runEngine(const QString &rawText, const QString &engineChoice, const QString &modelOverride,
                            const QString &endpointOverride, QString *captureIdOut, bool wait);
 
