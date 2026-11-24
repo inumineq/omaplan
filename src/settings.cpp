@@ -48,11 +48,17 @@ void Settings::reload() {
         values.insert(key.name, file.value(key.section, key.key));
 
     const bool same = values == m_values && convention == m_convention && config.projectColors == m_config.projectColors;
+    const bool languageChanged = config.language != m_config.language;
     m_config = config;
     m_convention = convention;
     m_values = values;
     if (!same)
         emit changed();
+    // `language` picked in the panel (or by `omaplan config set`) switches the
+    // window at once; UiLanguage's changed() brings us back here once, with
+    // the language unchanged, so there is no loop.
+    if (languageChanged && m_language)
+        m_language->reload();
 }
 
 QVariantMap Settings::projectColors() const {

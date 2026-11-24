@@ -34,6 +34,7 @@
 #include "store.h"
 #include "task.h"
 #include "theme.h"
+#include "settings.h"
 #include "uilanguage.h"
 
 // Sets the active date convention for one test and puts the old one back.
@@ -2883,6 +2884,25 @@ private slots:
         QCOMPARE(structured(4).value("engines").toArray().size(), 4);
         QVERIFY(isError(5));
         QCOMPARE(AppConfig::load(dir.filePath("config.toml")).vibeModel, QStringLiteral("mistral-medium"));
+    }
+
+    // M2: picking the language in the panel switches the open window.
+    void languageSettingAppliesLive()
+    {
+        QTemporaryDir dir;
+        const QString cfg = dir.filePath("config.toml");
+        qputenv("OMAPLAN_CONFIG", cfg.toLocal8Bit());
+        UiLanguage language(nullptr, QString(), false, dir.filePath("no-omarchy-language"));
+        const QString before = language.language();
+        const QString other = before == QLatin1String("da") ? QStringLiteral("en") : QStringLiteral("da");
+        Settings settings(&language, cfg);
+        QVERIFY(Actions::configSet("language", other).ok);
+        settings.reload(); // what the file watcher does
+        QCOMPARE(language.language(), other);
+        QVERIFY(Actions::configSet("language", "").ok);
+        settings.reload();
+        qputenv("OMAPLAN_CONFIG", "");
+        QCOMPARE(language.language(), before);
     }
 
     // M3: set/get/unset act on the line the program reads, the last one.
