@@ -3,7 +3,6 @@ import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
 
-import Omaplan
 
 // One engine's answer inside ProposalView: waiting, an error with the raw
 // response, or the editable tasks.
@@ -11,7 +10,7 @@ Rectangle {
     id: column
     property int col: 0
     property var view
-    readonly property var info: { view.colRevision[col]; view.revision; return view.columns[col] || ({ state: "waiting", tasks: [], unclear: [] }) }
+    readonly property var info: view.columns[col] || ({ state: "waiting", tasks: [], unclear: [] })
     readonly property bool chosen: view.comparing && view.selected === col
 
     radius: Math.min(6, theme.radius)
@@ -98,7 +97,7 @@ Rectangle {
             spacing: 8
             boundsBehavior: Flickable.StopAtBounds
             ScrollBar.vertical: ScrollBar {}
-            model: { column.view.colRevision[column.col]; column.view.revision; return column.info.tasks.slice() }
+            model: column.info.tasks.slice()
             delegate: ProposalTask {
                 required property int index
                 required property var modelData

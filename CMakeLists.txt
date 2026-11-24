@@ -66,6 +66,8 @@ add_test(NAME skill-released COMMAND ${CMAKE_SOURCE_DIR}/tests/skill-released)
 # The read-only page's JavaScript against the same reference pages. Node is a
 # check dependency: without it this fails rather than skips.
 add_test(NAME web COMMAND node ${CMAKE_SOURCE_DIR}/web/test.mjs)
+# qmllint over the window's QML: any warning fails, as in Omarchy's apps.
+add_test(NAME qmllint COMMAND node ${CMAKE_SOURCE_DIR}/tests/qmllint.mjs $<TARGET_FILE:Qt6::qmllint> ${CMAKE_SOURCE_DIR}/src)
 
 # Manual evaluation of a real engine against the fixtures (never a test).
 add_executable(ai-eval tests/ai/eval.cpp src/ai-schema.qrc)

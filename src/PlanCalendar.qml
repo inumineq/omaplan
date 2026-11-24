@@ -2,7 +2,8 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
-import Omaplan
+// The models are registered from C++ (registerQmlTypes), so qmllint cannot see them.
+import Omaplan as Plan // qmllint disable import
 
 // Calendar: week (w) as a time grid and month (m) as cells. Tasks are dragged
 // to a new day; in the week also to a new time (a quarter hour at a time) or up
@@ -13,7 +14,7 @@ Item {
     property string mode: "week"
 
     readonly property bool canPage: true
-    readonly property var today: { planModel.today; return Fmt.startOfDay(new Date()) }
+    readonly property var today: Fmt.today
     property var anchorDate: Fmt.startOfDay(new Date())
     readonly property var weekStart: Fmt.weekStartOf(anchorDate)
     readonly property var monthStart: new Date(anchorDate.getFullYear(), anchorDate.getMonth(), 1)
@@ -27,7 +28,7 @@ Item {
     function goToday() { anchorDate = Fmt.startOfDay(new Date()) }
     function taskIds() { return rangeModel.ids() }
 
-    CalendarModel {
+    Plan.CalendarModel { // qmllint disable import
         id: rangeModel
         sourceModel: planModel
         from: cal.rangeStart
@@ -36,7 +37,7 @@ Item {
 
     // The tasks of the visible range, grouped by day index (0 = rangeStart).
     readonly property var days: {
-        rangeModel.revision
+        void rangeModel.revision
         const out = []
         for (let i = 0; i < rangeDays; ++i)
             out.push({ allDay: [], timed: [] })
@@ -55,7 +56,7 @@ Item {
     }
 
     // A task's colour: its project's (a palette slot from the settings), else the accent.
-    function tintOf(t) { settings.projectColors; return theme.palette[settings.projectColor(t.project)] || theme.accent }
+    function tintOf(t) { void settings.projectColors; return theme.palette[settings.projectColor(t.project)] || theme.accent }
 
     function chipText(t) {
         return (t.startHasTime ? Fmt.time(t.start) + "  " : "") + (t.deadlineOnly ? "⚑ " : "") + t.title
@@ -195,7 +196,7 @@ Item {
             Text {
                 font.family: theme.fontFamily
                 Layout.leftMargin: 10
-                text: { Fmt.lang; return cal.mode === "week" ? Fmt.weekTitle(cal.weekStart) : Fmt.capitalize(Fmt.monthTitle(cal.monthStart)) }
+                text: cal.mode === "week" ? Fmt.weekTitle(cal.weekStart) : Fmt.capitalize(Fmt.monthTitle(cal.monthStart))
                 color: theme.foreground
                 font.pixelSize: Math.round(17 * theme.textScale)
                 font.bold: true
@@ -229,7 +230,7 @@ Item {
                             Text {
                                 font.family: theme.fontFamily
                                 anchors.verticalCenter: parent.verticalCenter
-                                text: { Fmt.lang; return Fmt.weekdayShort(parent.parent.date) }
+                                text: Fmt.weekdayShort(parent.parent.date)
                                 color: parent.parent.isToday ? theme.accentText : theme.muted
                                 font.pixelSize: Math.round(12 * theme.textScale)
                             }
@@ -421,8 +422,8 @@ Item {
                                     width: parent.width
                                     visible: block.height > 34
                                     textFormat: Text.PlainText
-                                    text: { Fmt.lang; return Fmt.timeRange(block.task.start, block.task.durationMinutes)
-                                            + (block.task.project !== "" ? " · " + block.task.project : "") }
+                                    text: Fmt.timeRange(block.task.start, block.task.durationMinutes)
+                                          + (block.task.project !== "" ? " · " + block.task.project : "")
                                     color: theme.muted
                                     font.pixelSize: Math.round(10 * theme.textScale)
                                     elide: Text.ElideRight
@@ -463,7 +464,7 @@ Item {
                         required property int index
                         width: monthGrid.width / 7
                         horizontalAlignment: Text.AlignHCenter
-                        text: { Fmt.lang; return Fmt.weekdayShort(Fmt.addDays(cal.gridStart, index)) }
+                        text: Fmt.weekdayShort(Fmt.addDays(cal.gridStart, index))
                         color: theme.muted
                         font.pixelSize: Math.round(12 * theme.textScale)
                     }

@@ -3,7 +3,6 @@ import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
 
-import Omaplan
 
 // Free text, opened with n or Space. Ctrl+Enter sends it to the AI engine;
 // with Compare (Alt+S) the text goes to two engines at once. While the engine

@@ -146,7 +146,13 @@ private slots:
         cfg.close();
 
         QQuickStyle::setStyle(QStringLiteral("Material"));
-        m_language = std::make_unique<UiLanguage>(qApp, QStringLiteral("en"), false, m_dir.filePath("language"));
+        // English from the Omarchy language, not --lang, so `language` in
+        // config.toml can switch it live.
+        QFile omarchyLanguage(m_dir.filePath("language"));
+        QVERIFY(omarchyLanguage.open(QIODevice::WriteOnly));
+        omarchyLanguage.write("en\n");
+        omarchyLanguage.close();
+        m_language = std::make_unique<UiLanguage>(qApp, QString(), false, m_dir.filePath("language"));
         QDir().mkpath(m_dir.filePath("omarchy/theme"));
         m_theme = std::make_unique<Theme>(m_dir.filePath("omarchy"));
         m_settings = std::make_unique<Settings>(m_language.get());
@@ -402,9 +408,89 @@ private slots:
         root->setProperty("currentView", 0);
     }
 
+    // Dates and translated words re-render when the language or the first day
+    // of the week changes while the window is open.
+    void datesFollowLiveChanges() {
+        QObject *root = m_engine->rootObjects().first();
+        root->setProperty("currentView", 0);
+        pump(200);
+        const QDate today = QDate::currentDate();
+        const QString english = QLocale(QLocale::English).toString(today, QStringLiteral("dddd d MMMM"));
+        QString danish = QLocale(QLocale::Danish).toString(today, QStringLiteral("dddd d. MMMM"));
+        danish[0] = danish[0].toUpper();
+        static const QRegularExpression todayEnglish(QStringLiteral("^Today "));
+        static const QRegularExpression todayDanish(QStringLiteral("^I dag "));
+        QVERIFY(hasText(m_window->contentItem(), english));
+        QVERIFY(hasText(m_window->contentItem(), todayEnglish));
+
+        writeConfig(QByteArrayLiteral("language = \"da\"\n"));
+        pump(200);
+        QCOMPARE(m_language->language(), QStringLiteral("da"));
+        QVERIFY2(hasText(m_window->contentItem(), danish), qPrintable(danish));
+        QVERIFY(hasText(m_window->contentItem(), todayDanish));
+        QVERIFY(!hasText(m_window->contentItem(), english));
+
+        // The week title starts on the configured day: "Week 48 · 22–28 …" from a Sunday.
+        root->setProperty("calendarMode", "week");
+        root->setProperty("currentView", 1);
+        writeConfig(QByteArrayLiteral("[dates]\nweek_start = \"sunday\"\n"));
+        pump(200);
+        const QDate sunday = today.addDays(-(today.dayOfWeek() % 7));
+        QVERIFY2(hasText(m_window->contentItem(), QRegularExpression(QStringLiteral("^Week \\d+ · %1\\D").arg(sunday.day()))),
+                 qPrintable(sunday.toString()));
+        writeConfig(QByteArrayLiteral(""));
+        pump(200);
+        const QDate monday = today.addDays(1 - today.dayOfWeek());
+        QVERIFY2(hasText(m_window->contentItem(), QRegularExpression(QStringLiteral("^Week \\d+ · %1\\D").arg(monday.day()))),
+                 qPrintable(monday.toString()));
+        root->setProperty("currentView", 0);
+        pump(200);
+        QVERIFY(hasText(m_window->contentItem(), english));
+    }
+
+    // A proposal's task cards follow tasks added and removed in place.
+    void proposalCardsFollowEdits() {
+        QQuickItem *view = findType(m_window->contentItem(), "ProposalView");
+        QVERIFY(view);
+        const QVariantMap proposal{{QStringLiteral("tasks"), QVariantList{QVariantMap{{QStringLiteral("title"), QStringLiteral("Draft the agenda")}}}},
+                                   {QStringLiteral("unresolved"), QVariantList{}}};
+        QMetaObject::invokeMethod(view, "openSingle", Q_ARG(QVariant, QStringLiteral("draft the agenda")),
+                                  Q_ARG(QVariant, proposal), Q_ARG(QVariant, QString()));
+        pump();
+        QCOMPARE(countType(view, "ProposalTask"), 1);
+        QMetaObject::invokeMethod(view, "addTask", Q_ARG(QVariant, 0));
+        pump();
+        QCOMPARE(countType(view, "ProposalTask"), 2);
+        QMetaObject::invokeMethod(view, "removeTask", Q_ARG(QVariant, 0), Q_ARG(QVariant, 0));
+        pump();
+        QCOMPARE(countType(view, "ProposalTask"), 1);
+        QVERIFY(!hasText(view, QStringLiteral("Draft the agenda")));
+        QMetaObject::invokeMethod(view, "close");
+        pump();
+    }
+
     void cleanupTestCase() { m_engine.reset(); }
 
 private:
+    // QML types have class names like "ProposalTask_QMLTYPE_12".
+    static bool isType(QQuickItem *item, const char *type) {
+        return QByteArray(item->metaObject()->className()).startsWith(QByteArray(type) + "_QML");
+    }
+    static QQuickItem *findType(QQuickItem *root, const char *type) {
+        for (QQuickItem *child : root->childItems()) {
+            if (isType(child, type))
+                return child;
+            if (QQuickItem *found = findType(child, type))
+                return found;
+        }
+        return nullptr;
+    }
+    static int countType(QQuickItem *root, const char *type) {
+        int count = 0;
+        for (QQuickItem *child : root->childItems())
+            count += (isType(child, type) ? 1 : 0) + countType(child, type);
+        return count;
+    }
     // A visible text item showing exactly this text.
     static bool hasText(QQuickItem *root, const QString &text) {
         return hasText(root, QRegularExpression(QLatin1Char('^') + QRegularExpression::escape(text) + QLatin1Char('$')));

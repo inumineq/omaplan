@@ -3,7 +3,6 @@ import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
 
-import Omaplan
 
 // One proposed task with its fields. A field the engine guessed has an
 // accent frame and says "guess". Dates show how they will be read.
@@ -38,10 +37,9 @@ Rectangle {
         property string key
         property string label
         property bool isDate: false
-        property alias text: input.text
-        property alias input: input
+        property alias text: textField.text
         readonly property bool guess: card.guessed(key)
-        readonly property var parsed: { Fmt.lang; return isDate && input.text.trim() !== "" ? actions.guiParseDate(input.text) : null }
+        readonly property var parsed: isDate && textField.text.trim() !== "" ? Fmt.parseDate(textField.text) : null
         spacing: 2
         Layout.alignment: Qt.AlignTop
         Text {
@@ -54,7 +52,7 @@ Rectangle {
             font.bold: field.guess
         }
         TextField {
-            id: input
+            id: textField
             selectedTextColor: theme.accentForeground
             Layout.fillWidth: true
             text: card.task[field.key] || ""
@@ -67,8 +65,8 @@ Rectangle {
             background: Rectangle {
                 radius: Math.min(3, theme.radius)
                 color: theme.background
-                border.color: input.activeFocus ? theme.foreground : field.guess ? theme.accent : theme.border
-                border.width: field.guess || input.activeFocus ? 1.5 : 1
+                border.color: textField.activeFocus ? theme.foreground : field.guess ? theme.accent : theme.border
+                border.width: field.guess || textField.activeFocus ? 1.5 : 1
             }
             onTextChanged: card.view.setField(card.col, card.taskIndex, field.key, text)
             onActiveFocusChanged: if (activeFocus) card.focused()
@@ -81,7 +79,6 @@ Rectangle {
             font.pixelSize: Math.round(10 * theme.textScale)
             color: field.parsed && !field.parsed.ok ? theme.danger : theme.muted
             text: {
-                Fmt.lang
                 if (!field.parsed)
                     return " "
                 if (!field.parsed.ok)
@@ -126,6 +123,7 @@ Rectangle {
                 onActiveFocusChanged: if (activeFocus) card.focused()
             }
             AbstractButton {
+                id: removeButton
                 focusPolicy: Qt.NoFocus
                 implicitWidth: 26
                 implicitHeight: 26
@@ -133,7 +131,7 @@ Rectangle {
                 contentItem: Text {
                     font.family: theme.fontFamily
                     text: "×"
-                    color: parent.hovered ? theme.danger : theme.muted
+                    color: removeButton.hovered ? theme.danger : theme.muted
                     font.pixelSize: Math.round(18 * theme.textScale)
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter

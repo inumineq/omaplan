@@ -2,7 +2,8 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
-import Omaplan
+// The models are registered from C++ (registerQmlTypes), so qmllint cannot see them.
+import Omaplan as Plan // qmllint disable import
 
 // Timeline: the tasks as bars over the days, placed by day and time and as
 // long as their duration. All-day tasks fill the whole day, overlaps get a
@@ -16,7 +17,7 @@ Item {
     readonly property var zoomLevels: [1, 3, 7, 14]
     property int zoomIndex: 2
     readonly property int dayCount: zoomLevels[zoomIndex]
-    readonly property var today: { planModel.today; return Fmt.startOfDay(new Date()) }
+    readonly property var today: Fmt.today
     property var anchorDate: Fmt.startOfDay(new Date())
     readonly property var rangeStart: dayCount >= 7 ? Fmt.weekStartOf(anchorDate) : anchorDate
 
@@ -25,9 +26,9 @@ Item {
     function zoom(step) { zoomIndex = Math.max(0, Math.min(zoomLevels.length - 1, zoomIndex + step)) }
     function taskIds() { return bars.map(b => b.task.taskId) }
     // A task's project colour (a palette slot from the settings), "" without one.
-    function projectColorOf(t) { settings.projectColors; return theme.palette[settings.projectColor(t.project)] || "" }
+    function projectColorOf(t) { void settings.projectColors; return theme.palette[settings.projectColor(t.project)] || "" }
 
-    CalendarModel {
+    Plan.CalendarModel { // qmllint disable import
         id: rangeModel
         sourceModel: planModel
         from: gantt.rangeStart
@@ -35,7 +36,7 @@ Item {
     }
 
     // The hours each day shows: 07-19 by default, widened to fit the tasks.
-    readonly property var rows: { rangeModel.revision; return rangeModel.rows().filter(t => Fmt.valid(t.start)) }
+    readonly property var rows: { void rangeModel.revision; return rangeModel.rows().filter(t => Fmt.valid(t.start)) }
     readonly property int firstHour: {
         let h = 7
         for (const t of rows) if (t.startHasTime) h = Math.min(h, t.start.getHours())
@@ -126,7 +127,6 @@ Item {
                 font.family: theme.fontFamily
                 Layout.leftMargin: 10
                 text: {
-                    Fmt.lang
                     if (gantt.dayCount === 7)
                         return Fmt.weekTitle(gantt.rangeStart)
                     if (gantt.dayCount === 1)
@@ -172,7 +172,7 @@ Item {
                         y: 4
                         width: parent.width - 12
                         elide: Text.ElideRight
-                        text: { Fmt.lang; return gantt.dayCount > 7 ? Fmt.dayShort(parent.date) : Fmt.capitalize(Fmt.dayLong(parent.date)) }
+                        text: gantt.dayCount > 7 ? Fmt.dayShort(parent.date) : Fmt.capitalize(Fmt.dayLong(parent.date))
                         color: parent.isToday ? theme.accentText : theme.foreground
                         font.pixelSize: Math.round(12 * theme.textScale)
                         font.bold: parent.isToday
@@ -263,7 +263,6 @@ Item {
                             elide: Text.ElideRight
                             textFormat: Text.PlainText
                             text: {
-                                Fmt.lang
                                 const t = barItem.task
                                 return (t.startHasTime ? Fmt.time(t.start) + "  " : "") + t.title
                             }

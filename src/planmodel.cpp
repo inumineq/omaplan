@@ -368,6 +368,4 @@ void registerQmlTypes() {
     qmlRegisterType<CalendarModel>("Omaplan", 1, 0, "CalendarModel");
     qmlRegisterType<PlanListModel>("Omaplan", 1, 0, "PlanListModel");
     qmlRegisterType<GanttModel>("Omaplan", 1, 0, "GanttModel");
-    // Date, time and duration formatting in the Omarchy language.
-    qmlRegisterSingletonType(QUrl(QStringLiteral("qrc:/Fmt.qml")), "Omaplan", 1, 0, "Fmt");
 }

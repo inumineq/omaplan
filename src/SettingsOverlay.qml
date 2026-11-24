@@ -3,7 +3,6 @@ import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
 
-import Omaplan
 
 // The settings (, or Ctrl+,): the AI engines, how dates and times are read
 // and shown, and the project colours. config.toml stays the only source: every
@@ -40,7 +39,7 @@ Rectangle {
     // Closes without saving a half-typed field, and stops a running Test.
     function close() {
         closing = true
-        const f = Window.activeFocusItem
+        const f = Window.activeFocusItem as ConfigInput
         if (f && f.configField)
             f.text = f.configField.stored
         for (const id in tests)
@@ -51,7 +50,7 @@ Rectangle {
     }
     // Esc: first undoes a field's unsaved typing, then closes.
     function handleEscape() {
-        const f = Window.activeFocusItem
+        const f = Window.activeFocusItem as ConfigInput
         if (f && f.configField && f.text !== f.configField.stored) {
             f.text = f.configField.stored
             // A field in another section is not seen being restored: close too.
@@ -160,6 +159,11 @@ Rectangle {
         font.pixelSize: Math.round(11 * theme.textScale)
         wrapMode: Text.Wrap
     }
+    // The text field of a saving ConfigField knows it, so the panel can restore
+    // the focused field's stored value.
+    component ConfigInput: TextField {
+        property ConfigField configField: null
+    }
     // A text setting: shows the file's value, writes it on Enter or when the
     // field loses focus.
     component ConfigField: ColumnLayout {
@@ -168,10 +172,10 @@ Rectangle {
         property string label
         property string placeholder: ""
         property bool saves: true          // false: a scratch field (the date preview)
-        property alias input: input
+        property alias input: textField
         readonly property string stored: saves ? panel.value(key) : ""
-        onStoredChanged: if (!input.activeFocus) input.text = stored
-        Component.onCompleted: input.text = stored
+        onStoredChanged: if (!textField.activeFocus) textField.text = stored
+        Component.onCompleted: textField.text = stored
         spacing: 3
         Text {
             font.family: theme.fontFamily
@@ -181,11 +185,11 @@ Rectangle {
             color: theme.muted
             font.pixelSize: Math.round(11 * theme.textScale)
         }
-        TextField {
-            id: input
+        ConfigInput {
+            id: textField
             // Each engine card holds every kind of field; only the shown one is named.
             objectName: fieldBox.saves && fieldBox.visible ? "field:" + fieldBox.key : ""
-            readonly property var configField: fieldBox.saves ? fieldBox : null
+            configField: fieldBox.saves ? fieldBox : null
             Layout.fillWidth: true
             selectedTextColor: theme.accentForeground
             font.pixelSize: Math.round(13 * theme.textScale)
@@ -199,7 +203,7 @@ Rectangle {
             background: Rectangle {
                 radius: Math.min(3, theme.radius)
                 color: theme.background
-                border.color: input.activeFocus ? theme.accent : theme.border
+                border.color: textField.activeFocus ? theme.accent : theme.border
             }
             // A rejected value goes back to the stored one; the error stays shown.
             onEditingFinished: {
@@ -310,7 +314,7 @@ Rectangle {
                                     Layout.fillWidth: true
                                     spacing: 8
                                     Rectangle {
-                                        width: 8; height: 8; radius: 4
+                                        implicitWidth: 8; implicitHeight: 8; radius: 4
                                         color: card.info.ready ? theme.success : theme.danger
                                     }
                                     Text {
@@ -524,7 +528,7 @@ Rectangle {
                             required property string modelData
                             // projectColor(), not a property lookup: a project may be
                             // called "constructor" or "toString".
-                            readonly property string current: { settings.projectColors; return settings.projectColor(modelData) }
+                            readonly property string current: { void settings.projectColors; return settings.projectColor(modelData) }
                             readonly property var choices: [""].concat(settings.paletteSlots)
                             Layout.fillWidth: true
                             implicitHeight: 34
@@ -610,7 +614,7 @@ Rectangle {
                     }
                 }
 
-                Rectangle { Layout.fillWidth: true; Layout.topMargin: 8; height: 1; color: theme.border }
+                Rectangle { Layout.fillWidth: true; Layout.topMargin: 8; implicitHeight: 1; color: theme.border }
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: 10
@@ -644,8 +648,7 @@ Rectangle {
 
     // How a date text is read right now, as the task editor shows it.
     function reading(text) {
-        settings.dayFirst; settings.dottedIsTime; settings.clock24; Fmt.lang
-        const r = actions.guiParseDate(text)
+        const r = Fmt.parseDate(text)
         if (!r.ok)
             return r.error
         const d = Fmt.fromIso(r.date)

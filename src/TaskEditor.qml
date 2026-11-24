@@ -3,7 +3,6 @@ import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
 
-import Omaplan
 
 // Edit a task (e, Enter or double-click) or create one yourself without AI
 // (a). Dates are written as in the CLI ("friday 10", "2026-12-01 14:30") and
@@ -130,15 +129,15 @@ Rectangle {
         id: fieldBox
         property string label
         property bool isDate: false
-        property alias input: input
-        property alias text: input.text
+        property alias input: textField
+        property alias text: textField.text
         property string placeholder: ""
-        readonly property var parsed: { Fmt.lang; return isDate && input.text.trim() !== "" ? actions.guiParseDate(input.text) : null }
+        readonly property var parsed: isDate && textField.text.trim() !== "" ? Fmt.parseDate(textField.text) : null
         Layout.alignment: Qt.AlignTop
         spacing: 3
         Text { font.family: theme.fontFamily; text: fieldBox.label; color: theme.muted; font.pixelSize: Math.round(11 * theme.textScale) }
         TextField {
-            id: input
+            id: textField
             selectedTextColor: theme.accentForeground
             Layout.fillWidth: true
             font.pixelSize: Math.round(14 * theme.textScale)
@@ -153,7 +152,7 @@ Rectangle {
             background: Rectangle {
                 radius: Math.min(3, theme.radius)
                 color: theme.background
-                border.color: input.activeFocus ? theme.accent : fieldBox.parsed && !fieldBox.parsed.ok ? theme.danger : theme.border
+                border.color: textField.activeFocus ? theme.accent : fieldBox.parsed && !fieldBox.parsed.ok ? theme.danger : theme.border
             }
             Keys.onReturnPressed: editor.save()
             Keys.onEnterPressed: editor.save()
@@ -166,7 +165,6 @@ Rectangle {
             font.pixelSize: Math.round(11 * theme.textScale)
             color: fieldBox.parsed && !fieldBox.parsed.ok ? theme.danger : theme.muted
             text: {
-                Fmt.lang
                 if (!fieldBox.parsed)
                     return " "
                 if (!fieldBox.parsed.ok)

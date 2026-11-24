@@ -3,7 +3,6 @@ import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
 
-import Omaplan
 
 ApplicationWindow {
     id: win
@@ -235,6 +234,7 @@ ApplicationWindow {
                 // A small gear drawn in the theme's colours (the ⚙ glyph
                 // comes out as a colour emoji in many fonts).
                 contentItem: Item {
+                    id: gear
                     readonly property color ink: settingsButton.hovered ? theme.foreground : theme.muted
                     Repeater {
                         model: 4
@@ -245,7 +245,7 @@ ApplicationWindow {
                             height: 13
                             radius: 1
                             rotation: index * 45
-                            color: parent.ink
+                            color: gear.ink
                         }
                     }
                     Rectangle {
@@ -253,7 +253,7 @@ ApplicationWindow {
                         width: 9
                         height: 9
                         radius: 4.5
-                        color: parent.ink
+                        color: gear.ink
                     }
                     Rectangle {
                         anchors.centerIn: parent
@@ -304,7 +304,7 @@ ApplicationWindow {
         id: keySink
         focus: true
         anchors.fill: parent
-        LayoutMirroring.enabled: Qt.application.layoutDirection === Qt.RightToLeft
+        LayoutMirroring.enabled: Application.layoutDirection === Qt.RightToLeft
         LayoutMirroring.childrenInherit: true
 
         ColumnLayout {

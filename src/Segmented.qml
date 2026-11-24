@@ -26,8 +26,8 @@ Row {
         if (options.length && options[i][0] !== value)
             picked(options[i][0])
     }
-    Keys.onLeftPressed: step(Qt.application.layoutDirection === Qt.RightToLeft ? 1 : -1)
-    Keys.onRightPressed: step(Qt.application.layoutDirection === Qt.RightToLeft ? -1 : 1)
+    Keys.onLeftPressed: step(Application.layoutDirection === Qt.RightToLeft ? 1 : -1)
+    Keys.onRightPressed: step(Application.layoutDirection === Qt.RightToLeft ? -1 : 1)
 
     HoverHandler { id: rowHover }
     ToolTip.visible: rowHover.hovered && ToolTip.text !== ""

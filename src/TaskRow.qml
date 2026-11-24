@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
 
-import Omaplan
 
 // One task as a row in Overblik and Liste: done box, title, and a quiet meta
 // line with time, duration, deadline, project and priority. Click selects,
@@ -23,8 +22,8 @@ Rectangle {
     readonly property bool done: status === "done"
     readonly property bool selected: win.selectedId === taskId
     // The project's colour from the settings (a palette slot), "" without one.
-    readonly property string projectColor: { settings.projectColors; return theme.palette[settings.projectColor(project)] || "" }
-    readonly property var today: { planModel.today; return Fmt.startOfDay(new Date()) }
+    readonly property string projectColor: { void settings.projectColors; return theme.palette[settings.projectColor(project)] || "" }
+    readonly property var today: Fmt.today
     readonly property bool overdue: !done && (Fmt.valid(deadline) ? Fmt.daysBetween(today, deadline) < 0
                                                                    : Fmt.valid(start) && Fmt.daysBetween(today, start) < 0)
 
@@ -86,7 +85,6 @@ Rectangle {
                 color: theme.muted
                 textFormat: Text.StyledText
                 text: {
-                    Fmt.lang
                     const parts = []
                     if (row.showDate && Fmt.valid(row.start))
                         parts.push(Fmt.relativeShort(row.start, row.today))
