@@ -2213,6 +2213,13 @@ private slots:
             QVERIFY(!hasTime);
             QCOMPARE(annotateDates("deadline 24.12", today), QStringLiteral("deadline 24.12 [Thursday 2026-12-24]"));
             QCOMPARE(annotateDates("ring kl. 14.30", today), QStringLiteral("ring kl. 14.30 [14:30]"));
+            // N2: after a date, a last dotted value is its time.
+            QVERIFY2(Actions::parseDateTime("12.12 10.05", today, &out, &hasTime, &error), qPrintable(error));
+            QCOMPARE(out, QDateTime(QDate(2026, 12, 12), QTime(10, 5)));
+            QVERIFY2(Actions::parseDateTime("friday 9.05", today, &out, &hasTime, &error), qPrintable(error));
+            QCOMPARE(out, QDateTime(QDate(2026, 11, 27), QTime(9, 5)));
+            QVERIFY2(Actions::parseDateTime("tomorrow 10.12", today, &out, &hasTime, &error), qPrintable(error));
+            QCOMPARE(out, QDateTime(today.addDays(1), QTime(10, 12)));
             // Month/day: 14 cannot be a month, so 14.30 is a time; 3.04 can be a date.
             c.dayFirst = false;
             ConventionGuard mdy(c);

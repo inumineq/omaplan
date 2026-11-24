@@ -1017,14 +1017,22 @@ bool Actions::parseDateTime(const QString &text, const QDate &today, QDateTime *
     auto timeMatch = (convention.dottedIsTime ? timeDotted : timeColon).match(rest);
     if (!timeMatch.hasMatch() && !convention.dottedIsTime) {
         // Dotted numbers are dates here, but "kl. 14.30", "2.30 pm" and
-        // "14.30" (no month 30) can only be times.
+        // "14.30" (no month 30) can only be times, and so can the last one
+        // after a date ("12.12 10.05", "friday 9.05"): one date is enough.
         const auto dotted = timeDotted.match(rest);
-        if (dotted.hasMatch() && !dotted.captured(2).isEmpty()
-            && convention.dottedReadsAsTime(
-                   dotted.captured(1).toInt(), dotted.captured(2).toInt(),
-                   !rest.mid(dotted.capturedStart(), dotted.capturedStart(1) - dotted.capturedStart()).trimmed().isEmpty(),
-                   !dotted.captured(3).isEmpty()))
-            timeMatch = dotted;
+        if (dotted.hasMatch() && !dotted.captured(2).isEmpty()) {
+            const QString before = rest.left(dotted.capturedStart()).trimmed();
+            QDateTime dateBefore;
+            bool timeBefore = false;
+            const bool afterDate = !before.isEmpty() && parseDateTime(before, today, &dateBefore, &timeBefore, nullptr, reading)
+                                   && !timeBefore;
+            if (afterDate
+                || convention.dottedReadsAsTime(
+                       dotted.captured(1).toInt(), dotted.captured(2).toInt(),
+                       !rest.mid(dotted.capturedStart(), dotted.capturedStart(1) - dotted.capturedStart()).trimmed().isEmpty(),
+                       !dotted.captured(3).isEmpty()))
+                timeMatch = dotted;
+        }
     }
     const QString meridiem = timeMatch.captured(3);
     const bool dayAfterArticle = timeMatch.hasMatch() && timeMatch.captured(2).isEmpty() && meridiem.isEmpty()
