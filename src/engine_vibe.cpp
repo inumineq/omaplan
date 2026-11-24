@@ -10,8 +10,9 @@
 // programmatic mode"), so stdin is not used.
 class VibeEngine : public AiEngine {
 public:
-    explicit VibeEngine(QObject *parent = nullptr)
+    explicit VibeEngine(const QString &model, QObject *parent = nullptr)
         : AiEngine(parent)
+        , m_model(model)
     {
         setRequiredTool(QStringLiteral("vibe"));
         // The prompt files are only needed while vibe runs; every run ends in
@@ -22,6 +23,7 @@ public:
 
     QString id() const override { return QStringLiteral("vibe"); }
     QString displayName() const override { return QStringLiteral("Mistral (vibe)"); }
+    QString modelInfo() const override { return m_model; }
 
 protected:
     void start(const QString &systemPrompt, const QString &userPrompt) override
@@ -40,12 +42,16 @@ protected:
         // as an injection from the user. Tools are disabled with a glob that
         // matches no real tool (headless: --enabled-tools disables all others),
         // so vibe cannot wander off into tool calls (turn_limit).
-        launch(QStringLiteral("vibe"),
-               {QStringLiteral("--prompt-file"), m_promptFile->fileName(),
-                QStringLiteral("--output"), QStringLiteral("json"),
-                QStringLiteral("--max-turns"), QStringLiteral("1"),
-                QStringLiteral("--enabled-tools"), QStringLiteral("__omaplan_no_tools__"),
-                QStringLiteral("--system-prompt-file"), m_systemPromptFile->fileName()},
+        // A configured model goes to --model (a vibe alias); without one,
+        // vibe uses its own active_model.
+        QStringList arguments = {QStringLiteral("--prompt-file"), m_promptFile->fileName(),
+                                 QStringLiteral("--output"), QStringLiteral("json"),
+                                 QStringLiteral("--max-turns"), QStringLiteral("1"),
+                                 QStringLiteral("--enabled-tools"), QStringLiteral("__omaplan_no_tools__"),
+                                 QStringLiteral("--system-prompt-file"), m_systemPromptFile->fileName()};
+        if (!m_model.isEmpty())
+            arguments << QStringLiteral("--model") << m_model;
+        launch(QStringLiteral("vibe"), arguments,
                QByteArray(),
                QStringLiteral("Install Mistral Vibe (the 'vibe' command) to use the Mistral engine."),
                useIsolatedWorkingDirectory());
@@ -83,9 +89,10 @@ private:
 
     std::unique_ptr<QTemporaryFile> m_systemPromptFile;
     std::unique_ptr<QTemporaryFile> m_promptFile;
+    QString m_model;
 };
 
-std::unique_ptr<AiEngine> createVibeEngine(QObject *parent)
+std::unique_ptr<AiEngine> createVibeEngine(const QString &model, QObject *parent)
 {
-    return std::make_unique<VibeEngine>(parent);
+    return std::make_unique<VibeEngine>(model, parent);
 }

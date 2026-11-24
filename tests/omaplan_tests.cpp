@@ -2474,6 +2474,103 @@ private slots:
         QCOMPARE(config.localModel, QStringLiteral("old"));
     }
 
+    void configWriteKeepsCommentsUnknownKeysAndOldNames()
+    {
+        QTemporaryDir dir;
+        const QString path = dir.filePath("config.toml");
+        QFile f(path);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        const QByteArray original = "# Omaplan settings, written by hand\n"
+                                    "language = \"da\"   # interface\n"
+                                    "\n"
+                                    "[motor]\n"
+                                    "engine = \"vibe\"   # the default engine\n"
+                                    "custom = \"keep me\"\n"
+                                    "\n"
+                                    "# where the snapshot goes\n"
+                                    "[snapshot]\n"
+                                    "path = \"~/plan.json\"\n";
+        f.write(original);
+        f.close();
+
+        // Nothing changed: written back byte for byte.
+        {
+            ConfigFile same(path);
+            QVERIFY(same.save());
+            QFile back(path);
+            QVERIFY(back.open(QIODevice::ReadOnly));
+            QCOMPARE(back.readAll(), original);
+        }
+
+        ConfigFile file(path);
+        bool found = false;
+        QCOMPARE(file.value("engine", "default", &found), QStringLiteral("vibe")); // through the 0.1 names
+        QVERIFY(found);
+        file.set("engine", "default", "claude");
+        file.set("engine", "timeout", "120");
+        file.set("engine.claude", "model", "sonnet");
+        file.set("projects", "Client A", "color2");
+        file.set("projects", "Blog", "color4");
+        file.set("engine", "command", "tool --flag \"quoted\" back\\slash");
+        file.unset("", "language");
+        QVERIFY(file.save());
+
+        const QString text = file.text();
+        QVERIFY2(text.startsWith("# Omaplan settings, written by hand\n"), qPrintable(text));
+        QVERIFY2(text.contains("engine = \"claude\"   # the default engine"), qPrintable(text));
+        QVERIFY(text.contains("custom = \"keep me\""));
+        QVERIFY(text.contains("# where the snapshot goes\n[snapshot]"));
+        QVERIFY(text.contains("\"Client A\" = \"color2\""));
+        QVERIFY(!text.contains("language"));
+        // A new key lands in its section (here the old [motor]), not at the end.
+        QVERIFY(text.indexOf("timeout = 120") < text.indexOf("[snapshot]"));
+        QCOMPARE(text.count("[engine.claude]"), 1);
+
+        const AppConfig config = AppConfig::load(path);
+        QCOMPARE(config.engine, QStringLiteral("claude"));
+        QCOMPARE(config.timeoutSeconds, 120);
+        QCOMPARE(config.claudeModel, QStringLiteral("sonnet"));
+        QCOMPARE(config.command, QStringLiteral("tool --flag \"quoted\" back\\slash"));
+        QCOMPARE(config.projectColors.value("Client A"), QStringLiteral("color2"));
+        QCOMPARE(config.projectColors.value("Blog"), QStringLiteral("color4"));
+        QVERIFY(config.language.isEmpty());
+        QCOMPARE(file.keys("projects"), (QStringList{"Client A", "Blog"}));
+
+        // Setting a value again replaces it in place.
+        ConfigFile again(path);
+        again.set("projects", "Blog", "color9");
+        QCOMPARE(again.text().count("Blog"), 1);
+
+        // A file that does not exist yet is created with the section.
+        ConfigFile fresh(dir.filePath("sub/new.toml"));
+        fresh.set("dates", "order", "mdy");
+        QVERIFY(fresh.save());
+        QCOMPARE(fresh.text(), QStringLiteral("[dates]\norder = \"mdy\""));
+        QCOMPARE(AppConfig::load(dir.filePath("sub/new.toml")).dateOrder, QStringLiteral("mdy"));
+    }
+
+    void configKeysValidateValues()
+    {
+        ConfigKey key;
+        QVERIFY(ConfigKeys::find("engine.default", &key));
+        QVERIFY(ConfigKeys::validate(key, "claude").isEmpty());
+        QVERIFY(!ConfigKeys::validate(key, "gpt").isEmpty());
+        QVERIFY(ConfigKeys::find("engine.timeout", &key));
+        QVERIFY(ConfigKeys::validate(key, "90").isEmpty());
+        QVERIFY(!ConfigKeys::validate(key, "5").isEmpty());
+        QVERIFY(!ConfigKeys::validate(key, "soon").isEmpty());
+        QVERIFY(ConfigKeys::find("engine.compare", &key));
+        QVERIFY(ConfigKeys::validate(key, "vibe, local").isEmpty());
+        QVERIFY(!ConfigKeys::validate(key, "vibe").isEmpty());
+        QVERIFY(ConfigKeys::find("projects.Client A", &key));
+        QCOMPARE(key.key, QStringLiteral("Client A"));
+        QVERIFY(ConfigKeys::validate(key, "color15").isEmpty());
+        QVERIFY(!ConfigKeys::validate(key, "color16").isEmpty());
+        QVERIFY(!ConfigKeys::validate(key, "#ff0000").isEmpty());
+        QVERIFY(ConfigKeys::validate(key, "").isEmpty()); // unset
+        QVERIFY(!ConfigKeys::find("engine.nothing", &key));
+    }
+
     // Runs `omaplan mcp` (the real binary) with the given JSON-RPC lines on
     // stdin and returns the response lines from stdout.
     static QList<QJsonObject> mcpSession(const QString &db, const QList<QJsonObject> &messages, QString *stderrText)

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QList>
+#include <QMap>
 #include <QString>
 #include <QStringList>
 
@@ -12,11 +14,28 @@
 //   default = "vibe"           # default engine: vibe | claude | local | command
 //   command = "..."            # for default = "command"
 //   compare = "vibe, claude"   # the two engines of Compare
+//   timeout = 90               # seconds an engine may take
+//
+//   [engine.vibe]
+//   model = "..."              # passed as vibe --model; empty = vibe's own
+//
+//   [engine.claude]
+//   model = "..."              # passed as claude --model; empty = claude's own
 //
 //   [engine.local]
 //   api = "ollama"             # ollama | openai (OpenAI-compatible endpoint)
 //   endpoint = "http://127.0.0.1:11434"
 //   model = "..."              # the user's choice -- nothing is hardcoded
+//
+//   [dates]                    # empty or "auto": the language's convention
+//   order = "dmy"              # dmy | mdy: how 12/11 is read
+//   dotted = "time"            # time | date: whether 12.12 is a time or a date
+//   week_start = "monday"      # monday | sunday
+//   clock = "24h"              # 24h | 12h
+//
+//   [projects]                 # a project's colour: a slot of the theme palette
+//   Blog = "color4"
+//   "Client A" = "color2"
 //
 //   [snapshot]
 //   path = "~/Sync/omaplan/plan.json"  # plan.json for the read-only edition (default: next to the database)
@@ -25,16 +44,76 @@
 // key `engine` for `default`, [motor.lokal] for [engine.local] and the engine
 // id "lokal" for "local".
 struct AppConfig {
+    static constexpr int defaultTimeoutSeconds = 90;
+    static constexpr int minTimeoutSeconds = 10;
+    static constexpr int maxTimeoutSeconds = 600;
+
     QString language;                         // top-level language; empty = not set
     QString engine = QStringLiteral("vibe"); // [engine] default
     QString command;                          // [engine] command
     QStringList compare = {QStringLiteral("vibe"), QStringLiteral("claude")}; // [engine] compare
+    int timeoutSeconds = defaultTimeoutSeconds; // [engine] timeout
+    QString vibeModel;                        // [engine.vibe] model
+    QString claudeModel;                      // [engine.claude] model
     QString localApi = QStringLiteral("ollama");
     QString localEndpoint;
     QString localModel;
+    // [dates]; empty = the interface language's convention.
+    QString dateOrder, dateDotted, weekStart, clock;
+    QMap<QString, QString> projectColors;     // [projects] name -> "colorN"
     QString snapshotPath;                     // [snapshot] path, ~ expanded; empty = default
 
     // Empty path = default location; OMAPLAN_CONFIG overrides it (tests).
     static QString defaultPath();
     static AppConfig load(const QString &path = {});
+};
+
+// One setting as the CLI, MCP and the settings panel name it
+// ("engine.claude.model") and where it lives in the file.
+struct ConfigKey {
+    QString name;          // dotted name; "projects.<name>" for a project colour
+    QString section;       // canonical section ("" = top level)
+    QString key;           // key inside the section
+    QStringList choices;   // allowed values; empty = free text
+    QString defaultValue;  // shown when the file does not set it
+    QString description;   // English, for --help, MCP and `config list`
+};
+
+namespace ConfigKeys {
+// Every fixed key, in the order the panel and `config list` show them.
+const QList<ConfigKey> &all();
+// The key for a dotted name, including "projects.<name>"; false when unknown.
+bool find(const QString &name, ConfigKey *out);
+// The palette slots a project colour may name: color1 .. color15.
+bool isPaletteSlot(const QString &value);
+// Checks a value for a key; returns an English error, or empty when fine.
+// An empty value always passes (it means "unset").
+QString validate(const ConfigKey &key, const QString &value);
+} // namespace ConfigKeys
+
+// The file as lines, for writing: set() and unset() change one line and
+// leave every comment, blank line, unknown key and the old 0.1 section names
+// alone. save() writes atomically.
+class ConfigFile {
+public:
+    explicit ConfigFile(const QString &path = {});
+
+    QString path() const { return m_path; }
+    // The raw value of section/key (aliases included), and whether it is set.
+    QString value(const QString &section, const QString &key, bool *found = nullptr) const;
+    // Replaces the value on its line, keeping a comment after it; otherwise
+    // adds the line at the end of the section (a new section at the end).
+    void set(const QString &section, const QString &key, const QString &value);
+    void unset(const QString &section, const QString &key);
+    // Every key set in a section, in file order (for [projects]).
+    QStringList keys(const QString &section) const;
+    QString text() const { return m_lines.join(QLatin1Char('\n')); }
+    bool save(QString *error = nullptr) const;
+
+private:
+    struct Location { int line = -1; int sectionEnd = -1; };
+    Location locate(const QString &section, const QString &key) const;
+
+    QString m_path;
+    QStringList m_lines;
 };
