@@ -1337,6 +1337,47 @@ private slots:
                  QStringLiteral("skriv noget"));
     }
 
+    // "den 12"/"the 12" is the 12th, never 12:00; a number followed by a
+    // duration unit is never a clock time ("onsdag 3 timer" is not 03:00).
+    void dayArticleAndDurationAreNotTimes()
+    {
+        const QDate today(2026, 11, 23); // Monday; the 12th of December is a Saturday
+        QDateTime out;
+        bool hasTime = true;
+        QString error;
+        for (const QString &text : {QStringLiteral("lørdag den 12"), QStringLiteral("saturday the 12"),
+                                    QStringLiteral("den 12"), QStringLiteral("the 12")}) {
+            QVERIFY2(Actions::parseDateTime(text, today, &out, &hasTime, &error), qPrintable(text + ": " + error));
+            QCOMPARE(out.date(), QDate(2026, 12, 12));
+            QVERIFY2(!hasTime, qPrintable(text));
+        }
+        // Friday the 12th does not exist next: an error, never "next Friday 12:00".
+        for (const QString &text : {QStringLiteral("fredag den 12"), QStringLiteral("friday the 12")}) {
+            error.clear();
+            QVERIFY2(!Actions::parseDateTime(text, today, &out, &hasTime, &error), qPrintable(text));
+            QVERIFY2(error.contains(QStringLiteral("2026-12-12")), qPrintable(error));
+        }
+        // With a time prefix or minutes it is still a time.
+        QVERIFY(Actions::parseDateTime(QStringLiteral("lørdag den 12. kl. 9"), today, &out, &hasTime, &error));
+        QCOMPARE(out, QDateTime(QDate(2026, 12, 12), QTime(9, 0)));
+        QVERIFY(Actions::parseDateTime(QStringLiteral("fredag 12"), today, &out, &hasTime, &error));
+        QCOMPARE(out, QDateTime(QDate(2026, 11, 27), QTime(12, 0)));
+
+        QCOMPARE(annotateDates(QStringLiteral("research onsdag 3 timer"), today),
+                 QStringLiteral("research onsdag [Wednesday 2026-11-25] 3 timer"));
+        QCOMPARE(annotateDates(QStringLiteral("research wednesday 3 hours"), today),
+                 QStringLiteral("research wednesday [Wednesday 2026-11-25] 3 hours"));
+        QCOMPARE(annotateDates(QStringLiteral("skriv fredag 2 t, så pause"), today),
+                 QStringLiteral("skriv fredag [Friday 2026-11-27] 2 t, så pause"));
+        QCOMPARE(annotateDates(QStringLiteral("møde lørdag den 12"), today),
+                 QStringLiteral("møde lørdag den 12 [Saturday 2026-12-12]"));
+        QCOMPARE(annotateDates(QStringLiteral("call on saturday the 12"), today),
+                 QStringLiteral("call on saturday the 12 [Saturday 2026-12-12]"));
+        // Still a time when no unit follows.
+        QCOMPARE(annotateDates(QStringLiteral("møde onsdag 3 med kunde"), today),
+                 QStringLiteral("møde onsdag 3 [Wednesday 2026-11-25 03:00] med kunde"));
+    }
+
     void dateAnnotationInEnglish()
     {
         const QDate today(2026, 11, 23); // Monday

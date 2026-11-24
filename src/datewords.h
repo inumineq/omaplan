@@ -30,6 +30,9 @@ struct DateWords {
     // "den 12.": a word before a day of the month that makes a following
     // weekday unambiguous ("fredag den 12.").
     QStringList dayArticles;
+    // "3 timer", "2 hours": words after a number that make it a duration,
+    // never a clock time.
+    QStringList durationUnits;
 
     QHash<QString, int> weekdays; // name -> 1 (Monday) .. 7
     QHash<QString, int> months;   // name -> 1 .. 12
@@ -55,6 +58,7 @@ int weekday(const QString &word);     // 0 when not a weekday name
 int month(const QString &word);       // 0 when not a month name
 int numberWord(const QString &word);  // 0 when not a number word
 bool isDayArticle(const QString &word);
+bool isDurationUnit(const QString &word);
 // Strips a "next" prefix; true when there was one.
 bool stripNextPrefix(QString *phrase);
 // Days from a whole "in N days" phrase, or -1.

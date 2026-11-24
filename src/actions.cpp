@@ -918,14 +918,18 @@ bool Actions::parseDateTime(const QString &text, const QDate &today, QDateTime *
     // Optional trailing time: "kl. 14:30", "kl 9", "at 14:30", "14:30",
     // "friday 12" (weekday + 0-23 = hour), "tomorrow 10". A trailing number
     // above 23 without minutes is not a time; it stays for the date part
-    // ("25" = the 25th). The prefixes come from every language in datewords.
+    // ("25" = the 25th), and so does a bare number right after a day article
+    // ("fredag den 12", "the 12" = the 12th). The prefixes come from every
+    // language in datewords.
     static const QRegularExpression timeRe(
         QStringLiteral("(?:^|\\s)(?:\\b(?:%1)(?=\\s|\\d|$))?\\s*(\\d{1,2})(?:[:.](\\d{2}))?\\s*$")
             .arg(DateVocabulary::timePrefixPattern()));
     QTime time(0, 0);
     bool withTime = false;
     const auto timeMatch = timeRe.match(rest);
-    if (timeMatch.hasMatch()) {
+    const bool dayAfterArticle = timeMatch.hasMatch() && timeMatch.captured(2).isEmpty()
+            && DateVocabulary::isDayArticle(rest.left(timeMatch.capturedStart(1)).trimmed().section(QLatin1Char(' '), -1));
+    if (timeMatch.hasMatch() && !dayAfterArticle) {
         const int hour = timeMatch.captured(1).toInt();
         const int minute = timeMatch.captured(2).isEmpty() ? 0 : timeMatch.captured(2).toInt();
         if (hour <= 23) {
