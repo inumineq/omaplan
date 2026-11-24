@@ -410,7 +410,8 @@ private slots:
         };
         const QJsonObject plan{{QStringLiteral("tasks"), QJsonArray{task(QStringLiteral("in-progress"), QStringLiteral("2026-11-22"), QStringLiteral("2026-11-27")),
                                                                     task(QStringLiteral("late"), QStringLiteral("2026-11-20"), QStringLiteral("2026-11-22")),
-                                                                    task(QStringLiteral("deadline-only"), {}, QStringLiteral("2026-11-27"))}}};
+                                                                    task(QStringLiteral("deadline-only"), {}, QStringLiteral("2026-11-27")),
+                                                                    task(QStringLiteral("late-start"), QStringLiteral("2026-11-25"), QStringLiteral("2026-11-20"))}}};
         const QString page = Render::page(plan, today, QStringLiteral("en"));
         const auto day = [&](const QString &date) {
             const qsizetype at = page.indexOf(QStringLiteral("class=\"day")
@@ -418,10 +419,16 @@ private slots:
                                               + QStringLiteral("\" data-date=\"") + date);
             return at < 0 ? QString() : page.mid(at, page.indexOf(QStringLiteral("</section>"), at) - at);
         };
-        const qsizetype overdue = page.indexOf(QStringLiteral("class=\"day overdue\" data-date=\"2026-11-20\""));
-        QVERIFY(overdue >= 0);
-        QVERIFY(page.mid(overdue, page.indexOf(QStringLiteral("</section>"), overdue) - overdue).contains(QStringLiteral("data-id=\"late\"")));
-        QVERIFY(!page.contains(QStringLiteral("class=\"day overdue\" data-date=\"2026-11-22\"")));
+        // Overdue tasks are grouped under their deadline: under the start, a
+        // task due before it was to start would stand under a future day.
+        const auto overdueDay = [&](const QString &date) {
+            const qsizetype at = page.indexOf(QStringLiteral("class=\"day overdue\" data-date=\"") + date + '"');
+            return at < 0 ? QString() : page.mid(at, page.indexOf(QStringLiteral("</section>"), at) - at);
+        };
+        QVERIFY(overdueDay(QStringLiteral("2026-11-22")).contains(QStringLiteral("data-id=\"late\"")));
+        QVERIFY(overdueDay(QStringLiteral("2026-11-20")).contains(QStringLiteral("data-id=\"late-start\"")));
+        QVERIFY(!overdueDay(QStringLiteral("2026-11-20")).contains(QStringLiteral("data-id=\"late\"")));
+        QVERIFY(!page.contains(QStringLiteral("class=\"day overdue\" data-date=\"2026-11-25\"")));
         QVERIFY(day(QStringLiteral("2026-11-23")).contains(QStringLiteral("data-id=\"in-progress\"")));
         QVERIFY(day(QStringLiteral("2026-11-27")).contains(QStringLiteral("data-id=\"deadline-only\"")));
         QVERIFY(page.contains(QStringLiteral("data-group=\"date:2026-11-27\"")));
@@ -500,7 +507,7 @@ private slots:
             "<main id=\"plan\" class=\"plan\" data-today=\"2026-11-23\">",
             // Overview: overdue first, today, empty days
             "<section id=\"overview\" class=\"view\" aria-label=\"Overview\">",
-            "<section class=\"day overdue\" data-date=\"2026-11-18\">",
+            "<section class=\"day overdue\" data-date=\"2026-11-20\">",
             "<span class=\"badge badge-overdue\">overdue</span>",
             "<section class=\"day today\" data-date=\"2026-11-23\">",
             "<span class=\"badge badge-today\">today</span>",

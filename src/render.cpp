@@ -152,7 +152,7 @@ QString num(double x) {
 double hours(const QString &time) { return time.left(2).toInt() + time.mid(3, 2).toInt() / 60.0; }
 
 // The rule of src/task.h (effectiveDate, isOverdue), as planDate/isOverdue/
-// agendaDate in app.js.
+// overdueDate/agendaDate in app.js.
 QString planDate(const Item &o) {
     if (!parseWhen(o.start).date.isEmpty())
         return o.start.left(10);
@@ -166,6 +166,12 @@ bool isOverdue(const Item &o, const QString &today) {
     if (!parseWhen(o.deadline).date.isEmpty())
         return o.deadline.left(10) < today;
     return !parseWhen(o.start).date.isEmpty() && o.start.left(10) < today;
+}
+// The overview day of an overdue task: the deadline it missed, else its start.
+QString overdueDate(const Item &o) {
+    if (!parseWhen(o.deadline).date.isEmpty())
+        return o.deadline.left(10);
+    return planDate(o);
 }
 QString agendaDate(const Item &o, const QString &today) {
     const QString d = planDate(o);
@@ -266,7 +272,7 @@ QString renderOverview(const QList<Item> &items, const QString &today, const Tex
     QMap<QString, QList<Item>> groups;
     for (const Item &o : items)
         if (isOverdue(o, today))
-            groups[planDate(o)].append(o);
+            groups[overdueDate(o)].append(o);
     QStringList parts;
     for (auto it = groups.cbegin(); it != groups.cend(); ++it)
         parts << renderDay(it.key(), sortTasks(it.value(), t), QStringLiteral("overdue"), QStringLiteral("badge-overdue"),

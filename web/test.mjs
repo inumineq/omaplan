@@ -138,7 +138,7 @@ section('rendering: overview');
 const overview = app.renderOverview(plan, today, en, '');
 const overviewDays = [...overview.matchAll(/<section class="day[^"]*" data-date="([^"]+)"/g)].map((m) => m[1]);
 const overdueDays = [...overview.matchAll(/<section class="day overdue" data-date="([^"]+)"/g)].map((m) => m[1]);
-check(overdueDays.length === 3, 'three overdue days at the top (' + overdueDays.join(', ') + ')');
+check(overdueDays.join() === '2026-11-20,2026-11-21', 'two overdue days at the top, by deadline (' + overdueDays.join(', ') + ')');
 check(overview.indexOf('day overdue') < overview.indexOf('data-date="' + today + '"'), 'overdue days come before today');
 const expectedDays = [];
 for (let k = 0; k < 8; k++) expectedDays.push(app.addDays(today, k));
@@ -164,12 +164,20 @@ section('overdue and deadline-only tasks follow src/task.h');
   const late = task('late', app.addDays(today, -3), yesterday); // past its deadline
   const deadlineOnly = task('deadline-only', null, friday);
   const pastStart = task('past-start', yesterday, null);
+  const lateStart = task('late-start', app.addDays(today, 2), app.addDays(today, -3)); // due before it was to start
   check(!app.isOverdue(inProgress, today), 'started earlier and due later is not overdue');
   check(app.isOverdue(late, today) && app.isOverdue(pastStart, today), 'past the deadline, or past the start without one, is overdue');
   check(!app.isOverdue(task('done', yesterday, null, 'done'), today), 'a done task is never overdue');
-  const mini = { tasks: [inProgress, late, deadlineOnly, pastStart] };
+  const mini = { tasks: [inProgress, late, deadlineOnly, pastStart, lateStart] };
   const ov = app.renderOverview(mini, today, en, '');
   const daySection = (date) => ov.slice(ov.indexOf('data-date="' + date + '"'), ov.indexOf('</section>', ov.indexOf('data-date="' + date + '"')));
+  const overdueSection = (date) => {
+    const at = ov.indexOf('class="day overdue" data-date="' + date + '"');
+    return at < 0 ? '' : ov.slice(at, ov.indexOf('</section>', at));
+  };
+  check(overdueSection(yesterday).includes('data-id="late"'), 'an overdue task is grouped under its deadline');
+  check(overdueSection(app.addDays(today, -3)).includes('data-id="late-start"'), 'an overdue task that starts later is grouped under its deadline, not in the future');
+  check(overdueSection(yesterday).includes('data-id="past-start"'), 'an overdue task without a deadline is grouped under its start');
   check(!/class="day overdue"[^]*in-progress/.test(ov.slice(0, ov.indexOf('class="day today"'))), 'the task in progress is not under overdue');
   check(daySection(today).includes('data-id="in-progress"'), 'the task in progress shows today');
   check(daySection(friday).includes('data-id="deadline-only"'), 'a deadline-only task shows on its deadline day');

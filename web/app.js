@@ -140,6 +140,11 @@ function isOverdue(o, today) {
   return !!o.start && o.start.slice(0, 10) < today;
 }
 
+// The overview day of an overdue task: the deadline it missed, else its start
+function overdueDate(o) {
+  return o.deadline ? o.deadline.slice(0, 10) : planDate(o);
+}
+
 // The overview day of a task that is not overdue: its plan date, or today for an open task that started earlier
 // and is due later (in progress today)
 function agendaDate(o, today) {
@@ -220,7 +225,7 @@ function renderOverview(plan, today, t, active) {
   const tasks = plan.tasks;
   const groups = new Map();
   for (const o of tasks.filter((o) => isOverdue(o, today))) {
-    const d = planDate(o);
+    const d = overdueDate(o);
     if (!groups.has(d)) groups.set(d, []);
     groups.get(d).push(o);
   }
@@ -573,7 +578,7 @@ if (typeof document !== 'undefined') {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     VIEWS, LANGUAGES, fill, pickLanguage, parseStart, todayStr, addDays, formatDateLong, formatDateShort,
-    formatDeadline, formatDuration, formatTimestamp, endTime, planDate, isOverdue, agendaDate, sortTasks, renderTask, renderOverview,
+    formatDeadline, formatDuration, formatTimestamp, endTime, planDate, isOverdue, overdueDate, agendaDate, sortTasks, renderTask, renderOverview,
     renderListByDate, renderListByProject, renderTimeline, renderMain, renderNav, renderMeta, renderFooter,
     renderPage, applyTheme,
   };

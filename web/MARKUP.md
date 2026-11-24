@@ -148,8 +148,8 @@ Every view shows tasks with the same `<li>`:
 <section id="overview" class="view" aria-label="Overview">
   <h2>Overview</h2>
   <p class="description">Today and the next 7 days – overdue tasks first.</p>
-  <section class="day overdue" data-date="2026-11-18">
-    <h3><time datetime="2026-11-18">Wednesday 18 November 2026</time><span class="badge badge-overdue">overdue</span></h3>
+  <section class="day overdue" data-date="2026-11-20">
+    <h3><time datetime="2026-11-20">Friday 20 November 2026</time><span class="badge badge-overdue">overdue</span></h3>
     <ul class="tasks">…</ul>
   </section>
   <section class="day today" data-date="2026-11-23">
@@ -162,7 +162,7 @@ Every view shows tasks with the same `<li>`:
 
 - First every overdue day, ascending, each with `class="day overdue"` and the badge `overdue`. Overdue is the rule
   of `src/task.h`: status `todo` and the `deadline` before `data-today`, or, with no deadline, the `start` before
-  it. An overdue task shows on its `start` date, else its `deadline` date.
+  it. An overdue task shows on its `deadline` date, else its `start` date.
 - Then the days `data-today` … `data-today + 7` (8 days in all), each `class="day"` (today also `today`) with
   the badge `today` on the first. Days without tasks get `<p class="empty">No tasks.</p>` instead of `<ul>`.
 - A task shows on its `start` date, else its `deadline` date; an open task that started earlier and is due later
