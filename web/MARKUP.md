@@ -160,11 +160,13 @@ Every view shows tasks with the same `<li>`:
 </section>
 ```
 
-- First every overdue day (status `todo` and the earlier of `start`/`deadline` before `data-today`), ascending,
-  each with `class="day overdue"` and the badge `overdue`.
+- First every overdue day, ascending, each with `class="day overdue"` and the badge `overdue`. Overdue is the rule
+  of `src/task.h`: status `todo` and the `deadline` before `data-today`, or, with no deadline, the `start` before
+  it. An overdue task shows on its `start` date, else its `deadline` date.
 - Then the days `data-today` … `data-today + 7` (8 days in all), each `class="day"` (today also `today`) with
   the badge `today` on the first. Days without tasks get `<p class="empty">No tasks.</p>` instead of `<ul>`.
-- A task shows on its `start` date (tasks without `start` are not in the overview). Order within a day: tasks
+- A task shows on its `start` date, else its `deadline` date; an open task that started earlier and is due later
+  shows today (tasks without `start` and `deadline` are not in the overview). Order within a day: tasks
   with a time first (by time), then all-day tasks, then priority (1 before 3), then title (collated in the page's
   language).
 
@@ -182,8 +184,8 @@ Every view shows tasks with the same `<li>`:
 </section>
 ```
 
-Every task, grouped by `start` date, dates ascending, the same order within a day as the overview.
-**Tasks without `start` go in the group `No date` at the end**:
+Every task, grouped by `start` date (else `deadline` date), dates ascending, the same order within a day as the
+overview. **Tasks without `start` and `deadline` go in the group `No date` at the end**:
 
 ```html
 <section class="group" data-group="no-date">
@@ -192,7 +194,8 @@ Every task, grouped by `start` date, dates ascending, the same order within a da
 </section>
 ```
 
-Undated tasks are not shown in the overview or the timeline (only their deadline mark, if they have a deadline).
+Undated tasks are not shown in the overview. Tasks without `start` have no bar in the timeline (only their deadline
+mark, if they have a deadline).
 
 ## 3. List by project — `<section id="list-project" class="view">`
 

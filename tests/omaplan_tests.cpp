@@ -393,6 +393,38 @@ private slots:
         QCOMPARE(actual, expected);
     }
 
+    // The page follows src/task.h like web/app.js (web/test.mjs has the same
+    // cases): started earlier and due later is in progress today, not
+    // overdue; a deadline-only task shows on its deadline day.
+    void renderUsesTheTaskRuleForOverdueAndDeadlines() {
+        const QDate today(2026, 11, 23);
+        const auto task = [](const QString &id, const QString &start, const QString &deadline) {
+            return QJsonObject{{QStringLiteral("id"), id}, {QStringLiteral("title"), id}, {QStringLiteral("priority"), 2},
+                               {QStringLiteral("status"), QStringLiteral("todo")},
+                               {QStringLiteral("start"), start.isEmpty() ? QJsonValue() : QJsonValue(start)},
+                               {QStringLiteral("deadline"), deadline.isEmpty() ? QJsonValue() : QJsonValue(deadline)},
+                               {QStringLiteral("guessed"), QJsonArray()}};
+        };
+        const QJsonObject plan{{QStringLiteral("tasks"), QJsonArray{task(QStringLiteral("in-progress"), QStringLiteral("2026-11-22"), QStringLiteral("2026-11-27")),
+                                                                    task(QStringLiteral("late"), QStringLiteral("2026-11-20"), QStringLiteral("2026-11-22")),
+                                                                    task(QStringLiteral("deadline-only"), {}, QStringLiteral("2026-11-27"))}}};
+        const QString page = Render::page(plan, today, QStringLiteral("en"));
+        const auto day = [&](const QString &date) {
+            const qsizetype at = page.indexOf(QStringLiteral("class=\"day")
+                                              + (date == QLatin1String("2026-11-23") ? QStringLiteral(" today") : QString())
+                                              + QStringLiteral("\" data-date=\"") + date);
+            return at < 0 ? QString() : page.mid(at, page.indexOf(QStringLiteral("</section>"), at) - at);
+        };
+        const qsizetype overdue = page.indexOf(QStringLiteral("class=\"day overdue\" data-date=\"2026-11-20\""));
+        QVERIFY(overdue >= 0);
+        QVERIFY(page.mid(overdue, page.indexOf(QStringLiteral("</section>"), overdue) - overdue).contains(QStringLiteral("data-id=\"late\"")));
+        QVERIFY(!page.contains(QStringLiteral("class=\"day overdue\" data-date=\"2026-11-22\"")));
+        QVERIFY(day(QStringLiteral("2026-11-23")).contains(QStringLiteral("data-id=\"in-progress\"")));
+        QVERIFY(day(QStringLiteral("2026-11-27")).contains(QStringLiteral("data-id=\"deadline-only\"")));
+        QVERIFY(page.contains(QStringLiteral("data-group=\"date:2026-11-27\"")));
+        QVERIFY(!page.contains(QStringLiteral("data-group=\"no-date\"")));
+    }
+
     void serveOverLoopback() {
         QTemporaryDir dir;
         const QString snapshot = dir.filePath(QStringLiteral("plan.json"));

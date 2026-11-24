@@ -126,17 +126,25 @@ function num(x) {
 
 // ---------- domain logic ----------
 
-function earliestDate(o) {
-  const dates = [];
-  if (o.start) dates.push(o.start.slice(0, 10));
-  if (o.deadline) dates.push(o.deadline.slice(0, 10));
-  return dates.length ? dates.sort()[0] : null;
+// The rule of src/task.h (effectiveDate, isOverdue), so the page and the app agree: a task counts on its start
+// date, else its deadline date; overdue is open and past its deadline, or, with no deadline, past its start day.
+function planDate(o) {
+  if (o.start) return o.start.slice(0, 10);
+  if (o.deadline) return o.deadline.slice(0, 10);
+  return null;
 }
 
 function isOverdue(o, today) {
   if (o.status !== 'todo') return false;
-  const d = earliestDate(o);
-  return !!d && d < today;
+  if (o.deadline) return o.deadline.slice(0, 10) < today;
+  return !!o.start && o.start.slice(0, 10) < today;
+}
+
+// The overview day of a task that is not overdue: its plan date, or today for an open task that started earlier
+// and is due later (in progress today)
+function agendaDate(o, today) {
+  const d = planDate(o);
+  return d && d < today && o.status === 'todo' ? today : d;
 }
 
 // Dated first (by date, then timed before all-day, by time), then undated; then priority, then title
@@ -212,7 +220,7 @@ function renderOverview(plan, today, t, active) {
   const tasks = plan.tasks;
   const groups = new Map();
   for (const o of tasks.filter((o) => isOverdue(o, today))) {
-    const d = earliestDate(o);
+    const d = planDate(o);
     if (!groups.has(d)) groups.set(d, []);
     groups.get(d).push(o);
   }
@@ -222,7 +230,7 @@ function renderOverview(plan, today, t, active) {
   }
   for (let k = 0; k < 8; k++) {
     const date = addDays(today, k);
-    const onDay = tasks.filter((o) => o.start && o.start.slice(0, 10) === date); // undated tasks are not in the overview
+    const onDay = tasks.filter((o) => !isOverdue(o, today) && agendaDate(o, today) === date); // undated tasks are not in the overview
     const badge = k === 0 ? { cls: 'badge-today', text: t.today } : null;
     parts.push(renderDay(date, sortTasks(onDay, t), k === 0 ? 'today' : '', badge, t));
   }
@@ -248,11 +256,11 @@ function renderListByDate(plan, t, active) {
   const groups = new Map();
   const undated = [];
   for (const o of plan.tasks) {
-    if (!o.start) {
+    const d = planDate(o);
+    if (!d) {
       undated.push(o); // the group "No date" comes last
       continue;
     }
-    const d = o.start.slice(0, 10);
     if (!groups.has(d)) groups.set(d, []);
     groups.get(d).push(o);
   }
@@ -565,7 +573,7 @@ if (typeof document !== 'undefined') {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     VIEWS, LANGUAGES, fill, pickLanguage, parseStart, todayStr, addDays, formatDateLong, formatDateShort,
-    formatDeadline, formatDuration, formatTimestamp, endTime, isOverdue, sortTasks, renderTask, renderOverview,
+    formatDeadline, formatDuration, formatTimestamp, endTime, planDate, isOverdue, agendaDate, sortTasks, renderTask, renderOverview,
     renderListByDate, renderListByProject, renderTimeline, renderMain, renderNav, renderMeta, renderFooter,
     renderPage, applyTheme,
   };

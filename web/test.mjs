@@ -115,8 +115,9 @@ check(plan.tasks.some((o) => o.start && o.start.includes('T') && o.duration_min)
 check(plan.tasks.some((o) => o.guessed && o.guessed.length > 0), 'there are guessed fields');
 check(plan.tasks.some((o) => o.status === 'done'), 'there are done tasks');
 check(new Set(plan.tasks.map((o) => o.project).filter(Boolean)).size >= 3, 'there are several projects');
-const undated = plan.tasks.filter((o) => !o.start);
+const undated = plan.tasks.filter((o) => !app.planDate(o));
 check(undated.length >= 2 && undated.length <= 3, 'there are 2-3 undated tasks (No date) (' + undated.length + ')');
+check(plan.tasks.some((o) => !o.start && o.deadline), 'there is a task with only a deadline');
 // overlap: two tasks on the same day that overlap in time
 let overlap = false;
 for (const o of plan.tasks) {
@@ -144,9 +145,9 @@ for (let k = 0; k < 8; k++) expectedDays.push(app.addDays(today, k));
 check(expectedDays.every((d) => overviewDays.includes(d)), 'today + 7 days are all there (' + expectedDays[0] + '..' + expectedDays[7] + ')');
 check(overview.includes('badge-today'), 'today is marked');
 const overviewTasks = [...overview.matchAll(/<li class="task /g)];
-const dated = plan.tasks.filter((o) => o.start);
+const dated = plan.tasks.filter((o) => app.planDate(o));
 const expectedInOverview = dated.filter((o) => {
-  const d = o.start.slice(0, 10);
+  const d = app.agendaDate(o, today);
   return (d >= today && d <= app.addDays(today, 7)) || app.isOverdue(o, today);
 });
 check(overviewTasks.length === expectedInOverview.length, 'number of tasks in the overview (' + overviewTasks.length + ')');
@@ -155,12 +156,33 @@ check(overview.includes('09:00–09:45'), 'a time interval shows (09:00–09:45)
 check(overview.includes('<span class="time time-all-day">all day</span>'), 'all day shows');
 check(overview.includes('guessed: start, duration'), 'guessed fields show with their English names');
 
+section('overdue and deadline-only tasks follow src/task.h');
+{
+  const task = (id, start, deadline, status = 'todo') => ({ id, title: id, priority: 2, status, start, deadline, guessed: [] });
+  const yesterday = app.addDays(today, -1), friday = app.addDays(today, 4);
+  const inProgress = task('in-progress', yesterday, friday); // started yesterday, due Friday: not overdue
+  const late = task('late', app.addDays(today, -3), yesterday); // past its deadline
+  const deadlineOnly = task('deadline-only', null, friday);
+  const pastStart = task('past-start', yesterday, null);
+  check(!app.isOverdue(inProgress, today), 'started earlier and due later is not overdue');
+  check(app.isOverdue(late, today) && app.isOverdue(pastStart, today), 'past the deadline, or past the start without one, is overdue');
+  check(!app.isOverdue(task('done', yesterday, null, 'done'), today), 'a done task is never overdue');
+  const mini = { tasks: [inProgress, late, deadlineOnly, pastStart] };
+  const ov = app.renderOverview(mini, today, en, '');
+  const daySection = (date) => ov.slice(ov.indexOf('data-date="' + date + '"'), ov.indexOf('</section>', ov.indexOf('data-date="' + date + '"')));
+  check(!/class="day overdue"[^]*in-progress/.test(ov.slice(0, ov.indexOf('class="day today"'))), 'the task in progress is not under overdue');
+  check(daySection(today).includes('data-id="in-progress"'), 'the task in progress shows today');
+  check(daySection(friday).includes('data-id="deadline-only"'), 'a deadline-only task shows on its deadline day');
+  const ls = app.renderListByDate(mini, en, '');
+  check(ls.includes('data-group="date:' + friday + '"') && !ls.includes('data-group="no-date"'), 'a deadline-only task is listed under its deadline date, not No date');
+}
+
 section('rendering: list (by date and by project)');
 const list = app.renderListByDate(plan, en, '');
 const listProject = app.renderListByProject(plan, en, '');
 const dateGroups = [...list.matchAll(/data-group="date:([^"]+)"/g)].map((m) => m[1]);
 const projectGroups = [...listProject.matchAll(/data-group="(?:project:)?([^"]+)"/g)].map((m) => m[1]);
-check(dateGroups.length === new Set(dated.map((o) => o.start.slice(0, 10))).size, 'list by date: one group per start date (' + dateGroups.length + ')');
+check(dateGroups.length === new Set(dated.map(app.planDate)).size, 'list by date: one group per start (else deadline) date (' + dateGroups.length + ')');
 check(['Blog', 'Podcast', 'Client A', 'no-project'].every((p) => projectGroups.includes(p)), 'list by project: Blog, Podcast, Client A, no-project');
 check(projectGroups[projectGroups.length - 1] === 'no-project', 'the group no-project comes last');
 check(listProject.includes('<section class="group" data-group="no-project">\n    <h3><span class="group-title">No project</span>'), 'the group no-project is titled No project');
@@ -185,8 +207,9 @@ const min = all[0];
 const max = all[all.length - 1];
 check(ganttDays[0] === min && ganttDays[ganttDays.length - 1] === max, 'the timeline spans ' + min + '..' + max + ' (' + ganttDays.length + ' days)');
 const barCount = [...timeline.matchAll(/<div class="bar[ "]/g)].length;
-check(barCount === dated.length, 'one bar per dated task (' + barCount + ' of ' + plan.tasks.length + ')');
-check(undated.every((o) => !new RegExp('<div class="bar[^"]*"[^>]*data-id="' + o.id + '"').test(timeline)), 'undated tasks have no bar in the timeline');
+const started = plan.tasks.filter((o) => o.start);
+check(barCount === started.length, 'one bar per task with a start (' + barCount + ' of ' + plan.tasks.length + ')');
+check(plan.tasks.filter((o) => !o.start).every((o) => !new RegExp('<div class="bar[^"]*"[^>]*data-id="' + o.id + '"').test(timeline)), 'tasks without a start have no bar in the timeline');
 const day23 = timeline.split('data-date="2026-11-23"')[1].split('</section>')[0];
 check(day23.includes('--tracks:3'), 'the overlap day 2026-11-23 has 3 tracks');
 check((day23.match(/--track:2/g) || []).length >= 1, 'the overlapping task is in track 2');
@@ -197,7 +220,7 @@ check(timeline.includes('bar-all-day'), 'all-day bars have bar-all-day');
 
 // time window from the data: earliest start to latest end rounded to whole hours, at least 08-18
 let from = 8, to = 18;
-const timed = dated.filter((o) => o.start.includes('T')).map((o) => {
+const timed = started.filter((o) => o.start.includes('T')).map((o) => {
   const t = app.parseStart(o.start).time;
   const start = Number(t.slice(0, 2)) + Number(t.slice(3, 5)) / 60;
   return { start, end: start + (o.duration_min ? o.duration_min / 60 : 0.5) };
@@ -282,8 +305,8 @@ check(/:root:not\(:has\(:target\)\):not\(:has\(\.view\.active\)\)/.test(styleCss
 // ---------- 6. --update ----------
 
 if (process.argv.includes('--update')) {
-  for (const [lang, file] of Object.entries(pages)) fs.writeFileSync(path.join(WEB, file), app.renderPage(plan, app.todayStr(), dictionaries[lang]));
-  console.log('\nindex.html and index.da.html regenerated from example/plan.json (today = ' + app.todayStr() + ')');
+  for (const [lang, file] of Object.entries(pages)) fs.writeFileSync(path.join(WEB, file), app.renderPage(plan, today, dictionaries[lang]));
+  console.log('\nindex.html and index.da.html regenerated from example/plan.json (today = ' + today + ')');
 }
 
 // ---------- result ----------

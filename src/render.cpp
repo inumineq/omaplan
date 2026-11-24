@@ -151,20 +151,25 @@ QString num(double x) {
 }
 double hours(const QString &time) { return time.left(2).toInt() + time.mid(3, 2).toInt() / 60.0; }
 
-QString earliestDate(const Item &o) {
-    QStringList dates;
+// The rule of src/task.h (effectiveDate, isOverdue), as planDate/isOverdue/
+// agendaDate in app.js.
+QString planDate(const Item &o) {
     if (!parseWhen(o.start).date.isEmpty())
-        dates << o.start.left(10);
+        return o.start.left(10);
     if (!parseWhen(o.deadline).date.isEmpty())
-        dates << o.deadline.left(10);
-    std::sort(dates.begin(), dates.end());
-    return dates.isEmpty() ? QString() : dates.first();
+        return o.deadline.left(10);
+    return {};
 }
 bool isOverdue(const Item &o, const QString &today) {
     if (o.status != QLatin1String("todo"))
         return false;
-    const QString d = earliestDate(o);
-    return !d.isEmpty() && d < today;
+    if (!parseWhen(o.deadline).date.isEmpty())
+        return o.deadline.left(10) < today;
+    return !parseWhen(o.start).date.isEmpty() && o.start.left(10) < today;
+}
+QString agendaDate(const Item &o, const QString &today) {
+    const QString d = planDate(o);
+    return !d.isEmpty() && d < today && o.status == QLatin1String("todo") ? today : d;
 }
 QString startDate(const Item &o) { return parseWhen(o.start).date; }
 
@@ -261,7 +266,7 @@ QString renderOverview(const QList<Item> &items, const QString &today, const Tex
     QMap<QString, QList<Item>> groups;
     for (const Item &o : items)
         if (isOverdue(o, today))
-            groups[earliestDate(o)].append(o);
+            groups[planDate(o)].append(o);
     QStringList parts;
     for (auto it = groups.cbegin(); it != groups.cend(); ++it)
         parts << renderDay(it.key(), sortTasks(it.value(), t), QStringLiteral("overdue"), QStringLiteral("badge-overdue"),
@@ -270,7 +275,7 @@ QString renderOverview(const QList<Item> &items, const QString &today, const Tex
         const QString date = addDays(today, k);
         QList<Item> onDay;
         for (const Item &o : items)
-            if (startDate(o) == date) // undated tasks are not in the overview
+            if (!isOverdue(o, today) && agendaDate(o, today) == date) // undated tasks are not in the overview
                 onDay << o;
         parts << renderDay(date, sortTasks(onDay, t), k == 0 ? QStringLiteral("today") : QString(),
                            k == 0 ? QStringLiteral("badge-today") : QString(), t["today"], t);
@@ -294,7 +299,7 @@ QString renderListByDate(const QList<Item> &items, const Texts &t, const QString
     QMap<QString, QList<Item>> groups;
     QList<Item> undated;
     for (const Item &o : items) {
-        const QString d = startDate(o);
+        const QString d = planDate(o);
         if (d.isEmpty())
             undated << o; // the group "No date" comes last
         else
