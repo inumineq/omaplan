@@ -42,7 +42,22 @@ bool isTimeOnlyPhrase(const QString &phrase) {
                                            QRegularExpression::CaseInsensitiveOption);
     static const QRegularExpression colon(pattern.arg(DateVocabulary::timePrefixPattern(), QStringLiteral(":")),
                                           QRegularExpression::CaseInsensitiveOption);
-    return (DateConvention::active().dottedIsTime ? dotted : colon).match(phrase.trimmed()).hasMatch();
+    const QString text = phrase.trimmed();
+    if (colon.match(text).hasMatch())
+        return true;
+    // A dotted one when dots are times, or when it can only be a time (see
+    // DateConvention::dottedReadsAsTime): "kl. 14.30", "14.30", "2.30 pm".
+    static const QRegularExpression parts(QStringLiteral("(\\d{1,2})\\.(\\d{2})\\s*(am|pm|a\\.m\\.|p\\.m\\.)?$"),
+                                          QRegularExpression::CaseInsensitiveOption);
+    const auto d = dotted.match(text);
+    const auto p = parts.match(text);
+    if (!d.hasMatch())
+        return false;
+    if (!p.hasMatch())
+        return true; // no dot at all: "kl. 9", "2pm"
+    return DateConvention::active().dottedReadsAsTime(p.captured(1).toInt(), p.captured(2).toInt(),
+                                                      p.capturedStart(1) > 0 && !text.left(p.capturedStart(1)).trimmed().isEmpty(),
+                                                      !p.captured(3).isEmpty());
 }
 
 QString annotationFor(const QString &phrase, const QDate &today) {

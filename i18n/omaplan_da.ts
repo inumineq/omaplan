@@ -1407,6 +1407,10 @@ command = &quot;...&quot;</translation>
         <translation>fredag 14.30</translation>
     </message>
     <message>
+        <source>tomorrow at 9.05</source>
+        <translation>i morgen kl. 9.05</translation>
+    </message>
+    <message>
         <source>Try it</source>
         <translation>Prøv selv</translation>
     </message>

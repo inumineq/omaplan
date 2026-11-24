@@ -33,6 +33,16 @@ struct DateConvention {
     static const DateConvention &active();
     static void setActive(const DateConvention &convention);
 
+    // Whether "a.b" (two numbers with a dot) is a time: always when dotted
+    // values are times; otherwise only when a time prefix ("kl.", "at") comes
+    // before it, am/pm after it, or it cannot be a date in this order
+    // ("14.30": there is no month 30).
+    bool dottedReadsAsTime(int a, int b, bool prefixed, bool meridiem) const {
+        if (dottedIsTime || prefixed || meridiem)
+            return true;
+        const int day = dayFirst ? a : b, month = dayFirst ? b : a;
+        return day < 1 || day > 31 || month < 1 || month > 12;
+    }
     // The first day of the week `date` lies in.
     QDate weekStartOf(const QDate &date) const;
     // The config values ("dmy", "time", "monday", "24h") of each setting.

@@ -1008,7 +1008,18 @@ bool Actions::parseDateTime(const QString &text, const QDate &today, QDateTime *
     static const QRegularExpression timeColon(timePattern.arg(DateVocabulary::timePrefixPattern(), QStringLiteral(":")));
     QTime time(0, 0);
     bool withTime = false;
-    const auto timeMatch = (convention.dottedIsTime ? timeDotted : timeColon).match(rest);
+    auto timeMatch = (convention.dottedIsTime ? timeDotted : timeColon).match(rest);
+    if (!timeMatch.hasMatch() && !convention.dottedIsTime) {
+        // Dotted numbers are dates here, but "kl. 14.30", "2.30 pm" and
+        // "14.30" (no month 30) can only be times.
+        const auto dotted = timeDotted.match(rest);
+        if (dotted.hasMatch() && !dotted.captured(2).isEmpty()
+            && convention.dottedReadsAsTime(
+                   dotted.captured(1).toInt(), dotted.captured(2).toInt(),
+                   !rest.mid(dotted.capturedStart(), dotted.capturedStart(1) - dotted.capturedStart()).trimmed().isEmpty(),
+                   !dotted.captured(3).isEmpty()))
+            timeMatch = dotted;
+    }
     const QString meridiem = timeMatch.captured(3);
     const bool dayAfterArticle = timeMatch.hasMatch() && timeMatch.captured(2).isEmpty() && meridiem.isEmpty()
             && DateVocabulary::isDayArticle(rest.left(timeMatch.capturedStart(1)).trimmed().section(QLatin1Char(' '), -1));

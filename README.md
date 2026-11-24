@@ -204,7 +204,8 @@ model = "your-choice"      # free choice -- nothing is hardcoded or built in
 
 [dates]                    # each one: leave it out to follow the language
 order = "dmy"              # how 12/11 is read: dmy (12 November) | mdy (11 December)
-dotted = "time"            # what 12.12 is: time (12:12) | date (12 December)
+dotted = "time"            # what 12.12 is: time (12:12) | date (12 December; "14.30", "kl. 9.05"
+                           # and "2.30 pm" are still times, as they cannot be dates)
 week_start = "monday"      # monday | sunday
 clock = "24h"              # 24h | 12h (2:30 PM)
 

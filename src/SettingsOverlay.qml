@@ -446,7 +446,7 @@ Rectangle {
                     }
                     Heading { text: qsTr("Preview").toUpperCase() }
                     Repeater {
-                        model: ["12/11", "12.12", qsTr("friday 14.30")]
+                        model: ["12/11", "12.12", qsTr("friday 14.30"), qsTr("tomorrow at 9.05")]
                         delegate: RowLayout {
                             required property string modelData
                             Layout.fillWidth: true

@@ -2197,8 +2197,29 @@ private slots:
             // A time with a colon stays a time.
             QVERIFY(Actions::parseDateTime("fredag 14:30", today, &out, &hasTime, &error));
             QCOMPARE(out.time(), QTime(14, 30));
-            QVERIFY(!Actions::parseDateTime("fredag 14.30", today, &out, &hasTime, &error));
+            // A dotted value that cannot be a date (month 30), or one after a
+            // time prefix or before am/pm, is still a time.
+            QVERIFY2(Actions::parseDateTime("fredag 14.30", today, &out, &hasTime, &error), qPrintable(error));
+            QCOMPARE(out, QDateTime(QDate(2026, 11, 27), QTime(14, 30)));
+            QVERIFY2(Actions::parseDateTime("fredag kl. 10.15", today, &out, &hasTime, &error), qPrintable(error));
+            QCOMPARE(out, QDateTime(QDate(2026, 11, 27), QTime(10, 15)));
+            QVERIFY2(Actions::parseDateTime("tomorrow 2.30 p.m.", today, &out, &hasTime, &error), qPrintable(error));
+            QCOMPARE(out, QDateTime(today.addDays(1), QTime(14, 30)));
+            QVERIFY(Actions::parseDateTime("tomorrow at 9.05", today, &out, &hasTime, &error));
+            QCOMPARE(out.time(), QTime(9, 5));
+            // ...but a value that can be a date stays one.
+            QVERIFY(Actions::parseDateTime("10.12", today, &out, &hasTime, &error));
+            QCOMPARE(out.date(), QDate(2026, 12, 10));
+            QVERIFY(!hasTime);
             QCOMPARE(annotateDates("deadline 24.12", today), QStringLiteral("deadline 24.12 [Thursday 2026-12-24]"));
+            QCOMPARE(annotateDates("ring kl. 14.30", today), QStringLiteral("ring kl. 14.30 [14:30]"));
+            // Month/day: 14 cannot be a month, so 14.30 is a time; 3.04 can be a date.
+            c.dayFirst = false;
+            ConventionGuard mdy(c);
+            QVERIFY(Actions::parseDateTime("14.30", today, &out, &hasTime, &error));
+            QCOMPARE(out.time(), QTime(14, 30));
+            QVERIFY(Actions::parseDateTime("3.04", today, &out, &hasTime, &error));
+            QVERIFY(!hasTime);
         }
         {
             c = DateConvention();
