@@ -5,12 +5,12 @@ Rectangle {
     id: tag
     property string text: ""
     property color tint: theme.muted
-    implicitWidth: label.implicitWidth + 12
-    implicitHeight: label.implicitHeight + 4
+    // Whole pixels: a fractional width cuts off the right border.
+    implicitWidth: Math.ceil(label.implicitWidth) + 12
+    implicitHeight: Math.ceil(label.implicitHeight) + 4
     radius: Math.min(3, theme.radius)
     color: Qt.alpha(tag.tint, 0.14)
     border.color: Qt.alpha(tag.tint, 0.5)
-    clip: true
     // User text (a project name) is shown as it is, never as markup.
     Text {
         id: label

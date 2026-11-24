@@ -54,7 +54,9 @@ Rectangle {
         const f = Window.activeFocusItem
         if (f && f.configField && f.text !== f.configField.stored) {
             f.text = f.configField.stored
-            return
+            // A field in another section is not seen being restored: close too.
+            if (f.visible)
+                return
         }
         closeRequested()
     }
@@ -174,7 +176,8 @@ Rectangle {
         Text { font.family: theme.fontFamily; text: fieldBox.label; color: theme.muted; font.pixelSize: 11 }
         TextField {
             id: input
-            objectName: fieldBox.saves ? "field:" + fieldBox.key : ""
+            // Each engine card holds every kind of field; only the shown one is named.
+            objectName: fieldBox.saves && fieldBox.visible ? "field:" + fieldBox.key : ""
             readonly property var configField: fieldBox.saves ? fieldBox : null
             Layout.fillWidth: true
             selectedTextColor: theme.accentForeground
@@ -543,7 +546,7 @@ Rectangle {
                                     Tag {
                                         objectName: "tag:" + projectRow.modelData
                                         anchors.verticalCenter: parent.verticalCenter
-                                        width: Math.min(implicitWidth, parent.width)
+                                        width: Math.min(implicitWidth, Math.floor(parent.width))
                                         text: projectRow.modelData
                                         tint: theme.palette[projectRow.current] || theme.muted
                                     }

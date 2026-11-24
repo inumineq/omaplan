@@ -289,7 +289,38 @@ private slots:
         QQuickItem *firstSwatch = item(QStringLiteral("swatch:A project with a rather long name that will not fit:"));
         QVERIFY(longTag && firstSwatch);
         QVERIFY(longTag->mapToScene({longTag->width(), 0}).x() <= firstSwatch->mapToScene({0, 0}).x());
+
+        // N5: the tag's right border is drawn: its last column looks like its
+        // first, not like the panel behind it.
+        pump(100);
+        const QImage shot = m_window->grabWindow();
+        const qreal dpr = shot.devicePixelRatio();
+        for (const QString &name : {QStringLiteral("Blog"), QStringLiteral("constructor")}) {
+            QQuickItem *tag = item(QStringLiteral("tag:") + name);
+            const QPointF left = tag->mapToScene({0, tag->height() / 2});
+            const QPointF right = tag->mapToScene({tag->width(), tag->height() / 2});
+            const int y = int(left.y() * dpr);
+            const QColor first = shot.pixelColor(int(std::floor(left.x() * dpr)), y);
+            const QColor last = shot.pixelColor(int(std::ceil(right.x() * dpr)) - 1, y);
+            QVERIFY2(qAbs(first.red() - last.red()) + qAbs(first.green() - last.green()) + qAbs(first.blue() - last.blue()) < 24,
+                     qPrintable(QStringLiteral("%1: left %2, right %3, x %4").arg(name, first.name(), last.name()).arg(right.x())));
+        }
         QMetaObject::invokeMethod(m_panel, "close");
+    }
+
+    // N5: Esc after switching section restores the hidden field and closes in one go.
+    void escapeAfterASectionSwitchCloses() {
+        openPanel("engine");
+        QQuickItem *field = item(QStringLiteral("field:engine.vibe.model"));
+        field->forceActiveFocus();
+        type(QStringLiteral("half"));
+        QTest::keyClick(m_window, Qt::Key_2, Qt::AltModifier);
+        pump();
+        QCOMPARE(m_panel->property("section").toString(), QStringLiteral("dates"));
+        key(Qt::Key_Escape);
+        QVERIFY(!m_panel->property("visible").toBool());
+        QVERIFY(!fileText().contains("half"));
+        QCOMPARE(field->property("text").toString(), QString());
     }
 
     // L3: the hour axes of the week calendar and the timeline follow the 12-hour clock.
