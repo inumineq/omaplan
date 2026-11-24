@@ -13,5 +13,5 @@ the approach can be agreed first.
 4. **Smaller fixes from the audit:**
    - retention for the `captures` and `changes` tables, which today grow without limit;
    - timestamps (`created`, `modified`, change log) with a UTC offset;
-   - the read-only page's "today" in the plan's time zone rather than the browser's;
+   - the read-only page's "today" in the plan's time zone rather than the server's or the browser's;
    - the layout of the fields when comparing two engines (Alt+S).
