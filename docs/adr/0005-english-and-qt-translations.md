@@ -1,6 +1,7 @@
 # 0005 – English in the repository, Qt's own tools for translations
 
-Status: decided 2026-11-23
+Status: decided 2026-11-23. The choice of Qt Linguist files is superseded by
+[0006](0006-omarchy-conventions.md); the rest stands.
 
 The repository is public, so everything in it is in English: code, identifiers, comments, documentation, commit
 messages, CLI flags and help, JSON keys, MCP tools and the agent skill. Danish was the original language; it is now

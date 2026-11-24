@@ -1,11 +1,28 @@
 # Omaplan
 
-Planning for Omarchy: write or dictate your tasks in plain text, let an AI put them on dates, and see the plan as an
-overview, calendar, list or timeline. The GUI and the command line share the same database, so changes from the CLI
-or an agent show up in the window at once (and can be undone from there).
+![Omaplan's overview: today's and the coming days' tasks, with projects and priorities](docs/omaplan.png)
 
-Build with `bin/build`, run the tests with `bin/test`, install as an Arch package with `bin/install`. See `SPEC.md`,
-`docs/architecture.md` and, for what is planned, `docs/roadmap.md`.
+Omaplan is a planner for Omarchy. Write or dictate your tasks in plain text, let an AI tool you already have put
+them on dates, check the proposal, and see the plan as an overview, calendar, list or timeline. Everything works
+from the keyboard, and it follows Omarchy's theme, font, text size and language live. The window and the command
+line share one database, so a change from the CLI or an agent shows up in the window at once, and can be undone
+there.
+
+## Install
+
+Omaplan is built like Omarchy's own apps (C++ and Qt Quick, CMake, one binary), and its package recipe belongs in
+[omarchy-pkgs](https://github.com/omacom/omarchy-pkgs). Until it is published there, build it from this repository:
+
+```sh
+omarchy-pkg-add base-devel cmake qt6-base qt6-declarative qt6-svg qt6-wayland fontconfig
+bin/build                                  # cmake into build/
+bin/test                                   # builds, then runs every test offscreen with ctest
+cmake --install build --prefix ~/.local    # the binary, the launcher entry and the icon, for this user
+```
+
+`omaplan` (or `omaplan open`) opens the window; every other command runs without a display. Remove a local install
+with `xargs rm < build/install_manifest.txt`. See `SPEC.md`, `docs/architecture.md` and, for what is planned,
+`docs/roadmap.md`.
 
 ## Keys (in the window)
 
@@ -164,8 +181,18 @@ replace it. `omaplan skill uninstall` removes it again.
 ## AI engines
 
 `omaplan add "<text>"` (or `n`/Space in the window) asks an engine for a proposal. Engines: `vibe` (Mistral Vibe
-CLI, default), `claude` (Claude CLI), `local` (any local model via Ollama or an OpenAI-compatible endpoint) and
-`command` (any command, mostly for tests).
+CLI), `claude` (Claude CLI), `local` (a local model: the one Omarchy runs, Ollama, or any OpenAI-compatible
+endpoint) and `command` (any command that reads the prompt on stdin and prints JSON).
+
+Until you pick one (`omaplan config set engine.default …` or the settings panel), the engine follows
+`omarchy default agent`: `claude` when that is Claude Code, `local` when it is Omarchy's local model, and `vibe`
+otherwise.
+
+The `local` engine uses the model Omarchy itself runs (`omarchy models`) when one is set up and you have given no
+endpoint of your own. It finds the running model and its loopback endpoint in Omarchy's status file and reads
+Omarchy's API key from `~/.config/omarchy/agent-local/key` for each request. Omaplan never stores the key and never
+sends it anywhere but this machine. `engine.local.model` names a recipe when you want another than Omarchy's pick,
+and `engine.local.api` set to `ollama` or `openai` with an `endpoint` points it at a server of your own instead.
 
 Before the text goes to the engine, Omaplan resolves date expressions itself and writes them into the text, e.g.
 "tomorrow at 14:30" becomes "tomorrow at 14:30 [Tuesday 2026-11-24 14:30]", so small models only have to copy the
@@ -244,12 +271,14 @@ is not run by `bin/test`.
 
 ## Language
 
-The interface is in English or Danish. The language is the first of these that has a translation: `--lang`,
-`language` in `config.toml`, Omarchy's language (`~/.config/omarchy/language`), the system locale, English. The open
-window switches live when the Omarchy language changes. The window, the CLI's human-readable output, error messages
-and date formats are translated; `--json` output, JSON field names and the MCP tools are always English.
+Omaplan follows the language picked under Omarchy's Setup > Region > Language, live. English and Danish are
+complete; in any other language the strings show in English for now, while dates, numbers and the layout direction
+(right to left for Arabic, Hebrew, Persian and Urdu) already follow it. `--lang` on the command line and `language`
+in `config.toml` override Omarchy's choice, and without Omarchy the system locale decides when it names a language
+with a catalog. The window, the CLI's human-readable output, error messages and date formats are translated;
+`--json` output, JSON field names and the MCP tools are always English.
 
-Translations are Qt Linguist files in `i18n/`, compiled into the binary. To add a language, see
+Translations are JSON catalogs in `src/i18n/`, compiled into the binary. To add a language, see
 `docs/translating.md`.
 
 ## License
