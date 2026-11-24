@@ -447,7 +447,7 @@ private slots:
         };
         for (const QByteArray &host : {QByteArrayLiteral("localhost"), QByteArrayLiteral("localhost:8787"),
                                        QByteArrayLiteral("127.0.0.1:8787"), QByteArrayLiteral("[::1]:8787"),
-                                       QByteArrayLiteral("100.64.0.1"), QByteArrayLiteral("plan.example.ts.net"),
+                                       QByteArrayLiteral("192.0.2.10"), QByteArrayLiteral("plan.example.ts.net"),
                                        QByteArrayLiteral("PLAN.example.ts.net:443"), QHostInfo::localHostName().toUtf8()})
             QVERIFY2(status(host) == 200, host.constData());
         for (const QByteArray &host : {QByteArrayLiteral("evil.example"), QByteArrayLiteral("evil.example:8787"),
