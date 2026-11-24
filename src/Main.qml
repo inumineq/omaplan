@@ -41,7 +41,7 @@ ApplicationWindow {
     function notify(text, isError) {
         toast.text = text
         toast.isError = !!isError
-        toastTimer.interval = isError ? 7000 : 3000
+        toastTimer.interval = isError ? 10000 : 4000 // Hype's timings
         toastTimer.restart()
     }
     // Shows the error of a failed action; returns whether it succeeded.
@@ -330,10 +330,9 @@ ApplicationWindow {
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.bottomMargin: 18
             visible: text !== ""
-            color: theme.surface
-            border.color: isError ? theme.danger : theme.accent
-            border.width: 1
-            radius: Math.min(6, theme.radius)
+            // A quiet pill like Monologue's: no frame; errors are in red.
+            color: theme.raised
+            radius: Math.min(4, theme.radius)
             width: Math.min(toastLabel.implicitWidth + 28, parent.width - 48)
             height: toastLabel.implicitHeight + 16
             Text {
@@ -342,7 +341,7 @@ ApplicationWindow {
                 anchors.margins: 8
                 anchors.leftMargin: 14
                 text: toast.text
-                color: theme.foreground
+                color: toast.isError ? theme.danger : theme.foreground
                 font.pixelSize: 13
                 wrapMode: Text.Wrap
                 horizontalAlignment: Text.AlignHCenter
