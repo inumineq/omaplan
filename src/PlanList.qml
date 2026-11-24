@@ -59,7 +59,7 @@ Item {
         anchors.topMargin: 14
         spacing: 10
 
-        // Toolbar: every choice is visible and clickable, with its key.
+        // Toolbar: every choice is visible and clickable; its key is in the tooltip and in ?.
         Flow {
             Layout.fillWidth: true
             Layout.maximumWidth: 960
@@ -98,13 +98,9 @@ Item {
                     model: [qsTr("All projects")].concat(root.projects)
                     currentIndex: root.project === "" ? 0 : root.projects.indexOf(root.project) + 1
                     onActivated: index => root.project = index === 0 ? "" : root.projects[index - 1]
-                }
-                Text {
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: "f"
-                    color: theme.muted
-                    font.pixelSize: 11
-                    font.family: "monospace"
+                    ToolTip.visible: hovered && !popup.visible
+                    ToolTip.delay: 600
+                    ToolTip.text: qsTr("Project") + " (f)"
                 }
             }
             Text {

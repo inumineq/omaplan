@@ -111,6 +111,7 @@ Rectangle {
                     anchors.verticalCenter: parent.verticalCenter
                     text: qsTr("+ Add task")
                     keyHint: "Ctrl+N"
+                    keyInline: true
                     onClicked: column.view.addTask(column.col)
                 }
             }

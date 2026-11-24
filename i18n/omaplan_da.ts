@@ -321,8 +321,16 @@ Råt svar:
 <context>
     <name>GanttView</name>
     <message>
+        <source>Previous</source>
+        <translation>Forrige</translation>
+    </message>
+    <message>
         <source>Today</source>
         <translation>I dag</translation>
+    </message>
+    <message>
+        <source>Next</source>
+        <translation>Næste</translation>
     </message>
     <message>
         <source>Zoom</source>
@@ -648,8 +656,16 @@ Råt svar:
 <context>
     <name>PlanCalendar</name>
     <message>
+        <source>Previous</source>
+        <translation>Forrige</translation>
+    </message>
+    <message>
         <source>Today</source>
         <translation>I dag</translation>
+    </message>
+    <message>
+        <source>Next</source>
+        <translation>Næste</translation>
     </message>
     <message>
         <source>Week</source>

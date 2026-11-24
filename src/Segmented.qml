@@ -1,15 +1,23 @@
 import QtQuick
+import QtQuick.Controls
 
-// A labelled row of choices with its key: "Group [Date|Project|None] g".
+// A labelled row of choices: "Group [Date|Project|None]". The key shows in a
+// tooltip ("Group (g)"), or beside the choices in dialogs (keyInline).
 Row {
     id: seg
     property string label: ""
     property string keyHint: ""
+    property bool keyInline: false
     property var options: []   // [[value, text], ...]
     property string value: ""
     signal picked(string value)
     spacing: 8
     height: 32
+
+    HoverHandler { id: rowHover }
+    ToolTip.visible: rowHover.hovered && ToolTip.text !== ""
+    ToolTip.delay: 600
+    ToolTip.text: keyHint === "" || keyInline ? "" : (label !== "" ? label + " (" + keyHint + ")" : keyHint)
 
     Text {
         anchors.verticalCenter: parent.verticalCenter
@@ -47,7 +55,7 @@ Row {
     }
     Text {
         anchors.verticalCenter: parent.verticalCenter
-        visible: seg.keyHint !== ""
+        visible: seg.keyInline && seg.keyHint !== ""
         text: seg.keyHint
         color: theme.muted
         font.pixelSize: 11

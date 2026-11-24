@@ -1,16 +1,24 @@
 import QtQuick
 import QtQuick.Controls
 
-// Flat button with its key shown beside the label ("New task  n").
+// Flat button. Its key shows in a tooltip ("Today (t)"), as in Omarchy's
+// apps; dialogs, where the keys are the main way in, show it beside the
+// label instead ("Save  Enter").
 AbstractButton {
     id: button
     property string keyHint: ""
+    property bool keyInline: false
+    property string toolTip: ""      // what the tooltip names; the label by default
     property bool primary: false
     property bool active: false
     focusPolicy: Qt.NoFocus
     implicitHeight: 30
     leftPadding: 12
     rightPadding: 12
+    ToolTip.visible: hovered && ToolTip.text !== ""
+    ToolTip.delay: 600
+    ToolTip.text: keyHint === "" || keyInline ? toolTip
+                : (toolTip !== "" ? toolTip : text) + " (" + keyHint + ")"
     contentItem: Row {
         spacing: 8
         Text {
@@ -22,7 +30,7 @@ AbstractButton {
         }
         Text {
             anchors.verticalCenter: parent.verticalCenter
-            visible: button.keyHint !== ""
+            visible: button.keyInline && button.keyHint !== ""
             text: button.keyHint
             color: button.primary ? theme.accentForeground : theme.muted
             opacity: 0.75

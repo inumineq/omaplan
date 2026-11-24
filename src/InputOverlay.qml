@@ -113,6 +113,7 @@ Rectangle {
                 Item { Layout.fillWidth: true }
                 Segmented {
                     keyHint: "Alt+S"
+                    keyInline: true
                     options: [["single", qsTr("One engine")], ["compare", qsTr("Compare")]]
                     value: overlay.compare ? "compare" : "single"
                     onPicked: v => { overlay.compare = v === "compare"; input.forceActiveFocus() }

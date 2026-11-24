@@ -117,9 +117,9 @@ Item {
         RowLayout {
             Layout.fillWidth: true
             spacing: 6
-            HeaderButton { text: "‹"; onClicked: gantt.page(-1) }
+            HeaderButton { text: "‹"; toolTip: qsTr("Previous"); keyHint: "h"; onClicked: gantt.page(-1) }
             HeaderButton { text: qsTr("Today"); keyHint: "t"; onClicked: gantt.goToday() }
-            HeaderButton { text: "›"; onClicked: gantt.page(1) }
+            HeaderButton { text: "›"; toolTip: qsTr("Next"); keyHint: "l"; onClicked: gantt.page(1) }
             Text {
                 Layout.leftMargin: 10
                 text: {
