@@ -4,8 +4,8 @@ Planning for Omarchy: write or dictate your tasks in plain text, let an AI put t
 overview, calendar, list or timeline. The GUI and the command line share the same database, so changes from the CLI
 or an agent show up in the window at once (and can be undone from there).
 
-Build with `bin/build`, run the tests with `bin/test`, install as an Arch package with `bin/install`. See `SPEC.md`
-and `docs/architecture.md`.
+Build with `bin/build`, run the tests with `bin/test`, install as an Arch package with `bin/install`. See `SPEC.md`,
+`docs/architecture.md` and, for what is planned, `docs/roadmap.md`.
 
 ## Keys (in the window)
 
