@@ -2907,6 +2907,33 @@ private slots:
         QCOMPARE(AppConfig::load(dir.filePath("config.toml")).vibeModel, QStringLiteral("mistral-medium"));
     }
 
+    // L3: the CLI's human output follows the 12-hour clock; --json stays ISO.
+    void cliTextFollowsTheClock()
+    {
+        QTemporaryDir dir;
+        Store store(dir.filePath("t.db"));
+        QString error, out, err;
+        QVERIFY(store.open(&error));
+        DateConvention c;
+        c.clock24 = false;
+        ConventionGuard guard(c);
+        QCOMPARE(cli(store, {"new", "--title", "Write the blog post", "--start", "2026-12-04 14:30",
+                             "--deadline", "2026-12-05 00:15"}, &out, &err), 0);
+        out.clear();
+        QCOMPARE(cli(store, {"list"}, &out, &err), 0);
+        QVERIFY2(out.contains("2026-12-04 2:30 PM"), qPrintable(out));
+        const QString id = store.tasks().first().id;
+        out.clear();
+        QCOMPARE(cli(store, {"show", id}, &out, &err), 0);
+        QVERIFY2(out.contains("2026-12-05 12:15 AM"), qPrintable(out));
+        out.clear();
+        QCOMPARE(cli(store, {"move", id, "2026-12-07 09:00"}, &out, &err), 0);
+        QVERIFY2(out.contains("2026-12-07 9:00 AM"), qPrintable(out));
+        int code = 0;
+        const QJsonObject json = cliJson(store, {"show", id, "--json"}, &err, &code);
+        QVERIFY(json.value("task").toObject().value("start").toString().startsWith("2026-12-07T09:00"));
+    }
+
     // M2: picking the language in the panel switches the open window.
     void languageSettingAppliesLive()
     {

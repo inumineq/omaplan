@@ -346,7 +346,7 @@ Item {
                                 y: -7
                                 visible: parent.index > 0
                                 horizontalAlignment: Text.AlignRight
-                                text: (parent.index < 10 ? "0" : "") + parent.index + ":00"
+                                text: Fmt.hour(parent.index, false)
                                 color: theme.muted
                                 font.pixelSize: 10
                             }

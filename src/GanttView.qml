@@ -186,7 +186,7 @@ Item {
                             visible: index > 0 && (gantt.dayWidth / (gantt.lastHour - gantt.firstHour) > 44 || index % 2 === 0)
                             x: index / (gantt.lastHour - gantt.firstHour) * gantt.dayWidth - width / 2
                             y: 22
-                            text: String(gantt.firstHour + index).padStart(2, "0")
+                            text: Fmt.hour(gantt.firstHour + index, true)
                             color: theme.muted
                             font.pixelSize: 10
                         }

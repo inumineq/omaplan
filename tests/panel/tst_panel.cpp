@@ -292,7 +292,45 @@ private slots:
         QMetaObject::invokeMethod(m_panel, "close");
     }
 
+    // L3: the hour axes of the week calendar and the timeline follow the 12-hour clock.
+    void hourAxesFollowTheClock() {
+        writeConfig(QByteArrayLiteral("[dates]\nclock = \"12h\"\n"));
+        QObject *root = m_engine->rootObjects().first();
+        root->setProperty("calendarMode", "week");
+        root->setProperty("currentView", 1);
+        pump(300);
+        QVERIFY(hasText(m_window->contentItem(), QStringLiteral("1 PM")));
+        QVERIFY(!hasText(m_window->contentItem(), QStringLiteral("13:00")));
+        root->setProperty("currentView", 3);
+        pump(300);
+        key(Qt::Key_Plus); // zoom in to one day: the hour ticks show
+        key(Qt::Key_Plus);
+        static const QRegularExpression twelve(QStringLiteral("^\\d{1,2} [AP]M$"));
+        static const QRegularExpression twentyFour(QStringLiteral("^\\d{2}$"));
+        QVERIFY(hasText(m_window->contentItem(), twelve));
+        QVERIFY(!hasText(m_window->contentItem(), twentyFour));
+        writeConfig(QByteArrayLiteral(""));
+        pump(200);
+        QVERIFY(hasText(m_window->contentItem(), twentyFour));
+        root->setProperty("currentView", 0);
+    }
+
     void cleanupTestCase() { m_engine.reset(); }
+
+private:
+    // A visible text item showing exactly this text.
+    static bool hasText(QQuickItem *root, const QString &text) {
+        return hasText(root, QRegularExpression(QLatin1Char('^') + QRegularExpression::escape(text) + QLatin1Char('$')));
+    }
+    static bool hasText(QQuickItem *root, const QRegularExpression &text) {
+        for (QQuickItem *child : root->childItems()) {
+            if (!child->isVisible())
+                continue;
+            if (text.match(child->property("text").toString()).hasMatch() || hasText(child, text))
+                return true;
+        }
+        return false;
+    }
 };
 
 int main(int argc, char *argv[]) {

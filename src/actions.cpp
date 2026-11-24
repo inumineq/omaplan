@@ -30,11 +30,19 @@ static QJsonObject changeToJson(const Store::Change &change) {
     return json;
 }
 
+// A date, with its time on the clock of the date convention, for the CLI's
+// human output ("2026-12-04 14:30" or "2026-12-04 2:30 PM"); --json stays ISO.
+static QString dateTimeText(const QDateTime &when, bool hasTime) {
+    if (!hasTime)
+        return when.date().toString(Qt::ISODate);
+    return QLocale::c().toString(when, DateConvention::active().clock24 ? QStringLiteral("yyyy-MM-dd HH:mm")
+                                                                        : QStringLiteral("yyyy-MM-dd h:mm AP"));
+}
+
 static QString startText(const Task &task) {
     if (!task.start.isValid())
         return QStringLiteral("-");
-    return task.startHasTime ? task.start.toString(QStringLiteral("yyyy-MM-dd HH:mm"))
-                             : task.start.date().toString(Qt::ISODate);
+    return dateTimeText(task.start, task.startHasTime);
 }
 
 // effectiveDate() lives in task.h so models and actions share it.
@@ -126,8 +134,7 @@ ActionResult Actions::moveLocked(const QString &id, const QDateTime &when, bool 
         return {false, error, {}, {}};
     QJsonObject payload;
     payload["task"] = task.toJson();
-    const QString whenText = hasTime ? when.toString(QStringLiteral("yyyy-MM-dd HH:mm"))
-                                     : when.date().toString(Qt::ISODate);
+    const QString whenText = dateTimeText(when, hasTime);
     return {true, {}, tr("Moved %1 to %2").arg(id, whenText), payload};
 }
 
@@ -375,9 +382,7 @@ static QStringList existingTaskLines(Store *store) {
             continue;
         QString line = task.title;
         if (task.start.isValid())
-            line += QStringLiteral(" | %1").arg(task.startHasTime
-                                                   ? task.start.toString(QStringLiteral("yyyy-MM-dd HH:mm"))
-                                                   : task.start.date().toString(Qt::ISODate));
+            line += QStringLiteral(" | %1").arg(dateTimeText(task.start, task.startHasTime));
         if (!task.project.isEmpty())
             line += QStringLiteral(" | %1").arg(task.project);
         line += QStringLiteral(" | %1").arg(Task::statusToString(task.status));
@@ -685,9 +690,7 @@ ActionResult Actions::show(const QString &id) {
     if (task.durationMinutes > 0)
         lines << tr("duration: %1 min").arg(task.durationMinutes);
     if (task.deadline.isValid())
-        lines << tr("deadline: %1").arg(task.deadlineHasTime
-                                             ? task.deadline.toString(QStringLiteral("yyyy-MM-dd HH:mm"))
-                                             : task.deadline.date().toString(Qt::ISODate));
+        lines << tr("deadline: %1").arg(dateTimeText(task.deadline, task.deadlineHasTime));
     if (!task.guesses.isEmpty())
         lines << tr("guessed fields: %1").arg(task.guesses.join(QLatin1String(", ")));
     return {true, {}, lines.join(QLatin1Char('\n')), payload};

@@ -49,6 +49,12 @@ QtObject {
     }
 
     // "14:30", or "2:30 PM" on a 12-hour clock.
+    // An hour on an axis: "13:00" ("13" when short), or "1 PM" on a 12-hour clock.
+    function hour(h, short) {
+        if (clock24)
+            return String(h).padStart(2, "0") + (short ? "" : ":00")
+        return new Date(2000, 0, 1, h).toLocaleTimeString(locale, "h AP")
+    }
     function time(d) { return valid(d) ? d.toLocaleTimeString(locale, clock24 ? "HH:mm" : "h:mm AP") : "" }
     // "mandag 24. november" / "Monday 24 November"
     function dayLong(d) { return d.toLocaleDateString(locale, danish ? "dddd d. MMMM" : "dddd d MMMM") }
