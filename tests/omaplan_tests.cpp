@@ -1740,8 +1740,8 @@ private slots:
         QString error;
         QVERIFY(store.open(&error));
 
-        const QString fixture = QDir(QCoreApplication::applicationDirPath())
-                                    .filePath(QStringLiteral("../../tests/ai-fixtures/envelopes/command-valid.json"));
+        // FIXTURES_DIR is the source tree's, wherever the build directory is.
+        const QString fixture = QStringLiteral(FIXTURES_DIR "/envelopes/command-valid.json");
         QVERIFY(QFile::exists(fixture));
         QTemporaryDir cfgDir;
         const QString cfgPath = cfgDir.filePath("config.toml");
@@ -1798,8 +1798,8 @@ private slots:
         QTemporaryDir dir;
         Store store(dir.filePath(QStringLiteral("b.db")));
         QVERIFY(store.open());
-        const QString fixture = QDir(QCoreApplication::applicationDirPath())
-                                    .filePath(QStringLiteral("../../tests/ai-fixtures/envelopes/command-valid.json"));
+        // FIXTURES_DIR is the source tree's, wherever the build directory is.
+        const QString fixture = QStringLiteral(FIXTURES_DIR "/envelopes/command-valid.json");
         const QString cfgPath = dir.filePath(QStringLiteral("config.toml"));
         {
             QFile f(cfgPath);
@@ -3347,8 +3347,8 @@ private slots:
     {
         QTemporaryDir dir;
         const QString db = dir.filePath("mcp.db");
-        const QString fixture = QDir(QCoreApplication::applicationDirPath())
-                                    .filePath(QStringLiteral("../../tests/ai-fixtures/envelopes/command-valid.json"));
+        // FIXTURES_DIR is the source tree's, wherever the build directory is.
+        const QString fixture = QStringLiteral(FIXTURES_DIR "/envelopes/command-valid.json");
         QFile cfg(dir.filePath("config.toml"));
         QVERIFY(cfg.open(QIODevice::WriteOnly));
         cfg.write("[engine]\ndefault = \"command\"\ncommand = \"cat " + fixture.toUtf8() + "\"\n");
@@ -3383,8 +3383,8 @@ private slots:
         QString error;
         QVERIFY(store.open(&error));
         Actions actions(&store);
-        const QString fixture = QDir(QCoreApplication::applicationDirPath())
-                                    .filePath(QStringLiteral("../../tests/ai-fixtures/envelopes/command-valid.json"));
+        // FIXTURES_DIR is the source tree's, wherever the build directory is.
+        const QString fixture = QStringLiteral(FIXTURES_DIR "/envelopes/command-valid.json");
         const QString cfgPath = dir.filePath("config.toml");
         const auto writeConfig = [&](const QByteArray &compare) {
             QFile f(cfgPath);
