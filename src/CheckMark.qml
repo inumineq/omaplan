@@ -12,6 +12,7 @@ Rectangle {
     border.color: checked ? theme.accent : (hover.hovered ? theme.foreground : theme.muted)
     border.width: 1.5
     Text {
+        font.family: theme.fontFamily
         anchors.centerIn: parent
         visible: box.checked
         text: "✓"

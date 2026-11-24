@@ -29,7 +29,7 @@ shape, theme, language and conventions. This document only describes what is par
 | `snapshot.{h,cpp}` | writes `plan.json` atomically (QSaveFile) once after every change (`Store::committed`), from GUI, CLI and MCP |
 | `render.{h,cpp}` | the read-only edition's HTML from `plan.json`; port of `renderPage` in `web/app.js`, byte-identical with `web/index.html` and `web/index.da.html` (test) |
 | `server.{h,cpp}` | `serve`: small HTTP server over `QTcpServer`, GET/HEAD only, server-rendered HTML in the language of `Accept-Language`, plus `/plan.json`, `/style.css`, `/app.js`, `/i18n/<lang>.json` (Qt resources from `web/`) |
-| `theme.{h,cpp}` | Omarchy's theme, followed live; from the skill's templates |
+| `theme.{h,cpp}` | Omarchy's theme, followed live; from the skill's templates. Also Omarchy's font: fontconfig's `monospace` resolved afresh (`FcInitLoadConfigAndFonts`), re-read when `~/.config/fontconfig/fonts.conf` changes (`omarchy-font-set`), as Folio does |
 | `uilanguage.{h,cpp}` | the interface language and its Qt translators (see Language below) |
 | `Main.qml` + components | window, keys, the four views, input, proposal, compare |
 

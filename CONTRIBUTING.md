@@ -77,7 +77,9 @@ Follow the code around you. In short:
   `docs/architecture.md`. Only the store writes data. CLI, MCP and QML call `actions`, never the store directly.
 - **C++:** C++17, `#pragma once`, four-space indent, `m_` prefix for members, `QStringLiteral` for literals.
   Engines and network calls are asynchronous; the GUI never blocks.
-- **QML:** one component per `PascalCase.qml` file in `src/`. Colours come from the Omarchy theme, never hard-coded.
+- **QML:** one component per `PascalCase.qml` file in `src/`. Colours come from the Omarchy theme, never hard-coded,
+  and every `Text` binds `font.family: theme.fontFamily` (a test checks both). Words in the accent colour use
+  `theme.accentText`; `muted`, `danger` and `success` are already lifted to 4.5:1, so light themes read too.
 - **Comments say why**, not what.
 - **Data contracts** (`docs/ai-schema.json`, `docs/export.md`, `docs/export-schema.json`) change in one commit
   together with their parser, tests and docs.

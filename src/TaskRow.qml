@@ -66,6 +66,7 @@ Rectangle {
             Layout.fillWidth: true
             spacing: 2
             Text {
+                font.family: theme.fontFamily
                 Layout.fillWidth: true
                 text: row.title
                 elide: Text.ElideRight
@@ -74,6 +75,7 @@ Rectangle {
                 font.pixelSize: 14
             }
             Text {
+                font.family: theme.fontFamily
                 Layout.fillWidth: true
                 visible: text !== ""
                 elide: Text.ElideRight
@@ -108,7 +110,7 @@ Rectangle {
         Tag {
             visible: row.priority < 3 && !row.done
             text: Fmt.priorityLabel(row.priority)
-            tint: row.priority === 1 ? theme.danger : theme.accent
+            tint: row.priority === 1 ? theme.danger : theme.accentText
         }
     }
 }

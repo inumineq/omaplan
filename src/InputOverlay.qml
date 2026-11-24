@@ -105,6 +105,7 @@ Rectangle {
             RowLayout {
                 Layout.fillWidth: true
                 Text {
+                    font.family: theme.fontFamily
                     text: qsTr("New tasks")
                     font.weight: Font.DemiBold
                     font.pixelSize: 16
@@ -134,6 +135,7 @@ Rectangle {
                     clip: true
                     TextArea {
                         id: input
+                        selectedTextColor: theme.accentForeground
                         placeholderText: qsTr("Write or dictate freely, e.g. “blog post on Friday 14:30, 1 hour, project Blog; call Customer A Tuesday morning”")
                         placeholderTextColor: theme.muted
                         wrapMode: TextArea.Wrap
@@ -168,6 +170,7 @@ Rectangle {
                     implicitHeight: 28
                 }
                 Text {
+                    font.family: theme.fontFamily
                     Layout.fillWidth: true
                     wrapMode: Text.Wrap
                     font.pixelSize: 12
@@ -179,6 +182,7 @@ Rectangle {
                             : qsTr("Engine: %1").arg(overlay.engines["default"])
                 }
                 Text {
+                    font.family: theme.fontFamily
                     visible: !overlay.busy
                     text: qsTr("Ctrl+Enter send · Esc close")
                     color: theme.muted

@@ -310,6 +310,22 @@ check(/:root:not\(:has\(:target\)\):not\(:has\(\.view\.active\)\)/.test(styleCss
   check(missing.length === 0, 'every class in the markup is styled' + (missing.length ? ' (unstyled: ' + missing.join(', ') + ')' : ''));
 }
 
+section('theme: colours and Omarchy font as CSS variables');
+{
+  // The same variables as Snapshot::themeStyle() in src/snapshot.cpp.
+  const set = {};
+  const root = { style: { setProperty: (name, value) => { set[name] = value; } } };
+  app.applyTheme(plan.theme, root);
+  check(set['--accent'] === plan.theme.accent && set['--accent-text'] === plan.theme.accent_text, 'colours become CSS variables');
+  check(set['--font'] === "'" + plan.theme.font + "'", 'the font family becomes a quoted --font');
+  for (const bad of ["X';}</style>", 'A"B', '', 'Fira;Code', 42]) {
+    const out = {};
+    app.applyTheme({ font: bad }, { style: { setProperty: (n, v) => { out[n] = v; } } });
+    check(out['--font'] === undefined, 'an unsafe font family is left out: ' + JSON.stringify(bad));
+  }
+  check(/font-family: var\(--font\), monospace;/.test(styleCss) && /--font: monospace;/.test(styleCss), 'style.css falls back to monospace');
+}
+
 // ---------- 6. --update ----------
 
 if (process.argv.includes('--update')) {

@@ -22,6 +22,7 @@ AbstractButton {
     contentItem: Row {
         spacing: 8
         Text {
+            font.family: theme.fontFamily
             anchors.verticalCenter: parent.verticalCenter
             text: button.text
             color: button.primary ? theme.accentForeground : (button.active ? theme.foreground : theme.muted)
@@ -35,7 +36,7 @@ AbstractButton {
             color: button.primary ? theme.accentForeground : theme.muted
             opacity: 0.75
             font.pixelSize: 11
-            font.family: "monospace"
+            font.family: theme.fontFamily
         }
     }
     background: Rectangle {

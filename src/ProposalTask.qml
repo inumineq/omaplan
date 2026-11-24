@@ -45,15 +45,17 @@ Rectangle {
         spacing: 2
         Layout.alignment: Qt.AlignTop
         Text {
+            font.family: theme.fontFamily
             Layout.fillWidth: true
             elide: Text.ElideRight
             text: field.label + (field.guess ? " · " + qsTr("guess") : "")
-            color: field.guess ? theme.accent : theme.muted
+            color: field.guess ? theme.accentText : theme.muted
             font.pixelSize: 10
             font.bold: field.guess
         }
         TextField {
             id: input
+            selectedTextColor: theme.accentForeground
             Layout.fillWidth: true
             text: card.task[field.key] || ""
             font.pixelSize: 13
@@ -72,6 +74,7 @@ Rectangle {
             onActiveFocusChanged: if (activeFocus) card.focused()
         }
         Text {
+            font.family: theme.fontFamily
             visible: field.isDate
             Layout.fillWidth: true
             elide: Text.ElideRight
@@ -101,6 +104,7 @@ Rectangle {
             Layout.fillWidth: true
             TextField {
                 id: titleField
+                selectedTextColor: theme.accentForeground
                 Layout.fillWidth: true
                 text: card.task.title
                 placeholderText: text === "" ? qsTr("Title") : ""
@@ -127,6 +131,7 @@ Rectangle {
                 implicitHeight: 26
                 onClicked: card.view.removeTask(card.col, card.taskIndex)
                 contentItem: Text {
+                    font.family: theme.fontFamily
                     text: "×"
                     color: parent.hovered ? theme.danger : theme.muted
                     font.pixelSize: 18
@@ -138,14 +143,16 @@ Rectangle {
         }
         GridLayout {
             Layout.fillWidth: true
-            columns: card.width > 560 ? 5 : 3
+            columns: card.width > 640 ? 5 : 3
             columnSpacing: 8
             rowSpacing: 4
-            Field { Layout.fillWidth: true; Layout.preferredWidth: 3; key: "start"; label: qsTr("Start"); isDate: true }
-            Field { Layout.fillWidth: true; Layout.preferredWidth: 1; key: "duration_min"; label: qsTr("Minutes") }
-            Field { Layout.fillWidth: true; Layout.preferredWidth: 3; key: "deadline"; label: qsTr("Deadline"); isDate: true }
+            // Shares of the row. The short fields still hold their label in a
+            // monospace font (Omarchy's), "· guess" included.
+            Field { Layout.fillWidth: true; Layout.preferredWidth: 4; key: "start"; label: qsTr("Start"); isDate: true }
+            Field { Layout.fillWidth: true; Layout.preferredWidth: 2; key: "duration_min"; label: qsTr("Minutes") }
+            Field { Layout.fillWidth: true; Layout.preferredWidth: 4; key: "deadline"; label: qsTr("Deadline"); isDate: true }
             Field { Layout.fillWidth: true; Layout.preferredWidth: 2; key: "project"; label: qsTr("Project") }
-            Field { Layout.fillWidth: true; Layout.preferredWidth: 1; key: "priority"; label: qsTr("Priority 1-3") }
+            Field { Layout.fillWidth: true; Layout.preferredWidth: 2; key: "priority"; label: qsTr("Priority 1-3") }
         }
     }
 }

@@ -132,7 +132,8 @@ The plan can be read from a phone or another machine on the user's Tailscale net
 
 ## Omarchy conventions (from the omarchy-app skill)
 
-Follows the theme live, follows Omarchy's language live (all strings through `qsTr`/`tr`, translations in
+Follows the theme live (colours from `colors.toml`, and Omarchy's font: fontconfig's `monospace`, which
+`omarchy-font-set` writes), follows Omarchy's language live (all strings through `qsTr`/`tr`, translations in
 `i18n/omaplan_<lang>.ts`; English and Danish in the first version, see `docs/translating.md`), corners from
 Hyprland, keyboard first (`?` shows the keys, `q` quits, Space is the main action, Ctrl+Z/Ctrl+Shift+Z), atomic
 saving, errors shown in the window. Installed with `bin/install` (makepkg), so it is in the app launcher.

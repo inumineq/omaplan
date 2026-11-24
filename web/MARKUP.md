@@ -277,8 +277,19 @@ Omarchy's `colors.toml`, fallback `#FFD60A`):
 | `--border` | `border` | `#2a2a34` |
 | `--accent` | `accent` | `#ffd60a` |
 | `--accent-fg` | `accent_fg` | `#000000` |
+| `--accent-text` | `accent_text` | `var(--accent)` |
+| `--font` | `font` | `monospace` |
 | `--danger` | `danger` | `#f7768e` |
 | `--ok` | `ok` | `#9ece6a` |
+
+Text colours (`muted`, `danger`, `ok`, `accent_text`) are the theme's own, lifted toward white or black where they
+would read below 4.5:1 on `bg` (Omarchy's `muted` is a terminal's dim colour, about 2:1); `accent` itself stays exact
+for fills and borders.
+
+`--font` is Omarchy's font family (fontconfig's `monospace`, which `omarchy-font-set` writes), single-quoted:
+`--font:'JetBrainsMono Nerd Font'`. Only letters, digits, space, `.`, `_` and `-` get through, so the name is safe
+inside the style attribute. The body is `font-family: var(--font), monospace`: a device without that font (a phone)
+shows its own monospace.
 
 `serve` sets the variables inline on `<html>` from the theme of the machine it runs on (or else the `theme` in
 `plan.json`); `app.js` does the same from `plan.json`'s `theme` when the page is opened statically. `--radius`

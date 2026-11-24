@@ -7,12 +7,14 @@ ColumnLayout {
     property string hint: qsTr("Press n to write tasks in plain text, or a to add one by hand.")
     spacing: 6
     Text {
+        font.family: theme.fontFamily
         Layout.alignment: Qt.AlignHCenter
         text: parent.title
         color: theme.foreground
         font.pixelSize: 16
     }
     Text {
+        font.family: theme.fontFamily
         Layout.alignment: Qt.AlignHCenter
         Layout.maximumWidth: 420
         text: parent.hint

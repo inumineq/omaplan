@@ -6,11 +6,15 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QFont>
+#include <QGuiApplication>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QRegularExpression>
 #include <QStandardPaths>
+#include <algorithm>
 #include <cmath>
+#include <fontconfig/fontconfig.h>
 
 Theme::Theme(const QString &directory, QObject *parent, const QString &hyprctl)
     : QObject(parent),
@@ -20,6 +24,7 @@ Theme::Theme(const QString &directory, QObject *parent, const QString &hyprctl)
     connect(&m_watcher, &QFileSystemWatcher::directoryChanged, this, [this] { m_debounce.start(); });
     connect(&m_watcher, &QFileSystemWatcher::fileChanged, this, [this] { m_debounce.start(); });
     connect(&m_debounce, &QTimer::timeout, this, &Theme::reload);
+    deriveTextColors();
 
     // Corners follow Hyprland's effective rounding, which themes and personal
     // overrides can both set, so ask hyprctl rather than reading its config.
@@ -111,18 +116,107 @@ QString Theme::surface() const {
 QString Theme::raised() const { return mix(background(), foreground(), 0.13); }
 QString Theme::border() const { return mix(background(), foreground(), 0.18); }
 
-QString Theme::muted() const {
-    const QString value = color("muted", "");
-    // Folio's secondary text: about 4.5:1 on the background, so metadata stays readable.
-    return value.isEmpty() ? mix(background(), foreground(), 0.68) : value;
+// WCAG relative luminance.
+static double luminance(const QColor &c) {
+    auto linear = [](double v) { return v <= .04045 ? v / 12.92 : std::pow((v + .055) / 1.055, 2.4); };
+    return .2126 * linear(c.redF()) + .7152 * linear(c.greenF()) + .0722 * linear(c.blueF());
 }
 
-// Black or white, whichever reads on the accent (WCAG relative luminance).
-QString Theme::accentForeground() const {
-    const QColor c(m_accent);
-    auto linear = [](double v) { return v <= .04045 ? v / 12.92 : std::pow((v + .055) / 1.055, 2.4); };
-    const double luminance = .2126 * linear(c.redF()) + .7152 * linear(c.greenF()) + .0722 * linear(c.blueF());
-    return luminance > .179 ? "black" : "white";
+double Theme::contrast(const QString &a, const QString &b) {
+    const double x = luminance(QColor(a)), y = luminance(QColor(b));
+    return (std::max(x, y) + .05) / (std::min(x, y) + .05);
+}
+
+// `color` as text: unchanged when it reads on the background and on panels
+// (WCAG AA, 4.5:1), otherwise moved toward white (dark themes) or black
+// (light ones) just far enough. Omarchy's palettes are terminal colours, and
+// their dim ones (muted, often red or green on light themes) are too faint
+// for small text.
+QString Theme::readable(const QString &color) const {
+    const QString bg = background(), panel = surface();
+    const QString target = dark() ? "#ffffff" : "#000000";
+    QString result = color;
+    for (int step = 1; step <= 20 && std::min(contrast(result, bg), contrast(result, panel)) < 4.5; ++step)
+        result = mix(color, target, step / 20.0);
+    return result;
+}
+
+// Secondary text. A theme's own muted is a terminal's dim colour, about 2:1 on
+// most backgrounds, so it is only the starting point; without one, Folio's
+// mix of foreground into background.
+// Computed once per palette, not on every binding that reads them.
+void Theme::deriveTextColors() {
+    const QString value = color("muted", "");
+    m_muted = readable(value.isEmpty() ? mix(background(), foreground(), 0.68) : value);
+    m_danger = readable(color("red", "#e5534b"));
+    m_success = readable(color("green", "#57ab5a"));
+    m_accentText = readable(m_accent);
+}
+
+// Black or white, whichever reads on the accent.
+QString Theme::accentForeground() const { return luminance(QColor(m_accent)) > .179 ? "black" : "white"; }
+
+QString Theme::resolveFamily(const QString &family) {
+    // A configuration loaded afresh rather than the one Qt read at startup, so
+    // a choice made since (omarchy-font-set) counts, and Qt's is left alone.
+    QString resolved = family;
+    FcConfig *config = FcInitLoadConfigAndFonts();
+    if (!config)
+        return resolved;
+    if (FcPattern *pattern = FcNameParse(reinterpret_cast<const FcChar8 *>(family.toUtf8().constData()))) {
+        FcConfigSubstitute(config, pattern, FcMatchPattern);
+        FcDefaultSubstitute(pattern);
+        FcResult result;
+        if (FcPattern *match = FcFontMatch(config, pattern, &result)) {
+            FcChar8 *name = nullptr;
+            if (FcPatternGetString(match, FC_FAMILY, 0, &name) == FcResultMatch && name)
+                resolved = QString::fromUtf8(reinterpret_cast<const char *>(name));
+            FcPatternDestroy(match);
+        }
+        FcPatternDestroy(pattern);
+    }
+    FcConfigDestroy(config);
+    return resolved;
+}
+
+void Theme::followSystemFont() {
+    if (m_followingFont)
+        return;
+    m_followingFont = true;
+    m_fontDebounce.setSingleShot(true);
+    m_fontDebounce.setInterval(200);
+    connect(&m_fontDebounce, &QTimer::timeout, this, &Theme::readSystemFont);
+    // omarchy-font-set writes the user's fontconfig file; the folder is
+    // watched too, for when the file is made or replaced.
+    const QString folder = QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + "/fontconfig";
+    const QString file = folder + "/fonts.conf";
+    QDir().mkpath(folder);
+    m_fontWatcher.addPath(folder);
+    if (QFileInfo::exists(file))
+        m_fontWatcher.addPath(file);
+    connect(&m_fontWatcher, &QFileSystemWatcher::directoryChanged, this, [this, file] {
+        // A file written anew stops being watched; watch it again.
+        if (QFileInfo::exists(file) && !m_fontWatcher.files().contains(file))
+            m_fontWatcher.addPath(file);
+        m_fontDebounce.start();
+    });
+    connect(&m_fontWatcher, &QFileSystemWatcher::fileChanged, this, [this] { m_fontDebounce.start(); });
+    readSystemFont();
+}
+
+void Theme::readSystemFont() {
+    const QString family = resolveFamily("monospace");
+    // New controls and popups take the application's font; what is on screen
+    // binds fontFamily.
+    QFont font = QGuiApplication::font();
+    font.setFamily(family);
+    font.setStyleHint(QFont::Monospace);
+    if (font != QGuiApplication::font())
+        QGuiApplication::setFont(font);
+    if (family != m_fontFamily) {
+        m_fontFamily = family;
+        emit fontChanged();
+    }
 }
 
 void Theme::reload() {
@@ -149,6 +243,7 @@ void Theme::reload() {
     if (accent != m_accent || colors != m_colors) {
         m_accent = accent;
         m_colors = colors;
+        deriveTextColors();
         emit changed();
     }
 }

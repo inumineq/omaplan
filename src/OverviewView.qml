@@ -31,6 +31,7 @@ Item {
             Layout.maximumWidth: 860
             Layout.alignment: Qt.AlignHCenter
             Text {
+                font.family: theme.fontFamily
                 text: { Fmt.lang; return Fmt.capitalize(Fmt.dayLong(view.today)) }
                 color: theme.foreground
                 font.pixelSize: 22
@@ -38,6 +39,7 @@ Item {
             }
             Item { Layout.fillWidth: true }
             Text {
+                font.family: theme.fontFamily
                 text: { Fmt.lang; return qsTr("Week %1").arg(Fmt.isoWeek(view.today)) }
                 color: theme.muted
                 font.pixelSize: 13
@@ -69,6 +71,7 @@ Item {
                 readonly property var day: Fmt.fromIso(section)
                 Text {
                     id: label
+                    font.family: theme.fontFamily
                     anchors.bottom: parent.bottom
                     anchors.bottomMargin: 6
                     anchors.left: parent.left
@@ -76,7 +79,7 @@ Item {
                     textFormat: Text.StyledText
                     font.pixelSize: 13
                     font.bold: true
-                    color: header.overdue ? theme.danger : theme.accent
+                    color: header.overdue ? theme.danger : theme.accentText
                     text: {
                         Fmt.lang
                         if (header.overdue)

@@ -5,6 +5,7 @@
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QRegularExpression>
 #include <QSaveFile>
 #include <QTextStream>
 #include <QTimeZone>
@@ -30,6 +31,13 @@ QString path(const QString &databasePath) {
     return QFileInfo(databasePath).absoluteDir().filePath(QStringLiteral("plan.json"));
 }
 
+// A font family name safe to quote inside a style attribute and CSS:
+// letters, digits, space, dot, underscore and hyphen (docs/export-schema.json).
+static bool isFontFamily(const QString &family) {
+    static const QRegularExpression safe(QStringLiteral("^[A-Za-z0-9 ._-]{1,64}$"));
+    return safe.match(family).hasMatch();
+}
+
 QJsonObject omarchyTheme(const QString &directory) {
     const QString dir = directory.isEmpty() ? QDir::homePath() + QStringLiteral("/.local/state/omarchy/current") : directory;
     if (!QFileInfo::exists(dir + QStringLiteral("/theme/colors.toml")))
@@ -40,6 +48,7 @@ QJsonObject omarchyTheme(const QString &directory) {
     QJsonObject colors;
     colors["accent"] = hex(theme.accent());
     colors["accent_fg"] = hex(theme.accentForeground());
+    colors["accent_text"] = hex(theme.accentText());
     colors["bg"] = hex(theme.background());
     colors["bg_raised"] = hex(theme.surface());
     colors["fg"] = hex(theme.foreground());
@@ -47,13 +56,18 @@ QJsonObject omarchyTheme(const QString &directory) {
     colors["border"] = hex(theme.border());
     colors["danger"] = hex(theme.danger());
     colors["ok"] = hex(theme.success());
+    // Omarchy's font, when fontconfig knows a real family for monospace.
+    const QString font = Theme::resolveFamily(QStringLiteral("monospace"));
+    if (isFontFamily(font) && font.compare(QLatin1String("monospace"), Qt::CaseInsensitive) != 0)
+        colors["font"] = font;
     return colors;
 }
 
 QString themeStyle(const QJsonObject &theme) {
     static const char *const keys[][2] = {{"bg", "--bg"},         {"bg_raised", "--bg-raised"}, {"fg", "--fg"},
                                           {"muted", "--muted"},   {"border", "--border"},       {"accent", "--accent"},
-                                          {"accent_fg", "--accent-fg"}, {"danger", "--danger"}, {"ok", "--ok"}};
+                                          {"accent_fg", "--accent-fg"}, {"accent_text", "--accent-text"},
+                                          {"danger", "--danger"}, {"ok", "--ok"}};
     QStringList parts;
     for (const auto &key : keys) {
         const QString value = theme.value(QLatin1String(key[0])).toString();
@@ -61,6 +75,9 @@ QString themeStyle(const QJsonObject &theme) {
         if (value.size() == 7 && value.startsWith('#') && QColor::isValidColorName(value))
             parts << QLatin1String(key[1]) + ':' + value.toLower();
     }
+    const QString font = theme.value(QLatin1String("font")).toString();
+    if (isFontFamily(font))
+        parts << QStringLiteral("--font:'") + font + '\'';
     return parts.join(';');
 }
 

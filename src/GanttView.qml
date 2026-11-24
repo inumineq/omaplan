@@ -121,6 +121,7 @@ Item {
             HeaderButton { text: qsTr("Today"); keyHint: "t"; onClicked: gantt.goToday() }
             HeaderButton { text: "›"; toolTip: qsTr("Next"); keyHint: "l"; onClicked: gantt.page(1) }
             Text {
+                font.family: theme.fontFamily
                 Layout.leftMargin: 10
                 text: {
                     Fmt.lang
@@ -164,12 +165,13 @@ Item {
                         color: parent.isToday ? Qt.alpha(theme.accent, 0.16) : theme.surface
                     }
                     Text {
+                        font.family: theme.fontFamily
                         x: 8
                         y: 4
                         width: parent.width - 12
                         elide: Text.ElideRight
                         text: { Fmt.lang; return gantt.dayCount > 7 ? Fmt.dayShort(parent.date) : Fmt.capitalize(Fmt.dayLong(parent.date)) }
-                        color: parent.isToday ? theme.accent : theme.foreground
+                        color: parent.isToday ? theme.accentText : theme.foreground
                         font.pixelSize: 12
                         font.bold: parent.isToday
                     }
@@ -177,6 +179,7 @@ Item {
                     Repeater {
                         model: gantt.dayWidth / (gantt.lastHour - gantt.firstHour) > 26 ? gantt.lastHour - gantt.firstHour : 0
                         delegate: Text {
+                            font.family: theme.fontFamily
                             required property int index
                             visible: index > 0 && (gantt.dayWidth / (gantt.lastHour - gantt.firstHour) > 44 || index % 2 === 0)
                             x: index / (gantt.lastHour - gantt.firstHour) * gantt.dayWidth - width / 2
@@ -248,6 +251,7 @@ Item {
                         }
                         // The label sits inside a wide bar and beside a narrow one.
                         Text {
+                            font.family: theme.fontFamily
                             readonly property bool inside: barItem.width > implicitWidth + 16
                             x: inside ? 8 : barItem.width + 6
                             anchors.verticalCenter: parent.verticalCenter

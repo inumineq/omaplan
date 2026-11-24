@@ -30,12 +30,14 @@ Rectangle {
             Layout.fillWidth: true
             visible: column.view.comparing || column.info.state === "error"
             Text {
+                font.family: theme.fontFamily
                 text: column.info.engine || ""
-                color: column.chosen ? theme.accent : theme.foreground
+                color: column.chosen ? theme.accentText : theme.foreground
                 font.bold: true
                 font.pixelSize: 14
             }
             Text {
+                font.family: theme.fontFamily
                 text: column.info.state === "ready" ? qsTr("%n tasks", "", column.info.tasks.length)
                     : column.info.state === "error" ? qsTr("failed") : qsTr("working…")
                 color: column.info.state === "error" ? theme.danger : theme.muted
@@ -47,7 +49,7 @@ Rectangle {
                 text: qsTr("Ctrl+%1 approve").arg(column.col + 1)
                 color: theme.muted
                 font.pixelSize: 11
-                font.family: "monospace"
+                font.family: theme.fontFamily
             }
         }
 
@@ -59,6 +61,7 @@ Rectangle {
             Item { Layout.fillHeight: true }
             BusyIndicator { Layout.alignment: Qt.AlignHCenter; running: parent.visible }
             Text {
+                font.family: theme.fontFamily
                 Layout.alignment: Qt.AlignHCenter
                 text: qsTr("Waiting for %1…").arg(column.info.engine)
                 color: theme.muted
@@ -73,12 +76,13 @@ Rectangle {
             visible: column.info.state === "error"
             clip: true
             TextArea {
+                selectedTextColor: theme.accentForeground
                 text: column.info.error || ""
                 readOnly: true
                 selectByMouse: true
                 wrapMode: TextArea.Wrap
                 color: theme.foreground
-                font.family: "monospace"
+                font.family: theme.fontFamily
                 font.pixelSize: 12
                 background: null
             }
@@ -118,6 +122,7 @@ Rectangle {
         }
 
         Text {
+            font.family: theme.fontFamily
             Layout.fillWidth: true
             visible: column.info.state === "ready" && (column.info.unclear || []).length > 0
             text: qsTr("Not understood: %1").arg((column.info.unclear || []).join(" · "))
