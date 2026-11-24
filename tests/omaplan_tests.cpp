@@ -3593,6 +3593,44 @@ private slots:
         QVERIFY2(!log.contains(QStringLiteral("qrc:/")), qPrintable(log));
     }
 
+    // M2: a look presses the window's real keys, and some of them delete. It
+    // works on a copy, so the plan it was pointed at is as it was.
+    void lookLeavesThePlanAlone() {
+        QTemporaryDir dir;
+        const QString db = dir.filePath(QStringLiteral("plan.db"));
+        int code = 1;
+        runOmaplan(db, {QStringLiteral("new"), QStringLiteral("--title"), QStringLiteral("Write the blog post")}, &code);
+        QCOMPARE(code, 0);
+        // The CLI wrote plan.json; a look must not write it again.
+        const QString snapshot = dir.filePath(QStringLiteral("plan.json"));
+        QVERIFY(QFile::remove(snapshot));
+
+        const QString shot = dir.filePath(QStringLiteral("look.png"));
+        QProcess process;
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        env.insert(QStringLiteral("HOME"), dir.path());
+        env.insert(QStringLiteral("OMAPLAN_DB"), db);
+        env.insert(QStringLiteral("OMAPLAN_CONFIG"), dir.filePath(QStringLiteral("config.toml")));
+        env.insert(QStringLiteral("OMAPLAN_SNAPSHOT"), snapshot);
+        env.insert(QStringLiteral("QT_QPA_PLATFORM"), QStringLiteral("offscreen"));
+        env.insert(QStringLiteral("QT_QUICK_BACKEND"), QStringLiteral("software"));
+        env.insert(QStringLiteral("OMARCHY_LOOK_SCREENSHOT"), shot);
+        // List, select the task, delete it.
+        env.insert(QStringLiteral("OMARCHY_LOOK_KEYS"), QStringLiteral("3 j d"));
+        env.insert(QStringLiteral("OMARCHY_LOOK_DELAY_MS"), QStringLiteral("300"));
+        env.remove(QStringLiteral("QT_QPA_PLATFORMTHEME"));
+        process.setProcessEnvironment(env);
+        process.start(QCoreApplication::applicationDirPath() + QStringLiteral("/../omaplan"), {QStringLiteral("open")});
+        QVERIFY(process.waitForFinished(20000));
+        QCOMPARE(process.exitCode(), 0);
+        QVERIFY(QFile::exists(shot));
+
+        const QString listed = runOmaplan(db, {QStringLiteral("list")}, &code);
+        QVERIFY2(listed.contains(QStringLiteral("Write the blog post")), qPrintable(listed));
+        // `list` reads; only the look could have written the snapshot.
+        QVERIFY(!QFile::exists(snapshot));
+    }
+
     // Runs the real binary with a private database and config.
     static QString runOmaplan(const QString &db, const QStringList &args, int *code = nullptr) {
         QProcess process;

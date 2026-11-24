@@ -2,6 +2,7 @@
 // plan as overview, calendar, list or timeline.
 
 #include <QCoreApplication>
+#include <QFile>
 #include <QGuiApplication>
 #include <QIcon>
 #include <QKeySequence>
@@ -9,6 +10,7 @@
 #include <QQmlContext>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QTemporaryDir>
 #include <QTextStream>
 #include <QTimer>
 #include <QUrl>
@@ -89,6 +91,18 @@ int main(int argc, char *argv[]) {
     // Omarchy's font, live: omarchy-font-set takes effect without a restart.
     theme.followSystemFont();
 
+    // `omarchy agent look app` presses the window's real keys, and some of
+    // them delete or move tasks. A look therefore works on a copy of the plan
+    // that goes away with it, and writes no plan.json.
+    const bool look = !qEnvironmentVariableIsEmpty("OMARCHY_LOOK_SCREENSHOT");
+    QTemporaryDir lookCopy;
+    if (look) {
+        const QString original = dbPath.isEmpty() ? Store::defaultPath() : dbPath;
+        dbPath = lookCopy.filePath(QStringLiteral("plan.db"));
+        QFile::copy(original, dbPath);
+        // In WAL mode the newest changes may still be in the log beside it.
+        QFile::copy(original + QStringLiteral("-wal"), dbPath + QStringLiteral("-wal"));
+    }
     Store store(dbPath);
     QString storeError;
     const bool storeOpen = store.open(&storeError);
@@ -98,7 +112,7 @@ int main(int argc, char *argv[]) {
     Actions actions(&store);
     // plan.json for the read-only edition: written now, so it exists from the
     // first start, and again after every change made in the window.
-    Snapshotter snapshotter(&store, Snapshot::path(store.path()));
+    Snapshotter snapshotter(&store, look ? QString() : Snapshot::path(store.path()));
     snapshotter.setLanguage(uiLanguage.language());
     QObject::connect(&uiLanguage, &UiLanguage::changed, &snapshotter, [&] {
         snapshotter.setLanguage(uiLanguage.language());
