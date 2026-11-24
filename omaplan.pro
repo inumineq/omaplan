@@ -4,6 +4,11 @@ CONFIG += c++17 release
 TARGET = omaplan
 TEMPLATE = app
 
+# The one place for the version: --version, the MCP serverInfo and (checked
+# by a test) pkgbuild/PKGBUILD.
+VERSION = 0.2.0
+DEFINES += OMAPLAN_VERSION=\\\"$$VERSION\\\"
+
 HEADERS += \
     src/theme.h \
     src/uilanguage.h \

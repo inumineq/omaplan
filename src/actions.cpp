@@ -645,6 +645,10 @@ ActionResult Actions::list(const ListFilter &filter) {
             continue;
         if (!filter.status.isEmpty() && Task::statusToString(task.status) != filter.status)
             continue;
+        // A date filter leaves out tasks without start and deadline; their
+        // effective date (the day they were created) is no plan date.
+        if ((filter.hasFrom || filter.hasTo) && !task.start.isValid() && !task.deadline.isValid())
+            continue;
         const QDate date = effectiveDate(task);
         if (filter.hasFrom && date < filter.from)
             continue;
@@ -792,9 +796,14 @@ static bool dateField(const QString &key, const QString &text, QDateTime *when, 
 
 // A number field must be a whole number; "1h" or "high" is an error instead
 // of silently becoming 0.
-static bool intField(const Actions::Fields &fields, const QString &key, int *out, QString *error) {
+// An empty value clears the field to `emptyValue`, like every other field.
+static bool intField(const Actions::Fields &fields, const QString &key, int *out, QString *error, int emptyValue) {
     if (!fields.contains(key))
         return true;
+    if (fields.value(key).trimmed().isEmpty()) {
+        *out = emptyValue;
+        return true;
+    }
     bool ok = false;
     const int value = fields.value(key).trimmed().toInt(&ok);
     if (!ok) {
@@ -848,8 +857,8 @@ bool Actions::taskFromFields(const Fields &given, Task *task, QString *error) {
     task->title = fields.value(QStringLiteral("title")).trimmed();
     task->notes = fields.value(QStringLiteral("notes"));
     task->project = fields.value(QStringLiteral("project")).trimmed();
-    if (!intField(fields, QStringLiteral("priority"), &task->priority, error)
-        || !intField(fields, QStringLiteral("duration"), &task->durationMinutes, error))
+    if (!intField(fields, QStringLiteral("priority"), &task->priority, error, 3)
+        || !intField(fields, QStringLiteral("duration"), &task->durationMinutes, error, 0))
         return false;
     if (fields.contains(QStringLiteral("status"))) {
         bool ok = false;
@@ -875,12 +884,12 @@ bool Actions::patchFromFields(const Fields &given, QJsonObject *patch, QString *
     if (fields.contains(QStringLiteral("status"))) (*patch)["status"] = fields.value(QStringLiteral("status"));
     int number = 0;
     if (fields.contains(QStringLiteral("priority"))) {
-        if (!intField(fields, QStringLiteral("priority"), &number, error))
+        if (!intField(fields, QStringLiteral("priority"), &number, error, 3))
             return false;
         (*patch)["priority"] = number;
     }
     if (fields.contains(QStringLiteral("duration"))) {
-        if (!intField(fields, QStringLiteral("duration"), &number, error))
+        if (!intField(fields, QStringLiteral("duration"), &number, error, 0))
             return false;
         (*patch)["duration_minutes"] = number;
     }

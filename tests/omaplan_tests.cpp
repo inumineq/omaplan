@@ -1285,6 +1285,96 @@ private slots:
         QVERIFY(!QFile::exists(snapshot));
     }
 
+    // What the README, SPEC and --help promise, the binary does.
+    void docsPromisesHold()
+    {
+        QTemporaryDir dir;
+        const QString db = dir.filePath(QStringLiteral("promise.db"));
+        int code = -1;
+        // redo on the command line.
+        const QString id = QJsonDocument::fromJson(runOmaplan(db, {QStringLiteral("new"), QStringLiteral("--title"),
+                                                                   QStringLiteral("Blog"), QStringLiteral("--json")}).toUtf8())
+                               .object()[QStringLiteral("task")].toObject()[QStringLiteral("id")].toString();
+        runOmaplan(db, {QStringLiteral("undo")}, &code);
+        QCOMPARE(code, 0);
+        runOmaplan(db, {QStringLiteral("show"), id}, &code);
+        QCOMPARE(code, 1);
+        const QString redone = runOmaplan(db, {QStringLiteral("redo")}, &code);
+        QVERIFY2(code == 0, qPrintable(redone));
+        runOmaplan(db, {QStringLiteral("show"), id}, &code);
+        QCOMPARE(code, 0);
+        QVERIFY(runOmaplan(db, {QStringLiteral("--help")}).contains(QStringLiteral("redo")));
+
+        // One version, from omaplan.pro, in --version, MCP and the PKGBUILD.
+        QFile pro(repoFile(QStringLiteral("omaplan.pro")));
+        QVERIFY(pro.open(QIODevice::ReadOnly));
+        const QString version = QRegularExpression(QStringLiteral("(?m)^VERSION = (\\S+)$"))
+                                    .match(QString::fromUtf8(pro.readAll())).captured(1);
+        QCOMPARE(version, QStringLiteral("0.2.0"));
+        QCOMPARE(runOmaplan(db, {QStringLiteral("--version")}, &code).trimmed(), QStringLiteral("omaplan ") + version);
+        QCOMPARE(code, 0);
+        QFile pkgbuild(repoFile(QStringLiteral("pkgbuild/PKGBUILD")));
+        QVERIFY(pkgbuild.open(QIODevice::ReadOnly));
+        QVERIFY(QString::fromUtf8(pkgbuild.readAll()).contains(QStringLiteral("\npkgver=") + version + QStringLiteral("\n")));
+        QString stderrText;
+        const QList<QJsonObject> init = mcpSession(db, {rpc(1, QStringLiteral("initialize"),
+                                                            {{QStringLiteral("protocolVersion"), QStringLiteral("2024-11-05")}})},
+                                                   &stderrText);
+        QVERIFY(!init.isEmpty());
+        QCOMPARE(init.first()[QStringLiteral("result")].toObject()[QStringLiteral("serverInfo")].toObject()
+                     [QStringLiteral("version")].toString(), version);
+
+        // An empty value clears --duration and --priority too.
+        runOmaplan(db, {QStringLiteral("edit"), id, QStringLiteral("--duration"), QStringLiteral("45"),
+                        QStringLiteral("--priority"), QStringLiteral("1")}, &code);
+        QCOMPARE(code, 0);
+        const QString cleared = runOmaplan(db, {QStringLiteral("edit"), id, QStringLiteral("--duration"), QString(),
+                                                QStringLiteral("--priority"), QString(), QStringLiteral("--json")}, &code);
+        QVERIFY2(code == 0, qPrintable(cleared));
+        const QJsonObject task = QJsonDocument::fromJson(cleared.toUtf8()).object()[QStringLiteral("task")].toObject();
+        QCOMPARE(task[QStringLiteral("duration_minutes")].toInt(), 0);
+        QCOMPARE(task[QStringLiteral("priority")].toInt(), 3);
+
+        // Date filters leave out tasks without start and deadline.
+        const QJsonArray listed = QJsonDocument::fromJson(runOmaplan(db, {QStringLiteral("list"), QStringLiteral("--from"),
+                                                                          QStringLiteral("today"), QStringLiteral("--json")}).toUtf8())
+                                      .object()[QStringLiteral("tasks")].toArray();
+        QCOMPARE(listed.size(), 0);
+        QCOMPARE(QJsonDocument::fromJson(runOmaplan(db, {QStringLiteral("list"), QStringLiteral("--json")}).toUtf8())
+                     .object()[QStringLiteral("tasks")].toArray().size(), 1);
+    }
+
+    // MCP holds callers to the tool schemas: enums, types and unknown keys
+    // are errors, not a silently different answer.
+    void mcpValidatesArguments()
+    {
+        QTemporaryDir dir;
+        Store store(dir.filePath(QStringLiteral("v.db")));
+        QVERIFY(store.open());
+        Actions actions(&store);
+        McpServer mcp(&actions);
+        const auto result = [&](const QString &tool, const QJsonObject &args) {
+            return mcp.handle(call(1, tool, args)).toObject()[QStringLiteral("result")].toObject();
+        };
+        const auto errorText = [&](const QString &tool, const QJsonObject &args) {
+            const QJsonObject r = result(tool, args);
+            return r[QStringLiteral("isError")].toBool()
+                       ? r[QStringLiteral("content")].toArray().first().toObject()[QStringLiteral("text")].toString()
+                       : QString();
+        };
+        QVERIFY(errorText(QStringLiteral("list"), {{QStringLiteral("status"), QStringLiteral("bogus")}}).contains(QStringLiteral("status")));
+        QVERIFY(errorText(QStringLiteral("summary"), {{QStringLiteral("period"), QStringLiteral("year")}}).contains(QStringLiteral("period")));
+        QVERIFY(errorText(QStringLiteral("list"), {{QStringLiteral("stauts"), QStringLiteral("done")}}).contains(QStringLiteral("stauts")));
+        QVERIFY(errorText(QStringLiteral("new"), {{QStringLiteral("title"), 5}}).contains(QStringLiteral("title")));
+        QVERIFY(errorText(QStringLiteral("new"), {{QStringLiteral("title"), QStringLiteral("X")}, {QStringLiteral("priority"), 7}})
+                    .contains(QStringLiteral("priority")));
+        QVERIFY(errorText(QStringLiteral("show"), {}).contains(QStringLiteral("id")));
+        // Valid calls still work, and so do the 0.1 field names.
+        QVERIFY(errorText(QStringLiteral("list"), {{QStringLiteral("status"), QStringLiteral("todo")}}).isEmpty());
+        QVERIFY(errorText(QStringLiteral("summary"), {{QStringLiteral("period"), QStringLiteral("month")}}).isEmpty());
+        QVERIFY(errorText(QStringLiteral("new"), {{QStringLiteral("titel"), QStringLiteral("Blog")}}).isEmpty());
+    }
+
     void cliExitCodesAndJson()
     {
         QTemporaryDir dir;

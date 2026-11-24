@@ -26,6 +26,7 @@ static void printJson(QTextStream &out, const QJsonObject &object) {
 static void printHelp(QTextStream &out) {
     out << QObject::tr(
         "Usage: omaplan [--db <path>] [--lang da|en] <command> [options] [--json]\n"
+        "       omaplan --version | --help\n"
         "\n"
         "Commands:\n"
         "  open                  Open the window (default without arguments)\n"
@@ -36,7 +37,7 @@ static void printHelp(QTextStream &out) {
         "  move <id> <when>\n"
         "  done <id> | undone <id>\n"
         "  rm <id>\n"
-        "  undo\n"
+        "  undo | redo           undo the newest change, or redo the newest undo\n"
         "  projects\n"
         "  summary [--week|--month]\n"
         "  add <text> [--engine ...] [--yes] [--model M] [--endpoint URL]   AI proposal; --yes stores it\n"
@@ -125,6 +126,11 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
             ++i; // handled by the caller: the store and the language are already set
         else
             rest.append(args[i]);
+    }
+
+    if (rest.contains(QLatin1String("--version"))) {
+        out << "omaplan " << QCoreApplication::applicationVersion() << "\n";
+        return 0;
     }
 
     // --help or -h anywhere shows the help and runs nothing: an agent that
@@ -455,8 +461,8 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
         return emitResult(out, json, result);
     }
 
-    if (command == QLatin1String("undo")) {
-        ActionResult result = actions.undo(source);
+    if (command == QLatin1String("undo") || command == QLatin1String("redo")) {
+        ActionResult result = command == QLatin1String("undo") ? actions.undo(source) : actions.redo(source);
         if (!result.ok) {
             err << result.error << "\n";
             return 1;

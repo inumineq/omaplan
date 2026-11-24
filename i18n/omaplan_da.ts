@@ -874,6 +874,7 @@ Råt svar:
     <name>QObject</name>
     <message>
         <source>Usage: omaplan [--db &lt;path&gt;] [--lang da|en] &lt;command&gt; [options] [--json]
+       omaplan --version | --help
 
 Commands:
   open                  Open the window (default without arguments)
@@ -884,7 +885,7 @@ Commands:
   move &lt;id&gt; &lt;when&gt;
   done &lt;id&gt; | undone &lt;id&gt;
   rm &lt;id&gt;
-  undo
+  undo | redo           undo the newest change, or redo the newest undo
   projects
   summary [--week|--month]
   add &lt;text&gt; [--engine ...] [--yes] [--model M] [--endpoint URL]   AI proposal; --yes stores it
@@ -906,6 +907,7 @@ Examples:
   omaplan skill install --force   replace customized skill files
 </source>
         <translation>Brug: omaplan [--db &lt;sti&gt;] [--lang da|en] &lt;kommando&gt; [tilvalg] [--json]
+       omaplan --version | --help
 
 Kommandoer:
   open                  Åbn vinduet (standard uden argumenter)
@@ -916,7 +918,7 @@ Kommandoer:
   move &lt;id&gt; &lt;tidspunkt&gt;
   done &lt;id&gt; | undone &lt;id&gt;
   rm &lt;id&gt;
-  undo
+  undo | redo           fortryd den nyeste ændring, eller gentag den nyeste fortrydelse
   projects
   summary [--week|--month]
   add &lt;tekst&gt; [--engine ...] [--yes] [--model M] [--endpoint URL]   AI-forslag; --yes gemmer det

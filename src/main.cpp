@@ -37,13 +37,14 @@ int main(int argc, char *argv[]) {
 
     // Everything except `open` (and no arguments) is a CLI command, which runs
     // without a display.
-    // `open --help` prints the help too.
+    // `open --help` prints the help too, and --version the version.
     const bool gui = (command.isEmpty() || command.first() == QLatin1String("open"))
-            && !command.contains(QLatin1String("--help")) && !command.contains(QLatin1String("-h"));
+            && !command.contains(QLatin1String("--help")) && !command.contains(QLatin1String("-h"))
+            && !command.contains(QLatin1String("--version"));
     if (!gui) {
         QCoreApplication app(argc, argv);
         app.setApplicationName("omaplan");
-        app.setApplicationVersion("0.1.0");
+        app.setApplicationVersion(QStringLiteral(OMAPLAN_VERSION));
         // Text output and error messages in the interface language; --json
         // stays English.
         UiLanguage uiLanguage(&app, language, false);
@@ -55,7 +56,7 @@ int main(int argc, char *argv[]) {
 
     QGuiApplication app(argc, argv);
     app.setApplicationName("omaplan");
-    app.setApplicationVersion("0.1.0");
+    app.setApplicationVersion(QStringLiteral(OMAPLAN_VERSION));
 
     // Matches the window to omaplan.desktop, so the compositor (Wayland
     // app_id) and the launcher pick up the installed icon.
