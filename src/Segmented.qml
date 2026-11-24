@@ -20,6 +20,7 @@ Row {
     ToolTip.text: keyHint === "" || keyInline ? "" : (label !== "" ? label + " (" + keyHint + ")" : keyHint)
 
     Text {
+        font.family: theme.fontFamily
         anchors.verticalCenter: parent.verticalCenter
         text: seg.label
         color: theme.muted
@@ -42,6 +43,7 @@ Row {
                 radius: Math.min(4, theme.radius)
                 Text {
                     id: text
+                    font.family: theme.fontFamily
                     anchors.centerIn: parent
                     text: choice.modelData[1]
                     color: choice.active ? theme.accentForeground : theme.foreground
@@ -59,6 +61,6 @@ Row {
         text: seg.keyHint
         color: theme.muted
         font.pixelSize: 11
-        font.family: "monospace"
+        font.family: theme.fontFamily
     }
 }

@@ -45,6 +45,7 @@ Rectangle {
         spacing: 2
         Layout.alignment: Qt.AlignTop
         Text {
+            font.family: theme.fontFamily
             Layout.fillWidth: true
             elide: Text.ElideRight
             text: field.label + (field.guess ? " · " + qsTr("guess") : "")
@@ -72,6 +73,7 @@ Rectangle {
             onActiveFocusChanged: if (activeFocus) card.focused()
         }
         Text {
+            font.family: theme.fontFamily
             visible: field.isDate
             Layout.fillWidth: true
             elide: Text.ElideRight
@@ -127,6 +129,7 @@ Rectangle {
                 implicitHeight: 26
                 onClicked: card.view.removeTask(card.col, card.taskIndex)
                 contentItem: Text {
+                    font.family: theme.fontFamily
                     text: "×"
                     color: parent.hovered ? theme.danger : theme.muted
                     font.pixelSize: 18

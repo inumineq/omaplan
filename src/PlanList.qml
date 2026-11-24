@@ -84,6 +84,7 @@ Item {
                 spacing: 8
                 height: 32 // as tall as the Segmented rows beside it
                 Text {
+                    font.family: theme.fontFamily
                     anchors.verticalCenter: parent.verticalCenter
                     text: qsTr("Project")
                     color: theme.muted
@@ -113,6 +114,7 @@ Item {
                 }
             }
             Text {
+                font.family: theme.fontFamily
                 height: 32
                 verticalAlignment: Text.AlignVCenter
                 text: qsTr("%n tasks", "", list.count)
@@ -145,6 +147,7 @@ Item {
                 height: label.implicitHeight + 20
                 Text {
                     id: label
+                    font.family: theme.fontFamily
                     anchors.bottom: parent.bottom
                     anchors.bottomMargin: 6
                     anchors.left: parent.left

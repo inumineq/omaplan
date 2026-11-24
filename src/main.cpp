@@ -78,6 +78,8 @@ int main(int argc, char *argv[]) {
     registerQmlTypes();
 
     Theme theme;
+    // Omarchy's font, live: omarchy-font-set takes effect without a restart.
+    theme.followSystemFont();
 
     Store store(dbPath);
     QString storeError;

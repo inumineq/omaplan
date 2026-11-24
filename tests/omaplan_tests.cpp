@@ -1,5 +1,7 @@
 #include <QColor>
 #include <QDir>
+#include <QFontDatabase>
+#include <QGuiApplication>
 #include <QFile>
 #include <QJsonDocument>
 #include <QProcess>
@@ -2839,6 +2841,114 @@ private slots:
         QCOMPARE(light.background(), QStringLiteral("#fafafa"));
         QCOMPARE(light.danger(), QStringLiteral("#cc0000"));
         QVERIFY(QColor(light.muted()).lightness() > QColor(light.foreground()).lightness());
+    }
+
+    // Omaplan's font is Omarchy's: omarchy-font-set rewrites fontconfig's
+    // monospace in $XDG_CONFIG_HOME/fontconfig/fonts.conf, and the window
+    // takes it without a restart. As in Folio.
+    void themeFollowsOmarchyFont()
+    {
+        QTemporaryDir config;
+        const QByteArray was = qgetenv("XDG_CONFIG_HOME");
+        qputenv("XDG_CONFIG_HOME", QFile::encodeName(config.path()));
+        const QFont appFont = QGuiApplication::font();
+        const auto restore = qScopeGuard([&] {
+            if (was.isEmpty())
+                qunsetenv("XDG_CONFIG_HOME");
+            else
+                qputenv("XDG_CONFIG_HOME", was);
+            QGuiApplication::setFont(appFont);
+        });
+
+        // Not following yet: the generic family, and the app font untouched.
+        Theme theme(config.filePath("omarchy"));
+        QCOMPARE(theme.fontFamily(), QStringLiteral("monospace"));
+
+        // Without a fonts.conf of the user's: the system's monospace, never empty.
+        const QString fallback = Theme::resolveFamily("monospace");
+        QVERIFY(!fallback.isEmpty());
+        // A machine without fonts (CI's container) resolves monospace to
+        // nothing real, and has none to switch to.
+        if (fallback.compare("monospace", Qt::CaseInsensitive) == 0)
+            QSKIP("fontconfig knows no real fonts here");
+        // A real family other than the fallback that fontconfig knows by name.
+        const QStringList generic{"monospace", "sans-serif", "sans serif", "sans", "serif", "system-ui"};
+        QString other, third;
+        for (const QString &family : QFontDatabase::families()) {
+            if (family.compare(fallback, Qt::CaseInsensitive) == 0 || generic.contains(family.toLower())
+                || Theme::resolveFamily(family) != family)
+                continue;
+            if (other.isEmpty())
+                other = family;
+            else if (family != other) {
+                third = family;
+                break;
+            }
+        }
+        if (third.isEmpty())
+            QSKIP("fewer than three font families are installed");
+
+        auto writeFontsConf = [&](const QString &family) {
+            QDir(config.path()).mkpath("fontconfig");
+            QFile file(config.filePath("fontconfig/fonts.conf"));
+            QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            // As omarchy-font-set writes it.
+            file.write("<?xml version=\"1.0\"?>\n<!DOCTYPE fontconfig SYSTEM \"fonts.dtd\">\n<fontconfig>\n"
+                       "  <match target=\"pattern\">\n    <test name=\"family\" qual=\"any\"><string>monospace</string></test>\n"
+                       "    <edit name=\"family\" mode=\"prepend_first\" binding=\"strong\"><string>"
+                       + family.toUtf8() + "</string></edit>\n  </match>\n</fontconfig>\n");
+        };
+        writeFontsConf(other);
+        QCOMPARE(Theme::resolveFamily("monospace"), other);
+
+        QSignalSpy changed(&theme, &Theme::fontChanged);
+        theme.followSystemFont();
+        QCOMPARE(theme.fontFamily(), other);
+        QCOMPARE(QGuiApplication::font().family(), other);
+        QCOMPARE(changed.count(), 1);
+
+        // Live: a new choice is picked up from the rewritten file...
+        writeFontsConf(third);
+        QTRY_COMPARE_WITH_TIMEOUT(theme.fontFamily(), third, 3000);
+        QCOMPARE(QGuiApplication::font().family(), third);
+        // ...and removing it falls back to the system's monospace.
+        QVERIFY(QFile::remove(config.filePath("fontconfig/fonts.conf")));
+        QTRY_COMPARE_WITH_TIMEOUT(theme.fontFamily(), fallback, 3000);
+    }
+
+    // Every word on screen is in Omarchy's font and every colour comes from
+    // the theme: no Text without theme.fontFamily, no fixed family, no hex.
+    void qmlUsesThemeFontAndColorsOnly()
+    {
+        const QStringList files = QDir(repoFile("src")).entryList({"*.qml"}, QDir::Files);
+        QVERIFY(files.size() > 10);
+        static const QRegularExpression textOpen(QStringLiteral("\\b(Text|TextInput|TextEdit) \\{"));
+        static const QRegularExpression hex(QStringLiteral("\"#[0-9a-fA-F]{3,8}\""));
+        static const QRegularExpression fixedFamily(QStringLiteral("font\\.family\\s*:\\s*\""));
+        for (const QString &name : files) {
+            QFile file(repoFile("src/" + name));
+            QVERIFY(file.open(QIODevice::ReadOnly));
+            const QStringList lines = QString::fromUtf8(file.readAll()).split('\n');
+            for (int i = 0; i < lines.size(); ++i) {
+                const QString where = name + ':' + QString::number(i + 1);
+                QVERIFY2(!hex.match(lines[i]).hasMatch(), qPrintable(where + " hard-codes a colour"));
+                QVERIFY2(!fixedFamily.match(lines[i]).hasMatch(), qPrintable(where + " fixes a font family"));
+                if (!textOpen.match(lines[i]).hasMatch())
+                    continue;
+                // The element's own lines, up to its closing brace.
+                int depth = 0;
+                bool bound = false;
+                for (int j = i; j < lines.size(); ++j) {
+                    const int before = depth;
+                    depth += lines[j].count('{') - lines[j].count('}');
+                    if ((j == i || before == 1) && lines[j].contains("font.family: theme.fontFamily"))
+                        bound = true;
+                    if (depth <= 0)
+                        break;
+                }
+                QVERIFY2(bound, qPrintable(where + " has a Text without font.family: theme.fontFamily"));
+            }
+        }
     }
 
     void guiHelpersForTheKeyboardViews()

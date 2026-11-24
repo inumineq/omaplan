@@ -14,6 +14,9 @@ ApplicationWindow {
     visible: true
     title: "Omaplan"
     color: theme.background
+    // Controls and popups inherit the window's font; plain Text items bind
+    // theme.fontFamily themselves.
+    font.family: theme.fontFamily
 
     Material.theme: theme.dark ? Material.Dark : Material.Light
     Material.accent: theme.accent
@@ -181,9 +184,10 @@ ApplicationWindow {
                             text: tab.index + 1
                             color: theme.muted
                             font.pixelSize: 11
-                            font.family: "monospace"
+                            font.family: theme.fontFamily
                         }
                         Text {
+                            font.family: theme.fontFamily
                             text: tab.modelData
                             color: win.currentView === tab.index ? theme.foreground : theme.muted
                             font.pixelSize: 14
@@ -223,6 +227,7 @@ ApplicationWindow {
                 ToolTip.delay: 600
                 ToolTip.text: qsTr("Keyboard shortcuts") + " (?)"
                 contentItem: Text {
+                    font.family: theme.fontFamily
                     text: "?"
                     color: helpButton.hovered ? theme.foreground : theme.muted
                     font.pixelSize: 13
@@ -261,6 +266,7 @@ ApplicationWindow {
                 border.color: theme.danger
                 Text {
                     id: errorText
+                    font.family: theme.fontFamily
                     anchors.fill: parent
                     anchors.margins: 10
                     text: planModel.error
@@ -337,6 +343,7 @@ ApplicationWindow {
             height: toastLabel.implicitHeight + 16
             Text {
                 id: toastLabel
+                font.family: theme.fontFamily
                 anchors.fill: parent
                 anchors.margins: 8
                 anchors.leftMargin: 14

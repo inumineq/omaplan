@@ -1,6 +1,9 @@
 QT += core gui sql network testlib qml
 
 CONFIG += c++17 testcase console
+# Omarchy's font is fontconfig's monospace (src/theme.cpp).
+CONFIG += link_pkgconfig
+PKGCONFIG += fontconfig
 TARGET = omaplan_tests
 TEMPLATE = app
 

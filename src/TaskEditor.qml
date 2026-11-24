@@ -136,7 +136,7 @@ Rectangle {
         readonly property var parsed: { Fmt.lang; return isDate && input.text.trim() !== "" ? actions.guiParseDate(input.text) : null }
         Layout.alignment: Qt.AlignTop
         spacing: 3
-        Text { text: fieldBox.label; color: theme.muted; font.pixelSize: 11 }
+        Text { font.family: theme.fontFamily; text: fieldBox.label; color: theme.muted; font.pixelSize: 11 }
         TextField {
             id: input
             Layout.fillWidth: true
@@ -158,6 +158,7 @@ Rectangle {
             Keys.onEnterPressed: editor.save()
         }
         Text {
+            font.family: theme.fontFamily
             visible: fieldBox.isDate
             Layout.fillWidth: true
             elide: Text.ElideRight
@@ -190,6 +191,7 @@ Rectangle {
             spacing: 12
 
             Text {
+                font.family: theme.fontFamily
                 text: editor.taskId === "" ? qsTr("New task") : qsTr("Edit task")
                 font.weight: Font.DemiBold
                 font.pixelSize: 16
@@ -221,7 +223,7 @@ Rectangle {
                 ColumnLayout {
                     Layout.alignment: Qt.AlignTop
                     spacing: 3
-                    Text { text: qsTr("Priority (Alt+1/2/3)"); color: theme.muted; font.pixelSize: 11 }
+                    Text { font.family: theme.fontFamily; text: qsTr("Priority (Alt+1/2/3)"); color: theme.muted; font.pixelSize: 11 }
                     Segmented {
                         options: [["1", qsTr("High")], ["2", qsTr("Medium")], ["3", qsTr("Normal")]]
                         value: String(editor.priority)
@@ -232,7 +234,7 @@ Rectangle {
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 3
-                Text { text: qsTr("Notes"); color: theme.muted; font.pixelSize: 11 }
+                Text { font.family: theme.fontFamily; text: qsTr("Notes"); color: theme.muted; font.pixelSize: 11 }
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 70
@@ -255,7 +257,7 @@ Rectangle {
                 Layout.fillWidth: true
                 spacing: 10
                 CheckMark { checked: editor.done; onToggled: editor.done = !editor.done }
-                Text { text: qsTr("Done (Alt+X)"); color: theme.foreground; font.pixelSize: 13 }
+                Text { font.family: theme.fontFamily; text: qsTr("Done (Alt+X)"); color: theme.foreground; font.pixelSize: 13 }
                 Item { Layout.fillWidth: true }
                 HeaderButton {
                     visible: editor.taskId !== ""
@@ -268,6 +270,7 @@ Rectangle {
                 HeaderButton { text: qsTr("Save"); keyHint: "Enter"; keyInline: true; primary: true; onClicked: editor.save() }
             }
             Text {
+                font.family: theme.fontFamily
                 Layout.fillWidth: true
                 visible: editor.problem !== ""
                 text: editor.problem

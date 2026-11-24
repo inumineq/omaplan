@@ -1,6 +1,9 @@
 QT += core gui qml quick quickcontrols2 sql network
 
 CONFIG += c++17 release
+# Omarchy's font is fontconfig's monospace (src/theme.cpp).
+CONFIG += link_pkgconfig
+PKGCONFIG += fontconfig
 TARGET = omaplan
 TEMPLATE = app
 

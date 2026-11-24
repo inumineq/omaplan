@@ -207,12 +207,14 @@ Rectangle {
             RowLayout {
                 Layout.fillWidth: true
                 Text {
+                    font.family: theme.fontFamily
                     text: overlay.comparing ? qsTr("Compare proposals") : qsTr("Proposal")
                     font.weight: Font.DemiBold
                     font.pixelSize: 16
                     color: theme.foreground
                 }
                 Text {
+                    font.family: theme.fontFamily
                     Layout.fillWidth: true
                     Layout.leftMargin: 12
                     text: "“" + overlay.text + "”"
@@ -241,6 +243,7 @@ Rectangle {
             }
 
             Text {
+                font.family: theme.fontFamily
                 Layout.fillWidth: true
                 visible: overlay.problem !== ""
                 text: overlay.problem
@@ -249,6 +252,7 @@ Rectangle {
                 font.pixelSize: 13
             }
             Text {
+                font.family: theme.fontFamily
                 Layout.fillWidth: true
                 wrapMode: Text.Wrap
                 color: theme.muted

@@ -160,6 +160,7 @@ Item {
             visible: !chip.done
         }
         Text {
+            font.family: theme.fontFamily
             anchors.fill: parent
             anchors.leftMargin: 7
             anchors.rightMargin: 4
@@ -186,6 +187,7 @@ Item {
             HeaderButton { text: qsTr("Today"); keyHint: "t"; onClicked: cal.goToday() }
             HeaderButton { text: "›"; toolTip: qsTr("Next"); keyHint: "l"; onClicked: cal.page(1) }
             Text {
+                font.family: theme.fontFamily
                 Layout.leftMargin: 10
                 text: { Fmt.lang; return cal.mode === "week" ? Fmt.weekTitle(cal.weekStart) : Fmt.capitalize(Fmt.monthTitle(cal.monthStart)) }
                 color: theme.foreground
@@ -219,6 +221,7 @@ Item {
                             anchors.centerIn: parent
                             spacing: 6
                             Text {
+                                font.family: theme.fontFamily
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: { Fmt.lang; return Fmt.weekdayShort(parent.parent.date) }
                                 color: parent.parent.isToday ? theme.accent : theme.muted
@@ -230,6 +233,7 @@ Item {
                                 radius: 13
                                 color: parent.parent.isToday ? theme.accent : "transparent"
                                 Text {
+                                    font.family: theme.fontFamily
                                     anchors.centerIn: parent
                                     text: parent.parent.parent.date.getDate()
                                     color: parent.parent.parent.isToday ? theme.accentForeground : theme.foreground
@@ -254,6 +258,7 @@ Item {
                 implicitHeight: rowsShown * 22 + 8
                 Rectangle { anchors.fill: parent; color: theme.surface; radius: Math.min(4, theme.radius) }
                 Text {
+                    font.family: theme.fontFamily
                     width: cal.gutter - 6
                     anchors.verticalCenter: parent.verticalCenter
                     horizontalAlignment: Text.AlignRight
@@ -284,6 +289,7 @@ Item {
                                 }
                             }
                             Text {
+                                font.family: theme.fontFamily
                                 visible: allDayCol.items.length > allDayArea.rowsShown
                                 text: qsTr("+%1 more").arg(allDayCol.items.length - allDayArea.rowsShown + 1)
                                 color: theme.muted
@@ -329,6 +335,7 @@ Item {
                             height: cal.hourHeight
                             Rectangle { x: cal.gutter; width: parent.width - cal.gutter; height: 1; color: theme.border; opacity: 0.6 }
                             Text {
+                                font.family: theme.fontFamily
                                 width: cal.gutter - 8
                                 y: -7
                                 visible: parent.index > 0
@@ -392,6 +399,7 @@ Item {
                                 y: 3
                                 width: parent.width - 10
                                 Text {
+                                    font.family: theme.fontFamily
                                     width: parent.width
                                     text: block.task.title
                                     color: block.done ? theme.muted : theme.foreground
@@ -401,6 +409,7 @@ Item {
                                     elide: Text.ElideRight
                                 }
                                 Text {
+                                    font.family: theme.fontFamily
                                     width: parent.width
                                     visible: block.height > 34
                                     text: { Fmt.lang; return Fmt.timeRange(block.task.start, block.task.durationMinutes)
@@ -441,6 +450,7 @@ Item {
                 Repeater {
                     model: 7
                     delegate: Text {
+                        font.family: theme.fontFamily
                         required property int index
                         width: monthGrid.width / 7
                         horizontalAlignment: Text.AlignHCenter
@@ -482,6 +492,7 @@ Item {
                             radius: 11
                             color: cell.isToday ? theme.accent : "transparent"
                             Text {
+                                font.family: theme.fontFamily
                                 anchors.centerIn: parent
                                 text: cell.date.getDate()
                                 color: cell.isToday ? theme.accentForeground : cell.inMonth ? theme.foreground : theme.muted
@@ -503,6 +514,7 @@ Item {
                                 }
                             }
                             Text {
+                                font.family: theme.fontFamily
                                 visible: cell.items.length > cell.fits
                                 text: qsTr("+%1 more").arg(cell.items.length - Math.max(0, cell.fits - 1))
                                 color: theme.muted
@@ -588,6 +600,7 @@ Item {
         color: theme.accent
         opacity: 0.9
         Text {
+            font.family: theme.fontFamily
             anchors.fill: parent
             anchors.margins: 5
             text: ghost.text

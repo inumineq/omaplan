@@ -105,6 +105,7 @@ Rectangle {
             RowLayout {
                 Layout.fillWidth: true
                 Text {
+                    font.family: theme.fontFamily
                     text: qsTr("New tasks")
                     font.weight: Font.DemiBold
                     font.pixelSize: 16
@@ -168,6 +169,7 @@ Rectangle {
                     implicitHeight: 28
                 }
                 Text {
+                    font.family: theme.fontFamily
                     Layout.fillWidth: true
                     wrapMode: Text.Wrap
                     font.pixelSize: 12
@@ -179,6 +181,7 @@ Rectangle {
                             : qsTr("Engine: %1").arg(overlay.engines["default"])
                 }
                 Text {
+                    font.family: theme.fontFamily
                     visible: !overlay.busy
                     text: qsTr("Ctrl+Enter send · Esc close")
                     color: theme.muted

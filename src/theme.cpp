@@ -6,11 +6,14 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QFont>
+#include <QGuiApplication>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QRegularExpression>
 #include <QStandardPaths>
 #include <cmath>
+#include <fontconfig/fontconfig.h>
 
 Theme::Theme(const QString &directory, QObject *parent, const QString &hyprctl)
     : QObject(parent),
@@ -38,7 +41,7 @@ Theme::Theme(const QString &directory, QObject *parent, const QString &hyprctl)
             return;
         if (value.toInt() != m_radius) {
             m_radius = value.toInt();
-            emit changed();
+        emit changed();
         }
     });
     m_roundingPoll.setInterval(1000);
@@ -123,6 +126,69 @@ QString Theme::accentForeground() const {
     auto linear = [](double v) { return v <= .04045 ? v / 12.92 : std::pow((v + .055) / 1.055, 2.4); };
     const double luminance = .2126 * linear(c.redF()) + .7152 * linear(c.greenF()) + .0722 * linear(c.blueF());
     return luminance > .179 ? "black" : "white";
+}
+
+QString Theme::resolveFamily(const QString &family) {
+    // A configuration loaded afresh rather than the one Qt read at startup, so
+    // a choice made since (omarchy-font-set) counts, and Qt's is left alone.
+    QString resolved = family;
+    FcConfig *config = FcInitLoadConfigAndFonts();
+    if (!config)
+        return resolved;
+    if (FcPattern *pattern = FcNameParse(reinterpret_cast<const FcChar8 *>(family.toUtf8().constData()))) {
+        FcConfigSubstitute(config, pattern, FcMatchPattern);
+        FcDefaultSubstitute(pattern);
+        FcResult result;
+        if (FcPattern *match = FcFontMatch(config, pattern, &result)) {
+            FcChar8 *name = nullptr;
+            if (FcPatternGetString(match, FC_FAMILY, 0, &name) == FcResultMatch && name)
+                resolved = QString::fromUtf8(reinterpret_cast<const char *>(name));
+            FcPatternDestroy(match);
+        }
+        FcPatternDestroy(pattern);
+    }
+    FcConfigDestroy(config);
+    return resolved;
+}
+
+void Theme::followSystemFont() {
+    if (m_followingFont)
+        return;
+    m_followingFont = true;
+    m_fontDebounce.setSingleShot(true);
+    m_fontDebounce.setInterval(200);
+    connect(&m_fontDebounce, &QTimer::timeout, this, &Theme::readSystemFont);
+    // omarchy-font-set writes the user's fontconfig file; the folder is
+    // watched too, for when the file is made or replaced.
+    const QString folder = QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + "/fontconfig";
+    const QString file = folder + "/fonts.conf";
+    QDir().mkpath(folder);
+    m_fontWatcher.addPath(folder);
+    if (QFileInfo::exists(file))
+        m_fontWatcher.addPath(file);
+    connect(&m_fontWatcher, &QFileSystemWatcher::directoryChanged, this, [this, file] {
+        // A file written anew stops being watched; watch it again.
+        if (QFileInfo::exists(file) && !m_fontWatcher.files().contains(file))
+            m_fontWatcher.addPath(file);
+        m_fontDebounce.start();
+    });
+    connect(&m_fontWatcher, &QFileSystemWatcher::fileChanged, this, [this] { m_fontDebounce.start(); });
+    readSystemFont();
+}
+
+void Theme::readSystemFont() {
+    const QString family = resolveFamily("monospace");
+    // New controls and popups take the application's font; what is on screen
+    // binds fontFamily.
+    QFont font = QGuiApplication::font();
+    font.setFamily(family);
+    font.setStyleHint(QFont::Monospace);
+    if (font != QGuiApplication::font())
+        QGuiApplication::setFont(font);
+    if (family != m_fontFamily) {
+        m_fontFamily = family;
+        emit fontChanged();
+    }
 }
 
 void Theme::reload() {

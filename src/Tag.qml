@@ -13,6 +13,7 @@ Rectangle {
     border.color: Qt.alpha(tag.tint, 0.5)
     Text {
         id: label
+        font.family: theme.fontFamily
         anchors.centerIn: parent
         text: tag.text
         color: tag.filled ? theme.background : tag.tint

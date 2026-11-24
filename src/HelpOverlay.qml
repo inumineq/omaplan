@@ -82,6 +82,7 @@ Rectangle {
                 RowLayout {
                     Layout.fillWidth: true
                     Text {
+                        font.family: theme.fontFamily
                         text: qsTr("Keyboard shortcuts")
                         font.weight: Font.DemiBold
                         font.pixelSize: 16
@@ -89,6 +90,7 @@ Rectangle {
                     }
                     Item { Layout.fillWidth: true }
                     Text {
+                        font.family: theme.fontFamily
                         text: qsTr("Esc closes")
                         color: theme.muted
                         font.pixelSize: 12
@@ -114,6 +116,7 @@ Rectangle {
                                     Layout.topMargin: 8
                                     spacing: 3
                                     Text {
+                                        font.family: theme.fontFamily
                                         text: parent.modelData[0].toUpperCase()
                                         color: theme.muted
                                         font.weight: Font.DemiBold
@@ -130,10 +133,11 @@ Rectangle {
                                                 Layout.preferredWidth: 160
                                                 text: parent.modelData[0]
                                                 color: theme.accent
-                                                font.family: "monospace"
+                                                font.family: theme.fontFamily
                                                 font.pixelSize: 12
                                             }
                                             Text {
+                                                font.family: theme.fontFamily
                                                 Layout.fillWidth: true
                                                 text: parent.modelData[1]
                                                 color: theme.foreground
