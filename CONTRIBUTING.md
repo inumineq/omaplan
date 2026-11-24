@@ -101,6 +101,18 @@ Follow the code around you. In short:
    `tests/unit/tst_ai.cpp` (`envelopeFixturesParse`, `invalidEnvelopeFixturesAreRejectedWithRaw`). Test the engine
    with a fake, never a real model.
 6. Document it under "AI engines" in `README.md`, including any `[engine.<name>]` section in `config.toml`.
+7. For the settings: add its keys to `ConfigKeys::all()` in `src/config.cpp` (name, section, allowed values,
+   description), and to the engine list of `Actions::engines()` in `src/actions_config.cpp`, so `omaplan config`,
+   `omaplan engines` and the settings panel know it.
+
+### Add a setting
+
+Every setting is a line in `config.toml`, and the file is the only source. Add the key to `ConfigKeys::all()` in
+`src/config.cpp` (with its allowed values, so `ConfigKeys::validate()` and `omaplan config list` know them), read it
+in `AppConfig::load()`, and test the round trip next to `configWriteKeepsCommentsUnknownKeysAndOldNames`. To show it
+in the panel, add a `ConfigField` or `ConfigChoice` with that key in `src/SettingsOverlay.qml`: it writes through
+`actions.guiConfigSet` and reads `settings.values`, so the CLI, MCP and the panel stay in step. Every panel control
+must be reachable with Tab.
 
 No API keys in the app, the config example or the repository. If the engine needs a login, rely on the tool's own.
 
@@ -116,7 +128,9 @@ need a few small code changes as well. [`docs/translating.md`](docs/translating.
 The date parser (`Actions::parseDateTime()` in `src/actions.cpp`) and the date annotation for the AI
 (`annotateDates()` in `src/dateannotate.cpp`) read their words from `src/datewords.cpp`: one `DateWords` entry per
 language with phrases for today, tomorrow, next week, weekdays, months, "in N days" and clock times. Every language
-is understood at once, whatever the interface language.
+is understood at once, whatever the interface language. How numbers are read (12/11 as day/month or month/day,
+12.12 as a time or a date) is the language's `DateConvention`, which `[dates]` in `config.toml` overrides; a test
+that depends on it should set it explicitly (see `ConventionGuard` in `tests/omaplan_tests.cpp`).
 
 Most rules are one more phrase in a list. To accept the Danish "i næste uge" next to "næste uge":
 

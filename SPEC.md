@@ -76,6 +76,26 @@ All engines get the same prompt and must return JSON following the same schema (
 The app validates the answer; an invalid answer is shown as an error in the window with the engine's raw answer,
 never as silent loss. No API keys in the app or in the repo. See ADR 0002.
 
+## Settings
+
+`config.toml` is the only source of the settings. The settings panel (`,` or `Ctrl+,`, the gear beside `?`),
+`omaplan config get|set|unset|list`, the MCP tools `config_list`/`config_get`/`config_set` and a text editor all
+read and write the same file, through `actions`; a write keeps comments, unknown keys and the 0.1 names. The window
+follows the file live. The panel has three sections:
+
+- **AI engine**: default engine, model per engine (`--model` for vibe and claude), endpoint and API for local, the
+  command line, compare and timeout, and whether each tool is installed (`omaplan engines`). Test sends one short
+  real request when pressed – never on its own – and shows the answer and the time, or a clear error.
+- **Date and time**: language; how 12/11 is read (day/month or month/day); whether 12.12 is a time or a date; the
+  first day of the week; 24- or 12-hour clock. Unset keys follow the language (both English and Danish: day/month,
+  12.12 a time, Monday, 24 hours). The parser, the date annotation for the AI, and every display follow it; the
+  panel previews how a few examples are read.
+- **Project colours**: a palette slot from the Omarchy theme per project (`[projects]`), never a free colour, lifted
+  until it reads on the background. The colour shows on the project tag and on calendar blocks and timeline bars, in
+  the window and the read-only edition; the priority edge is unchanged.
+
+Fully keyboard-driven (Tab, ← / →, Alt+1/2/3, Ctrl+E opens the file, Esc closes).
+
 ## AI integration (core requirement)
 
 Omaplan must be fully operable by any AI agent on an Omarchy machine (Claude Code, Codex, Mistral Vibe,
