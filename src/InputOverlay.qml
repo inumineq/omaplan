@@ -3,7 +3,6 @@ import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
 
-import Omaplan
 
 // Free text, opened with n or Space. Ctrl+Enter sends it to the AI engine;
 // with Compare (Alt+S) the text goes to two engines at once. While the engine
@@ -108,7 +107,7 @@ Rectangle {
                     font.family: theme.fontFamily
                     text: qsTr("New tasks")
                     font.weight: Font.DemiBold
-                    font.pixelSize: 16
+                    font.pixelSize: Math.round(16 * theme.textScale)
                     color: theme.foreground
                 }
                 Item { Layout.fillWidth: true }
@@ -140,7 +139,7 @@ Rectangle {
                         placeholderTextColor: theme.muted
                         wrapMode: TextArea.Wrap
                         color: theme.foreground
-                        font.pixelSize: 15
+                        font.pixelSize: Math.round(15 * theme.textScale)
                         readOnly: overlay.busy
                         background: null
                         Keys.onPressed: event => {
@@ -173,7 +172,7 @@ Rectangle {
                     font.family: theme.fontFamily
                     Layout.fillWidth: true
                     wrapMode: Text.Wrap
-                    font.pixelSize: 12
+                    font.pixelSize: Math.round(12 * theme.textScale)
                     color: overlay.busy ? theme.foreground : theme.muted
                     text: overlay.busy
                           ? qsTr("%1 is working… %2 s · Esc cancels").arg(overlay.engines["default"]).arg(overlay.seconds)
@@ -186,7 +185,7 @@ Rectangle {
                     visible: !overlay.busy
                     text: qsTr("Ctrl+Enter send · Esc close")
                     color: theme.muted
-                    font.pixelSize: 12
+                    font.pixelSize: Math.round(12 * theme.textScale)
                 }
             }
         }

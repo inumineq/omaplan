@@ -8,8 +8,10 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QRegularExpression>
+#include <QStandardPaths>
 
 #include "config.h"
+#include "translator.h"
 
 static QString s_current;
 
@@ -27,12 +29,8 @@ UiLanguage::UiLanguage(QCoreApplication *app, const QString &flag, bool watch, c
     reload();
 }
 
-UiLanguage::~UiLanguage() {
-    if (m_app) {
-        m_app->removeTranslator(&m_translator);
-        m_app->removeTranslator(&m_english);
-    }
-}
+// The Translator unregisters itself from the application as it goes.
+UiLanguage::~UiLanguage() = default;
 
 QString UiLanguage::defaultOmarchyFile() {
     return QDir::homePath() + QStringLiteral("/.config/omarchy/language");
@@ -46,29 +44,46 @@ QString UiLanguage::readOmarchyLanguage(const QString &path) {
 }
 
 QString UiLanguage::normalize(const QString &text) {
-    static const QRegularExpression code(QStringLiteral("^([A-Za-z]{2,3})(?:[-_.@].*)?$"));
+    // "pt_BR.UTF-8" and "pt-br" are pt-BR: Omarchy's and the catalogs' spelling.
+    static const QRegularExpression code(QStringLiteral("^([A-Za-z]{2,3})(?:[-_]([A-Za-z]{2}))?(?:[-_.@].*)?$"));
     const auto m = code.match(text.trimmed());
-    return m.hasMatch() ? m.captured(1).toLower() : QString();
+    if (!m.hasMatch())
+        return {};
+    const QString language = m.captured(1).toLower();
+    return m.captured(2).isEmpty() ? language : language + QLatin1Char('-') + m.captured(2).toUpper();
 }
 
 QStringList UiLanguage::available() {
     QStringList languages{QStringLiteral("en")};
-    QDirIterator it(QStringLiteral(":/i18n"), {QStringLiteral("omaplan_*.qm")}, QDir::Files);
+    QDirIterator it(QStringLiteral(":/i18n"), {QStringLiteral("*.json")}, QDir::Files);
     while (it.hasNext()) {
-        const QString name = QFileInfo(it.next()).completeBaseName().mid(int(qstrlen("omaplan_")));
+        const QString name = QFileInfo(it.next()).completeBaseName();
         if (!languages.contains(name))
             languages << name;
     }
+    languages.sort();
     return languages;
 }
 
 QString UiLanguage::resolve(const Sources &sources, const QStringList &available) {
-    QStringList candidates{sources.flag, sources.config, sources.omarchy};
-    candidates << sources.system;
-    for (const QString &candidate : candidates) {
-        const QString code = normalize(candidate);
-        if (!code.isEmpty() && available.contains(code))
-            return code;
+    // A regional catalog (pt-BR) by its full code, else the language's own.
+    const auto catalog = [&available](const QString &code) {
+        const QString language = code.section(QLatin1Char('-'), 0, 0);
+        return available.contains(code) ? code : available.contains(language) ? language : QString();
+    };
+    for (const QString &choice : {sources.flag, sources.config, sources.omarchy}) {
+        const QString code = normalize(choice);
+        if (code.isEmpty())
+            continue;
+        // Without a catalog the choice still counts, region and all: its
+        // formats and direction follow it.
+        const QString found = catalog(code);
+        return found.isEmpty() ? code : found;
+    }
+    for (const QString &guess : sources.system) {
+        const QString found = catalog(normalize(guess));
+        if (!found.isEmpty())
+            return found;
     }
     return QStringLiteral("en");
 }
@@ -83,22 +98,24 @@ QString UiLanguage::current() {
 
 QLocale UiLanguage::formatLocale(const QString &language) {
     // English with day-month order and a 24-hour clock, like the window's
-    // own formats; every other language as Qt knows it.
+    // own formats; every other language as Omarchy formats it.
     if (language == QLatin1String("en"))
         return QLocale(QLocale::English, QLocale::UnitedKingdom);
-    return QLocale(language);
+    return Translator::formatLocale(language);
 }
 
 void UiLanguage::reload() {
     if (m_watch) {
         // omarchy-language replaces the file, which drops it from the watch,
-        // and a first pick creates it; watch its directory too and re-arm.
+        // and a first pick creates it, and maybe its directory; watch the
+        // nearest existing directory too and re-arm.
         const auto paths = m_watcher.files() + m_watcher.directories();
         if (!paths.isEmpty())
             m_watcher.removePaths(paths);
-        const QString directory = QFileInfo(m_omarchyFile).absolutePath();
-        if (QFileInfo::exists(directory))
-            m_watcher.addPath(directory);
+        QString directory = QFileInfo(m_omarchyFile).absolutePath();
+        while (!QFileInfo::exists(directory) && directory != QLatin1String("/"))
+            directory = QFileInfo(directory).absolutePath();
+        m_watcher.addPath(directory);
         if (QFileInfo::exists(m_omarchyFile))
             m_watcher.addPath(m_omarchyFile);
     }
@@ -111,20 +128,31 @@ void UiLanguage::reload() {
     install(language);
     m_language = language;
     s_current = language;
-    QLocale::setDefault(formatLocale(language));
     emit changed();
 }
 
 void UiLanguage::install(const QString &language) {
-    if (!m_app)
-        return;
-    m_app->removeTranslator(&m_translator);
-    m_app->removeTranslator(&m_english);
-    // English first, so a string the language lacks still gets English
-    // plural forms; the language goes on top (Qt asks the newest first).
-    if (m_english.load(QStringLiteral(":/i18n/omaplan_en.qm")))
-        m_app->installTranslator(&m_english);
-    if (language != QLatin1String("en")
-        && m_translator.load(QStringLiteral(":/i18n/omaplan_%1.qm").arg(language)))
-        m_app->installTranslator(&m_translator);
+    // The Translator reads the choice from a file and watches its folder, so
+    // the file gets a folder of its own (owner only): in the shared /tmp every
+    // other program's file would wake the app, and a cleanup of old files
+    // could take the choice away from a window left open for days.
+    if (!m_pickDirectory) {
+        const QString runtime = QStandardPaths::writableLocation(QStandardPaths::RuntimeLocation);
+        m_pickDirectory = runtime.isEmpty() ? std::make_unique<QTemporaryDir>()
+                                            : std::make_unique<QTemporaryDir>(runtime + QStringLiteral("/omaplan-XXXXXX"));
+    }
+    auto pick = std::make_unique<QFile>(m_pickDirectory->filePath(QStringLiteral("language")));
+    if (pick->open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        pick->write(language.toUtf8() + '\n');
+        pick->close();
+    }
+    // The Translator loads its catalogs, and sets the default locale and the
+    // layout direction, as it is made. The old one goes after the new one is
+    // in, so no string is asked for with neither.
+    auto translator = std::make_unique<Translator>(pick->fileName());
+    if (m_app)
+        m_app->installTranslator(translator.get());
+    m_translator = std::move(translator);
+    m_pick = std::move(pick);
+    QLocale::setDefault(formatLocale(language));
 }

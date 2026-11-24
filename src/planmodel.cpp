@@ -219,24 +219,27 @@ CalendarModel::CalendarModel(QObject *parent) : SortProxy(parent) {
 void CalendarModel::setFrom(const QDate &from) {
     if (m_from == from)
         return;
+    beginFilterChange();
     m_from = from;
     emit rangeChanged();
-    invalidateFilter();
+    endFilterChange();
 }
 
 void CalendarModel::setTo(const QDate &to) {
     if (m_to == to)
         return;
+    beginFilterChange();
     m_to = to;
     emit rangeChanged();
-    invalidateFilter();
+    endFilterChange();
 }
 
 void CalendarModel::setRange(const QDate &from, const QDate &to) {
+    beginFilterChange();
     m_from = from;
     m_to = to;
     emit rangeChanged();
-    invalidateFilter();
+    endFilterChange();
 }
 
 bool CalendarModel::filterAcceptsRow(int sourceRow, const QModelIndex &sourceParent) const {
@@ -271,17 +274,19 @@ PlanListModel::PlanListModel(QObject *parent) : SortProxy(parent) {
 void PlanListModel::setProjectFilter(const QString &filter) {
     if (m_projectFilter == filter)
         return;
+    beginFilterChange();
     m_projectFilter = filter;
     emit projectFilterChanged();
-    invalidateFilter();
+    endFilterChange();
 }
 
 void PlanListModel::setStatusFilter(const QString &filter) {
     if (m_statusFilter == filter)
         return;
+    beginFilterChange();
     m_statusFilter = filter;
     emit statusFilterChanged();
-    invalidateFilter();
+    endFilterChange();
 }
 
 void PlanListModel::setGrouping(const QString &grouping) {
@@ -363,6 +368,4 @@ void registerQmlTypes() {
     qmlRegisterType<CalendarModel>("Omaplan", 1, 0, "CalendarModel");
     qmlRegisterType<PlanListModel>("Omaplan", 1, 0, "PlanListModel");
     qmlRegisterType<GanttModel>("Omaplan", 1, 0, "GanttModel");
-    // Date, time and duration formatting in the Omarchy language.
-    qmlRegisterSingletonType(QUrl(QStringLiteral("qrc:/Fmt.qml")), "Omaplan", 1, 0, "Fmt");
 }

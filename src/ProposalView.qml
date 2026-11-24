@@ -3,7 +3,6 @@ import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
 
-import Omaplan
 
 // The AI engine's proposal as an editable list, before anything is stored.
 // Fields the engine guessed are marked. Edit right in the fields (dates as in
@@ -19,8 +18,6 @@ Rectangle {
     // One entry per engine: {engine, state: "waiting"|"ready"|"error",
     // tasks: [...], unclear: [...], captureId, error}.
     property var columns: []
-    property int revision: 0            // the set of columns changed
-    property var colRevision: [0, 0]    // one column's content changed
     property int selected: 0
     property string text: ""            // the raw input, for retry / create yourself
     property int currentCol: 0
@@ -53,15 +50,16 @@ Rectangle {
         return { engine: engine, state: "ready", tasks: tasks, unclear: proposal.unresolved || [],
                  captureId: captureId, error: "" }
     }
-    function bump(col) {
-        const r = colRevision.slice()
-        r[col] += 1
-        colRevision = r
+    // A column changed in place: new objects for it and the array make the
+    // bindings over that column read it again.
+    function refresh(col) {
+        const cols = columns.slice()
+        cols[col] = Object.assign({}, cols[col])
+        columns = cols
     }
     function show() {
         problem = ""
         currentTask = -1
-        revision += 1
         visible = true
         overlay.forceActiveFocus()
     }
@@ -95,12 +93,12 @@ Rectangle {
             cols[side] = overlay.columnFrom(engine, proposal, captureId)
             if (cols[overlay.selected].state !== "ready")
                 overlay.selected = side
-            overlay.bump(side)
+            overlay.refresh(side)
         }
         function onCompareFailed(side, message, engine) {
             const cols = overlay.columns
             cols[side] = { engine: engine, state: "error", tasks: [], unclear: [], captureId: "", error: message }
-            overlay.bump(side)
+            overlay.refresh(side)
         }
     }
 
@@ -119,7 +117,7 @@ Rectangle {
                                   "priority": "", "notes": "", "guessed": [] })
         focusCol = col
         focusTask = columns[col].tasks.length - 1
-        bump(col)
+        refresh(col)
     }
     function removeTask(col, task) {
         if (!columns[col] || task < 0 || task >= columns[col].tasks.length)
@@ -128,7 +126,7 @@ Rectangle {
         focusCol = col
         focusTask = Math.min(task, columns[col].tasks.length - 1)
         currentTask = -1
-        bump(col)
+        refresh(col)
     }
 
     function approve(col) {
@@ -210,7 +208,7 @@ Rectangle {
                     font.family: theme.fontFamily
                     text: overlay.comparing ? qsTr("Compare proposals") : qsTr("Proposal")
                     font.weight: Font.DemiBold
-                    font.pixelSize: 16
+                    font.pixelSize: Math.round(16 * theme.textScale)
                     color: theme.foreground
                 }
                 Text {
@@ -220,7 +218,7 @@ Rectangle {
                     text: "“" + overlay.text + "”"
                     elide: Text.ElideRight
                     color: theme.muted
-                    font.pixelSize: 13
+                    font.pixelSize: Math.round(13 * theme.textScale)
                     font.italic: true
                 }
             }
@@ -230,7 +228,7 @@ Rectangle {
                 Layout.fillHeight: true
                 spacing: 12
                 Repeater {
-                    model: { overlay.revision; return overlay.columns.length }
+                    model: overlay.columns.length
                     delegate: ProposalColumn {
                         required property int index
                         Layout.fillWidth: true
@@ -249,14 +247,14 @@ Rectangle {
                 text: overlay.problem
                 color: theme.danger
                 wrapMode: Text.Wrap
-                font.pixelSize: 13
+                font.pixelSize: Math.round(13 * theme.textScale)
             }
             Text {
                 font.family: theme.fontFamily
                 Layout.fillWidth: true
                 wrapMode: Text.Wrap
                 color: theme.muted
-                font.pixelSize: 12
+                font.pixelSize: Math.round(12 * theme.textScale)
                 text: {
                     const anyReady = overlay.columns.some(c => c.state === "ready")
                     if (!anyReady && overlay.columns.every(c => c.state === "error"))

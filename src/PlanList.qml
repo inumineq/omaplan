@@ -3,7 +3,8 @@ import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
 
-import Omaplan
+// The models are registered from C++ (registerQmlTypes), so qmllint cannot see them.
+import Omaplan as Plan // qmllint disable import
 
 // List: every task with a checkbox. Grouping (g), project filter (f) and
 // status filter (s) are visible in the toolbar and can be clicked too.
@@ -19,7 +20,7 @@ Item {
     property string project: ""        // "" = all
     property var projects: []
 
-    readonly property var today: { planModel.today; return Fmt.startOfDay(new Date()) }
+    readonly property var today: Fmt.today
 
     function cycleGrouping() {
         const order = ["date", "project", "none"]
@@ -45,7 +46,7 @@ Item {
         function onRevisionChanged() { root.refreshProjects() }
     }
 
-    PlanListModel {
+    Plan.PlanListModel { // qmllint disable import
         id: list
         sourceModel: planModel
         projectFilter: root.project
@@ -88,7 +89,7 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     text: qsTr("Project")
                     color: theme.muted
-                    font.pixelSize: 12
+                    font.pixelSize: Math.round(12 * theme.textScale)
                 }
                 ComboBox {
                     id: projectBox
@@ -98,7 +99,7 @@ Item {
                     implicitHeight: 28
                     topInset: 0
                     bottomInset: 0
-                    font.pixelSize: 12
+                    font.pixelSize: Math.round(12 * theme.textScale)
                     // Flat like the choices beside it, not Material's outlined field.
                     background: Rectangle {
                         radius: Math.min(4, theme.radius)
@@ -119,7 +120,7 @@ Item {
                 verticalAlignment: Text.AlignVCenter
                 text: qsTr("%n tasks", "", list.count)
                 color: theme.muted
-                font.pixelSize: 12
+                font.pixelSize: Math.round(12 * theme.textScale)
             }
         }
 
@@ -135,7 +136,7 @@ Item {
             boundsBehavior: Flickable.StopAtBounds
             ScrollBar.vertical: ScrollBar {}
             highlightFollowsCurrentItem: false
-            currentIndex: { list.revision; return list.ids().indexOf(win.selectedId) }
+            currentIndex: { void list.revision; return list.ids().indexOf(win.selectedId) }
             onCurrentIndexChanged: if (currentIndex >= 0) positionViewAtIndex(currentIndex, ListView.Contain)
 
             section.property: root.grouping === "date" ? "dayKey" : root.grouping === "project" ? "project" : ""
@@ -152,12 +153,11 @@ Item {
                     anchors.bottomMargin: 6
                     anchors.left: parent.left
                     anchors.leftMargin: 4
-                    font.pixelSize: 13
+                    font.pixelSize: Math.round(13 * theme.textScale)
                     font.bold: true
                     color: theme.accentText
                     textFormat: Text.PlainText
                     text: {
-                        Fmt.lang
                         if (root.grouping === "project")
                             return header.section !== "" ? header.section : qsTr("No project")
                         const d = Fmt.fromIso(header.section)

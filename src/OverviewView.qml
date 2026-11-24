@@ -2,7 +2,8 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
-import Omaplan
+// The models are registered from C++ (registerQmlTypes), so qmllint cannot see them.
+import Omaplan as Plan // qmllint disable import
 
 // Overview: overdue tasks first, then today and the next 7 days, then open
 // tasks without a date.
@@ -13,9 +14,9 @@ Item {
     function page(step) {}
     function goToday() {}
 
-    readonly property var today: { planModel.today; return Fmt.startOfDay(new Date()) }
+    readonly property var today: Fmt.today
 
-    OverviewModel {
+    Plan.OverviewModel { // qmllint disable import
         id: overview
         sourceModel: planModel
     }
@@ -32,17 +33,17 @@ Item {
             Layout.alignment: Qt.AlignHCenter
             Text {
                 font.family: theme.fontFamily
-                text: { Fmt.lang; return Fmt.capitalize(Fmt.dayLong(view.today)) }
+                text: Fmt.capitalize(Fmt.dayLong(view.today))
                 color: theme.foreground
-                font.pixelSize: 22
+                font.pixelSize: Math.round(22 * theme.textScale)
                 font.bold: true
             }
             Item { Layout.fillWidth: true }
             Text {
                 font.family: theme.fontFamily
-                text: { Fmt.lang; return qsTr("Week %1").arg(Fmt.isoWeek(view.today)) }
+                text: qsTr("Week %1").arg(Fmt.isoWeek(view.today))
                 color: theme.muted
-                font.pixelSize: 13
+                font.pixelSize: Math.round(13 * theme.textScale)
             }
         }
 
@@ -77,11 +78,10 @@ Item {
                     anchors.left: parent.left
                     anchors.leftMargin: 4
                     textFormat: Text.StyledText
-                    font.pixelSize: 13
+                    font.pixelSize: Math.round(13 * theme.textScale)
                     font.bold: true
                     color: header.overdue ? theme.danger : theme.accentText
                     text: {
-                        Fmt.lang
                         if (header.overdue)
                             return qsTr("Overdue")
                         if (header.section === "none")

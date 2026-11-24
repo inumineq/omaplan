@@ -2,12 +2,17 @@
 // plan as overview, calendar, list or timeline.
 
 #include <QCoreApplication>
+#include <QFile>
 #include <QGuiApplication>
 #include <QIcon>
+#include <QKeySequence>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickStyle>
+#include <QQuickWindow>
+#include <QTemporaryDir>
 #include <QTextStream>
+#include <QTimer>
 #include <QUrl>
 
 #include "actions.h"
@@ -64,21 +69,18 @@ int main(int argc, char *argv[]) {
     app.setApplicationVersion(QStringLiteral(OMAPLAN_VERSION));
 
     // Matches the window to omaplan.desktop, so the compositor (Wayland
-    // app_id) and the launcher pick up the installed icon.
+    // app_id) and the launcher pick up the installed icon. The compiled-in
+    // copy covers a run from build/, and needs qt6-svg's icon engine.
     app.setDesktopFileName("omaplan");
-    app.setWindowIcon(QIcon::fromTheme("omaplan"));
+    app.setWindowIcon(QIcon::fromTheme("omaplan", QIcon(":/omaplan.svg")));
 
     QQuickStyle::setStyle("Material");
 
     // Installed before anything is translated, and every qsTr() binding is
     // re-evaluated when the language changes (the Omarchy language, live).
+    // It also sets the layout direction: right-to-left languages mirror the
+    // window.
     UiLanguage uiLanguage(&app, language, true);
-    // Right-to-left languages mirror the window.
-    const auto applyDirection = [&uiLanguage] {
-        QGuiApplication::setLayoutDirection(UiLanguage::formatLocale(uiLanguage.language()).textDirection());
-    };
-    applyDirection();
-    QObject::connect(&uiLanguage, &UiLanguage::changed, &app, applyDirection);
 
     registerQmlTypes();
 
@@ -89,6 +91,18 @@ int main(int argc, char *argv[]) {
     // Omarchy's font, live: omarchy-font-set takes effect without a restart.
     theme.followSystemFont();
 
+    // `omarchy agent look app` presses the window's real keys, and some of
+    // them delete or move tasks. A look therefore works on a copy of the plan
+    // that goes away with it, and writes no plan.json.
+    const bool look = !qEnvironmentVariableIsEmpty("OMARCHY_LOOK_SCREENSHOT");
+    QTemporaryDir lookCopy;
+    if (look) {
+        const QString original = dbPath.isEmpty() ? Store::defaultPath() : dbPath;
+        dbPath = lookCopy.filePath(QStringLiteral("plan.db"));
+        QFile::copy(original, dbPath);
+        // In WAL mode the newest changes may still be in the log beside it.
+        QFile::copy(original + QStringLiteral("-wal"), dbPath + QStringLiteral("-wal"));
+    }
     Store store(dbPath);
     QString storeError;
     const bool storeOpen = store.open(&storeError);
@@ -98,7 +112,7 @@ int main(int argc, char *argv[]) {
     Actions actions(&store);
     // plan.json for the read-only edition: written now, so it exists from the
     // first start, and again after every change made in the window.
-    Snapshotter snapshotter(&store, Snapshot::path(store.path()));
+    Snapshotter snapshotter(&store, look ? QString() : Snapshot::path(store.path()));
     snapshotter.setLanguage(uiLanguage.language());
     QObject::connect(&uiLanguage, &UiLanguage::changed, &snapshotter, [&] {
         snapshotter.setLanguage(uiLanguage.language());
@@ -128,6 +142,44 @@ int main(int argc, char *argv[]) {
     engine.load(QUrl("qrc:/Main.qml"));
     if (engine.rootObjects().isEmpty())
         return 1;
+
+    // `omarchy agent look app` runs the app offscreen with these set, to see
+    // the window without a display: size it to OMARCHY_LOOK_SIZE when given,
+    // press the keys in OMARCHY_LOOK_KEYS through the window's Shortcuts,
+    // save it once it has settled, and quit.
+    if (const QString shot = qEnvironmentVariable("OMARCHY_LOOK_SCREENSHOT"); !shot.isEmpty()) {
+        const QStringList size = qEnvironmentVariable("OMARCHY_LOOK_SIZE").split('x');
+        if (auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst()); window && size.size() == 2)
+            window->resize(size[0].toInt(), size[1].toInt());
+        const QStringList keys = qEnvironmentVariable("OMARCHY_LOOK_KEYS").split(' ', Qt::SkipEmptyParts);
+        for (int i = 0; i < keys.size(); ++i) {
+            QTimer::singleShot(800 + i * 300, &app, [&engine, key = QKeySequence(keys[i])] {
+                for (QObject *shortcut : engine.rootObjects().constFirst()->findChildren<QObject *>()) {
+                    if (qstrcmp(shortcut->metaObject()->className(), "QQuickShortcut") != 0
+                        || !shortcut->property("enabled").toBool())
+                        continue;
+                    // A Shortcut names its key in `sequence` or among `sequences`.
+                    QVariantList sequences = shortcut->property("sequences").toList();
+                    sequences.prepend(shortcut->property("sequence"));
+                    const bool answers = std::any_of(sequences.cbegin(), sequences.cend(), [&key](const QVariant &s) {
+                        const QKeySequence sequence = s.canConvert<QKeySequence>() && s.typeId() != QMetaType::QString
+                                ? s.value<QKeySequence>() : QKeySequence(s.toString());
+                        return !sequence.isEmpty() && sequence == key;
+                    });
+                    if (answers) {
+                        QMetaObject::invokeMethod(shortcut, "activated");
+                        break;
+                    }
+                }
+            });
+        }
+        const int delay = qEnvironmentVariableIsSet("OMARCHY_LOOK_DELAY_MS") ? qEnvironmentVariableIntValue("OMARCHY_LOOK_DELAY_MS") : 1500;
+        QTimer::singleShot(800 + keys.size() * 300 + delay, &app, [&engine, shot] {
+            if (auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst()))
+                window->grabWindow().save(shot);
+            QCoreApplication::quit();
+        });
+    }
 
     return app.exec();
 }

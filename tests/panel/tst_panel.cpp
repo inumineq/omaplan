@@ -23,6 +23,21 @@
 #include "theme.h"
 #include "uilanguage.h"
 
+namespace {
+// Every QML warning since the last check. Some runtime warnings (binding
+// loops, "Unable to assign", TypeErrors) only reach the message handler, so
+// it collects any warning that names a QML file besides QQmlEngine::warnings.
+QStringList qmlWarnings;
+QtMessageHandler previousHandler = nullptr;
+
+void collectQmlWarnings(QtMsgType type, const QMessageLogContext &context, const QString &message) {
+    static const QRegularExpression qmlLocation(QStringLiteral("qrc:/\\S+\\.qml"));
+    if ((type == QtWarningMsg || type == QtCriticalMsg) && qmlLocation.match(message).hasMatch())
+        qmlWarnings << message;
+    previousHandler(type, context, message);
+}
+} // namespace
+
 class PanelTests : public QObject {
     Q_OBJECT
 
@@ -116,11 +131,17 @@ class PanelTests : public QObject {
         QFile f(m_cfg);
         return f.open(QIODevice::ReadOnly) ? QString::fromUtf8(f.readAll()) : QString();
     }
+    // Any QML warning fails the test it was reported in.
+    static void verifyNoQmlWarnings() {
+        pump(50);
+        QStringList found = std::exchange(qmlWarnings, {});
+        found.removeDuplicates();
+        QVERIFY2(found.isEmpty(), qPrintable(QStringLiteral("QML warnings:\n") + found.join(QLatin1Char('\n'))));
+    }
 
 private slots:
     void initTestCase() {
-        // Any QML error in the window fails the test that caused it.
-        QTest::failOnWarning(QRegularExpression(QStringLiteral("qml|Unable to assign|TypeError|ReferenceError")));
+        previousHandler = qInstallMessageHandler(collectQmlWarnings);
         QVERIFY(m_dir.isValid());
         qputenv("OMAPLAN_DB", m_dir.filePath("plan.db").toLocal8Bit());
         qputenv("OMAPLAN_SNAPSHOT", m_dir.filePath("plan.json").toLocal8Bit());
@@ -146,7 +167,13 @@ private slots:
         cfg.close();
 
         QQuickStyle::setStyle(QStringLiteral("Material"));
-        m_language = std::make_unique<UiLanguage>(qApp, QStringLiteral("en"), false, m_dir.filePath("language"));
+        // English from the Omarchy language, not --lang, so `language` in
+        // config.toml can switch it live.
+        QFile omarchyLanguage(m_dir.filePath("language"));
+        QVERIFY(omarchyLanguage.open(QIODevice::WriteOnly));
+        omarchyLanguage.write("en\n");
+        omarchyLanguage.close();
+        m_language = std::make_unique<UiLanguage>(qApp, QString(), false, m_dir.filePath("language"));
         QDir().mkpath(m_dir.filePath("omarchy/theme"));
         m_theme = std::make_unique<Theme>(m_dir.filePath("omarchy"));
         m_settings = std::make_unique<Settings>(m_language.get());
@@ -169,6 +196,10 @@ private slots:
         m_model->reload();
 
         m_engine = std::make_unique<QQmlApplicationEngine>();
+        connect(m_engine.get(), &QQmlEngine::warnings, this, [](const QList<QQmlError> &errors) {
+            for (const QQmlError &error : errors)
+                qmlWarnings << error.toString();
+        });
         QQmlContext *context = m_engine->rootContext();
         context->setContextProperty(QStringLiteral("uiLanguage"), m_language.get());
         context->setContextProperty(QStringLiteral("theme"), m_theme.get());
@@ -185,7 +216,9 @@ private slots:
         pump(300);
         m_panel = item(QStringLiteral("settingsPanel"));
         QVERIFY(m_panel);
+        verifyNoQmlWarnings();
     }
+    void cleanup() { verifyNoQmlWarnings(); }
 
     // M1: saving a field in an engine card keeps the card, and the focus moves on.
     void savingAnEngineFieldKeepsTheFocus() {
@@ -205,6 +238,33 @@ private slots:
         key(Qt::Key_Return);
         QCOMPARE(AppConfig::load(m_cfg).claudeModel, QStringLiteral("opus"));
         QCOMPARE(focusName(), QStringLiteral("field:engine.claude.model"));
+    }
+
+    // A chosen default engine can be given back: the first choice follows
+    // Omarchy's default agent again by taking the line out of the file.
+    void defaultEngineCanFollowOmarchyAgain() {
+        const QByteArray before = fileText().toUtf8();
+        ConfigFile file(m_cfg);
+        file.set(QStringLiteral("engine"), QStringLiteral("default"), QStringLiteral("claude"));
+        QVERIFY(file.save());
+        m_settings->reload();
+        pump();
+        openPanel();
+        QQuickItem *choice = item(QStringLiteral("choice:engine.default"));
+        QVERIFY(choice);
+        QCOMPARE(choice->property("value").toString(), QStringLiteral("claude"));
+        choice->forceActiveFocus();
+        key(Qt::Key_Left);
+        QCOMPARE(AppConfig::load(m_cfg).engine, QStringLiteral("vibe"));
+        QVERIFY(fileText().contains(QStringLiteral("default =")));
+        key(Qt::Key_Left);
+        QCOMPARE(choice->property("value").toString(), QStringLiteral("auto"));
+        QVERIFY2(!fileText().contains(QStringLiteral("default =")), qPrintable(fileText()));
+        // And back to a choice of one's own.
+        key(Qt::Key_Right);
+        QCOMPARE(choice->property("value").toString(), QStringLiteral("vibe"));
+        QVERIFY(fileText().contains(QStringLiteral("default =")));
+        writeConfig(before);
     }
 
     // M1: the first click on Test after typing in a field runs the test.
@@ -270,7 +330,7 @@ private slots:
         openPanel();
         QFile::remove(m_dir.filePath("slow-finished"));
         click(item(QStringLiteral("test:command")));
-        QCOMPARE(item(QStringLiteral("test:command"))->property("text").toString(), QStringLiteral("Cancel"));
+        QCOMPARE(item(QStringLiteral("test:command"))->property("text").toString(), QStringLiteral("Stop"));
         click(item(QStringLiteral("test:command")));
         QCOMPARE(item(QStringLiteral("test:command"))->property("text").toString(), QStringLiteral("Test"));
         click(item(QStringLiteral("test:command")));
@@ -402,9 +462,93 @@ private slots:
         root->setProperty("currentView", 0);
     }
 
-    void cleanupTestCase() { m_engine.reset(); }
+    // Dates and translated words re-render when the language or the first day
+    // of the week changes while the window is open.
+    void datesFollowLiveChanges() {
+        QObject *root = m_engine->rootObjects().first();
+        root->setProperty("currentView", 0);
+        pump(200);
+        const QDate today = QDate::currentDate();
+        const QString english = QLocale(QLocale::English).toString(today, QStringLiteral("dddd d MMMM"));
+        QString danish = QLocale(QLocale::Danish).toString(today, QStringLiteral("dddd d. MMMM"));
+        danish[0] = danish[0].toUpper();
+        static const QRegularExpression todayEnglish(QStringLiteral("^Today "));
+        static const QRegularExpression todayDanish(QStringLiteral("^I dag "));
+        QVERIFY(hasText(m_window->contentItem(), english));
+        QVERIFY(hasText(m_window->contentItem(), todayEnglish));
+
+        writeConfig(QByteArrayLiteral("language = \"da\"\n"));
+        pump(200);
+        QCOMPARE(m_language->language(), QStringLiteral("da"));
+        QVERIFY2(hasText(m_window->contentItem(), danish), qPrintable(danish));
+        QVERIFY(hasText(m_window->contentItem(), todayDanish));
+        QVERIFY(!hasText(m_window->contentItem(), english));
+
+        // The week title starts on the configured day: "Week 48 · 22–28 …" from a Sunday.
+        root->setProperty("calendarMode", "week");
+        root->setProperty("currentView", 1);
+        writeConfig(QByteArrayLiteral("[dates]\nweek_start = \"sunday\"\n"));
+        pump(200);
+        const QDate sunday = today.addDays(-(today.dayOfWeek() % 7));
+        QVERIFY2(hasText(m_window->contentItem(), QRegularExpression(QStringLiteral("^Week \\d+ · %1\\D").arg(sunday.day()))),
+                 qPrintable(sunday.toString()));
+        writeConfig(QByteArrayLiteral(""));
+        pump(200);
+        const QDate monday = today.addDays(1 - today.dayOfWeek());
+        QVERIFY2(hasText(m_window->contentItem(), QRegularExpression(QStringLiteral("^Week \\d+ · %1\\D").arg(monday.day()))),
+                 qPrintable(monday.toString()));
+        root->setProperty("currentView", 0);
+        pump(200);
+        QVERIFY(hasText(m_window->contentItem(), english));
+    }
+
+    // A proposal's task cards follow tasks added and removed in place.
+    void proposalCardsFollowEdits() {
+        QQuickItem *view = findType(m_window->contentItem(), "ProposalView");
+        QVERIFY(view);
+        const QVariantMap proposal{{QStringLiteral("tasks"), QVariantList{QVariantMap{{QStringLiteral("title"), QStringLiteral("Draft the agenda")}}}},
+                                   {QStringLiteral("unresolved"), QVariantList{}}};
+        QMetaObject::invokeMethod(view, "openSingle", Q_ARG(QVariant, QStringLiteral("draft the agenda")),
+                                  Q_ARG(QVariant, proposal), Q_ARG(QVariant, QString()));
+        pump();
+        QCOMPARE(countType(view, "ProposalTask"), 1);
+        QMetaObject::invokeMethod(view, "addTask", Q_ARG(QVariant, 0));
+        pump();
+        QCOMPARE(countType(view, "ProposalTask"), 2);
+        QMetaObject::invokeMethod(view, "removeTask", Q_ARG(QVariant, 0), Q_ARG(QVariant, 0));
+        pump();
+        QCOMPARE(countType(view, "ProposalTask"), 1);
+        QVERIFY(!hasText(view, QStringLiteral("Draft the agenda")));
+        QMetaObject::invokeMethod(view, "close");
+        pump();
+    }
+
+    void cleanupTestCase() {
+        m_engine.reset();
+        verifyNoQmlWarnings();
+        qInstallMessageHandler(previousHandler);
+    }
 
 private:
+    // QML types have class names like "ProposalTask_QMLTYPE_12".
+    static bool isType(QQuickItem *item, const char *type) {
+        return QByteArray(item->metaObject()->className()).startsWith(QByteArray(type) + "_QML");
+    }
+    static QQuickItem *findType(QQuickItem *root, const char *type) {
+        for (QQuickItem *child : root->childItems()) {
+            if (isType(child, type))
+                return child;
+            if (QQuickItem *found = findType(child, type))
+                return found;
+        }
+        return nullptr;
+    }
+    static int countType(QQuickItem *root, const char *type) {
+        int count = 0;
+        for (QQuickItem *child : root->childItems())
+            count += (isType(child, type) ? 1 : 0) + countType(child, type);
+        return count;
+    }
     // A visible text item showing exactly this text.
     static bool hasText(QQuickItem *root, const QString &text) {
         return hasText(root, QRegularExpression(QLatin1Char('^') + QRegularExpression::escape(text) + QLatin1Char('$')));

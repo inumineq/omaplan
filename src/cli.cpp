@@ -148,20 +148,6 @@ static const QHash<QString, QStringList> &commandFlags() {
     return flags;
 }
 
-static bool parseDateFlag(const QString &text, QDateTime *when, bool *hasTime, QTextStream &err) {
-    if (text.isEmpty()) { // an empty value clears the field
-        *when = QDateTime();
-        *hasTime = false;
-        return true;
-    }
-    QString error;
-    if (!Actions::parseDateTime(text, QDateTime::currentDateTime().date(), when, hasTime, &error)) {
-        err << error << "\n";
-        return false;
-    }
-    return true;
-}
-
 static int emitResult(QTextStream &out, bool json, const ActionResult &result) {
     if (json)
         printJson(out, result.payload);

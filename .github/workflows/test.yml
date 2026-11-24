@@ -3,7 +3,7 @@ name: Test
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, master]
 
 permissions:
   contents: read
@@ -12,7 +12,7 @@ jobs:
   test:
     name: Build and test
     runs-on: ubuntu-latest
-    # The app ships as an Arch package built against Arch's Qt, so it is tested there.
+    # The app ships as an Arch package built against Arch's Qt, so it's tested there.
     container: archlinux:latest
     defaults:
       run:
@@ -24,18 +24,27 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install the package's dependencies
-        # pkgbuild/PKGBUILD is the one list of what the app needs (nodejs as a check dependency for web/test.mjs),
-        # so CI reads it rather than keeping a copy.
+        # The package lives in omarchy-pkgs, so its PKGBUILD is the one list of what the app needs and CI reads it rather than keeping a copy.
+        # Omaplan's one deviation from the shared workflow (docs/adr/0006): until the recipe is published there, a 404 falls back to the copy in ci/PKGBUILD. Any other failure still fails. Remove the fallback and ci/PKGBUILD once the recipe has landed.
         run: |
-          source pkgbuild/PKGBUILD
+          status=$(curl -sSL -w '%{http_code}' "https://raw.githubusercontent.com/omacom/omarchy-pkgs/master/pkgbuilds/${{ github.event.repository.name }}/PKGBUILD" -o "$RUNNER_TEMP/PKGBUILD")
+          if [[ $status == 404 ]]; then
+            echo "No recipe in omarchy-pkgs yet: using ci/PKGBUILD"
+            cp ci/PKGBUILD "$RUNNER_TEMP/PKGBUILD"
+          elif [[ $status != 200 ]]; then
+            echo "Fetching the recipe failed with HTTP $status" >&2
+            exit 1
+          fi
+          source "$RUNNER_TEMP/PKGBUILD"
           deps=("${depends[@]}" "${makedepends[@]}" "${checkdepends[@]}")
-          pacman -S --noconfirm --needed base-devel "${deps[@]%%[<>=]*}"
+          pacman -S --noconfirm --needed base-devel cmake dbus "${deps[@]%%[<>=]*}"
 
       - name: Set up a user and a locale like a desktop's
-        # Root ignores file permissions, so the tests of private files need an ordinary user; the container
-        # generates no locale.
+        # Root can read any file, so tests about unreadable ones need an ordinary user, with a second group for tests that change a file's group; and the container generates no locale.
         run: |
           useradd -m tester
+          groupadd other
+          usermod -aG other tester
           chown -R tester .
           sed -i 's/^#en_US.UTF-8/en_US.UTF-8/' /etc/locale.gen
           locale-gen
@@ -44,7 +53,4 @@ jobs:
         run: su tester -c bin/build
 
       - name: Test
-        # bin/test also runs web/test.mjs when node is installed; fail here if it is not.
-        run: |
-          command -v node
-          su tester -c 'LANG=en_US.UTF-8 bin/test'
+        run: su tester -c 'LANG=en_US.UTF-8 dbus-run-session -- bin/test'

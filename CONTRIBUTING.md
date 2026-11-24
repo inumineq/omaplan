@@ -11,11 +11,11 @@ window, the command line, the MCP server and the read-only web page all share on
 
 It follows the Omarchy spirit:
 
-- **Small, fast, light.** One small C++17 / Qt Quick binary, built with qmake6. It uses only the Qt modules Omarchy
-  already ships. A new dependency needs an ADR in `docs/adr/` first.
-- **Free choice of AI engine.** Vibe, Claude, any local model via Ollama or an OpenAI-compatible endpoint, or any
-  command that reads a prompt and writes JSON. No API keys live in the app, and nothing calls a model you did not
-  configure.
+- **Small, fast, light.** One small C++17 / Qt Quick binary, built with CMake like Omarchy's own apps. It uses only the
+  Qt modules Omarchy already ships. A new dependency needs an ADR in `docs/adr/` first.
+- **Free choice of AI engine.** Vibe, Claude, a local model (the one Omarchy runs, Ollama, or any OpenAI-compatible
+  endpoint), or any command that reads a prompt and writes JSON. No API keys live in the app, and nothing calls a
+  model you did not configure. Until you choose, the engine follows `omarchy default agent`.
 - **No bundled model.** Omaplan never downloads or ships a model. Model names in the docs are examples only.
 - **Keyboard first, agent first.** Everything the window can do, the CLI (with `--json`) and `omaplan mcp` can do
   too. All three go through `src/actions.cpp`, so they cannot drift apart.
@@ -25,11 +25,11 @@ Read `SPEC.md`, `docs/architecture.md` and the ADRs in `docs/adr/` before larger
 
 ## Build and run from source
 
-You need `qt6-base`, `qt6-declarative`, `qt6-wayland`, `qt6-tools` (for `lupdate`/`lrelease` at build time only)
-and a C++17 compiler (`gcc`, `make`).
+You need `cmake`, `qt6-base`, `qt6-declarative`, `qt6-svg`, `qt6-wayland`, `fontconfig` and a C++17 compiler
+(`gcc`, `make`).
 
 ```sh
-bin/build                    # qmake6 + make into build/
+bin/build                    # cmake into build/
 ./build/omaplan              # the window
 ./build/omaplan list --json  # the CLI
 ```
@@ -46,22 +46,27 @@ export OMAPLAN_DB=/tmp/omaplan-dev.db
 bin/test
 ```
 
-`bin/test` builds the app, checks that every UI string is translated (`bin/i18n-check`), runs the Qt Test suites
-offscreen and, when Node is installed, the read-only page's JavaScript tests (`node web/test.mjs`). Node is not a
-build dependency, but please run those tests before a pull request that touches `web/`, `src/render.*` or the
-export format. CI (`.github/workflows/test.yml`) runs `bin/test`, Node included, in an Arch container on every
-pull request.
+`bin/test` builds the app and runs every test offscreen with `ctest`: the Qt Test suites (one of them checks that
+every UI string is in the catalogs and translated to Danish, another opens the real window and fails on any QML
+warning), `qmllint` over `src/*.qml`, and the read-only page's JavaScript tests (`node web/test.mjs`, so Node is
+needed for the tests but not for the build). `bin/test -V` shows each test's output. `bin/build`, `bin/test` and
+the CI workflow (`.github/workflows/test.yml`) are the files every Omarchy app shares. The workflow runs `bin/test`
+in an Arch container and reads the dependencies from Omaplan's recipe in
+[omarchy-pkgs](https://github.com/omacom/omarchy-pkgs). Until that recipe is published, it falls back to the copy
+in `ci/PKGBUILD`, which is the workflow's one difference from the shared file and goes away with the copy.
 
 No test calls a real AI. Engines are replaced by fakes or by the `command` engine with a fixture. To try a real
 engine by hand, run `bin/smoke-ai [engine]` with a temporary `OMAPLAN_DB`. It is never part of `bin/test`.
 
-## Build and install the package locally
+## Install a local build
 
 ```sh
-bin/install                  # bin/build, then makepkg -fsi in pkgbuild/
+cmake --install build --prefix ~/.local
 ```
 
-This installs `/usr/bin/omaplan` plus the launcher entry and icon, so Omaplan shows up in the app launcher.
+This installs `~/.local/bin/omaplan` plus the launcher entry and icon (`share/`), so Omaplan shows up in the app
+launcher. The package recipe belongs in omarchy-pkgs, like every Omarchy app's; `ci/PKGBUILD` is only CI's
+temporary copy of it.
 
 ## Code style
 
@@ -70,15 +75,16 @@ Follow the code around you. In short:
 - **English everywhere:** code, identifiers, comments, docs, commit messages, CLI help, MCP descriptions and the
   bundled skill (`src/skill/SKILL.md`). User input may be in any language.
 - **Every UI string goes through `qsTr()` (QML) or `tr()` (C++)**, including the CLI's human-readable output and
-  error messages. The English text is the source string. After adding or changing one, run `bin/i18n-update` and
-  translate the new entries, or `bin/test` fails. Do not translate `--json` output, JSON field names or MCP tool
+  error messages. The English text is the source string. After adding or changing one, add it to
+  `src/i18n/en.json` and translate it in `src/i18n/da.json`, or `bin/test` fails. Do not translate `--json` output, JSON field names or MCP tool
   names and descriptions; they are a stable, English contract.
 - **Flat `src/`.** One module per concern (`store`, `actions`, `cli`, `mcp`, `engine_*`, ...); see the table in
   `docs/architecture.md`. Only the store writes data. CLI, MCP and QML call `actions`, never the store directly.
 - **C++:** C++17, `#pragma once`, four-space indent, `m_` prefix for members, `QStringLiteral` for literals.
   Engines and network calls are asynchronous; the GUI never blocks.
 - **QML:** one component per `PascalCase.qml` file in `src/`. Colours come from the Omarchy theme, never hard-coded,
-  and every `Text` binds `font.family: theme.fontFamily` (a test checks both). Words in the accent colour use
+  every `Text` binds `font.family: theme.fontFamily`, and every `font.pixelSize` is multiplied by
+  `theme.textScale`, so the window follows Omarchy's text size (a test checks all three). `qmllint` must stay clean. Words in the accent colour use
   `theme.accentText`; `muted`, `danger` and `success` are already lifted to 4.5:1, so light themes read too.
 - **Comments say why**, not what.
 - **Data contracts** (`docs/ai-schema.json`, `docs/export.md`, `docs/export-schema.json`) change in one commit
@@ -94,9 +100,9 @@ Follow the code around you. In short:
    Timeout, cancel and error handling come from the base class. `src/engine_claude.cpp` is a short example.
 2. Add a `create<Name>Engine()` factory to `src/engine.h` and register the id in `createEngine()` in
    `src/engine.cpp`. Add the id to the lists of valid engines there and in the `add` usage text in `src/cli.cpp`,
-   then run `bin/i18n-update` and translate the changed strings.
+   then update the changed strings in `src/i18n/en.json` and `src/i18n/da.json`.
 3. If the tool wraps its answer in an envelope, teach `parseProposal()` in `src/proposal.cpp` to unwrap it.
-4. Add the source file to `omaplan.pro`, `tests/omaplan_tests.pro` and `tests/unit/unit.pro`.
+4. The build picks up every `src/*.cpp` by itself; run `bin/build` once so CMake sees the new file.
 5. Add `tests/ai-fixtures/envelopes/<name>-valid.json` and `<name>-invalid.json` and list them in
    `tests/unit/tst_ai.cpp` (`envelopeFixturesParse`, `invalidEnvelopeFixturesAreRejectedWithRaw`). Test the engine
    with a fake, never a real model.
@@ -118,9 +124,9 @@ No API keys in the app, the config example or the repository. If the engine need
 
 ### Add a UI language
 
-For the window and the CLI, a new language is a data-only pull request: `bin/i18n-update <lang>` creates
-`i18n/omaplan_<lang>.ts`, you translate it in Qt Linguist or by editing the XML, and `bin/test` checks it. The build
-picks up every `i18n/omaplan_*.ts` by itself. The read-only web page has its own dictionaries in `web/i18n/`, which
+For the window and the CLI, a new language is a data-only pull request: copy `src/i18n/en.json` to
+`src/i18n/<code>.json`, translate the values, list the file in `src/resources.qrc`, and `bin/test` checks it. The
+read-only web page has its own dictionaries in `web/i18n/`, which
 need a few small code changes as well. [`docs/translating.md`](docs/translating.md) walks through both.
 
 ### Add a Danish or English date rule

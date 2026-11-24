@@ -17,9 +17,11 @@
 #include <cmath>
 #include <fontconfig/fontconfig.h>
 
-Theme::Theme(const QString &directory, QObject *parent, const QString &hyprctl)
+Theme::Theme(const QString &directory, QObject *parent, const QString &hyprctl, const QString &hyprlandEvents)
     : QObject(parent),
-      m_directory(directory.isEmpty() ? QDir::homePath() + "/.local/state/omarchy/current" : directory) {
+      m_directory(directory.isEmpty() ? QDir::homePath() + "/.local/state/omarchy/current" : directory),
+      m_shellConfig(directory.isEmpty() ? QDir::homePath() + "/.config/omarchy/shell.toml"
+                                        : directory + "/shell.toml") {
     m_debounce.setSingleShot(true);
     m_debounce.setInterval(80);
     connect(&m_watcher, &QFileSystemWatcher::directoryChanged, this, [this] { m_debounce.start(); });
@@ -30,9 +32,8 @@ Theme::Theme(const QString &directory, QObject *parent, const QString &hyprctl)
     // Corners follow Hyprland's effective rounding, which themes and personal
     // overrides can both set, so ask hyprctl rather than reading its config.
     // Without Hyprland the corners stay sharp, like Omarchy's default.
-    m_hyprctl = !hyprctl.isEmpty() ? hyprctl
-              : directory.isEmpty() && !qEnvironmentVariableIsEmpty("HYPRLAND_INSTANCE_SIGNATURE")
-                  ? QStandardPaths::findExecutable("hyprctl") : QString();
+    const bool hyprland = directory.isEmpty() && !qEnvironmentVariableIsEmpty("HYPRLAND_INSTANCE_SIGNATURE");
+    m_hyprctl = !hyprctl.isEmpty() ? hyprctl : hyprland ? QStandardPaths::findExecutable("hyprctl") : QString();
     m_roundingTimeout.setSingleShot(true);
     m_roundingTimeout.setInterval(500);
     connect(&m_roundingTimeout, &QTimer::timeout, &m_roundingProcess, &QProcess::kill);
@@ -40,21 +41,54 @@ Theme::Theme(const QString &directory, QObject *parent, const QString &hyprctl)
     connect(&m_roundingProcess, &QProcess::finished, this, [this](int code, QProcess::ExitStatus status) {
         m_roundingTimeout.stop();
         const auto value = QJsonDocument::fromJson(m_roundingProcess.readAllStandardOutput()).object().value("int");
-        if (code != 0 || status != QProcess::NormalExit || !value.isDouble() || value.toInt(-1) < 0)
-            return;
-        if (value.toInt() != m_radius) {
+        if (code == 0 && status == QProcess::NormalExit && value.isDouble() && value.toInt(-1) >= 0
+            && value.toInt() != m_radius) {
             m_radius = value.toInt();
             emit changed();
         }
+        if (m_roundingAgain) {
+            m_roundingAgain = false;
+            refreshRounding();
+        }
     });
-    m_roundingPoll.setInterval(1000);
-    connect(&m_roundingPoll, &QTimer::timeout, this, &Theme::refreshRounding);
-    if (!m_hyprctl.isEmpty())
-        m_roundingPoll.start();
+
+    // Hyprland announces a reload on its event socket once the new values are
+    // in effect (a theme switch, the user's own config), so ask again then
+    // rather than polling.
+    const QString events = !hyprlandEvents.isEmpty() ? hyprlandEvents
+                         : hyprland ? qEnvironmentVariable("XDG_RUNTIME_DIR") + "/hypr/"
+                                          + qEnvironmentVariable("HYPRLAND_INSTANCE_SIGNATURE") + "/.socket2.sock"
+                                    : QString();
+    connect(&m_events, &QLocalSocket::readyRead, this, [this] {
+        while (m_events.canReadLine())
+            if (m_events.readLine().startsWith("configreloaded>>"))
+                refreshRounding();
+    });
+    // Asked again on every connection, since a reload may have come between.
+    connect(&m_events, &QLocalSocket::connected, this, [this] {
+        m_reconnect.setInterval(1000);
+        refreshRounding();
+    });
+    // A socket that can't be reached or drops is tried again, less often each time.
+    m_reconnect.setSingleShot(true);
+    m_reconnect.setInterval(1000);
+    connect(&m_events, &QLocalSocket::disconnected, &m_reconnect, qOverload<>(&QTimer::start));
+    connect(&m_events, &QLocalSocket::errorOccurred, &m_reconnect, qOverload<>(&QTimer::start));
+    connect(&m_reconnect, &QTimer::timeout, this, [this, events] {
+        m_reconnect.setInterval(std::min(m_reconnect.interval() * 2, 60000));
+        m_events.abort();
+        m_events.connectToServer(events, QIODevice::ReadOnly);
+    });
+    if (!events.isEmpty())
+        m_events.connectToServer(events, QIODevice::ReadOnly);
+    refreshRounding();
     reload();
 }
 
 Theme::~Theme() {
+    // Nothing reconnects or asks again while the members go.
+    m_events.disconnect();
+    m_roundingProcess.disconnect();
     if (m_roundingProcess.state() != QProcess::NotRunning) {
         m_roundingProcess.kill();
         m_roundingProcess.waitForFinished(1000);
@@ -62,36 +96,80 @@ Theme::~Theme() {
 }
 
 void Theme::refreshRounding() {
-    if (m_hyprctl.isEmpty() || m_roundingProcess.state() != QProcess::NotRunning)
+    if (m_hyprctl.isEmpty())
         return;
+    // A query still running may have read the value from before the reload.
+    if (m_roundingProcess.state() != QProcess::NotRunning) {
+        m_roundingAgain = true;
+        return;
+    }
     m_roundingProcess.start(m_hyprctl, {"-j", "getoption", "decoration:rounding"});
     m_roundingTimeout.start();
 }
 
-QString Theme::readAccent(const QString &path) {
+int Theme::readBaseSize(const QString &path) {
     QFile file(path);
-    if (file.open(QIODevice::ReadOnly)) {
-        const QRegularExpression expression(R"re(^\s*accent\s*=\s*["'](#[0-9a-fA-F]{6})["'])re",
-                                            QRegularExpression::MultilineOption);
-        const auto match = expression.match(QString::fromUtf8(file.readAll()));
-        if (match.hasMatch())
-            return match.captured(1);
+    if (!file.open(QIODevice::ReadOnly))
+        return 0;
+    bool inFont = false;
+    static const QRegularExpression section(QStringLiteral("^\\s*\\[([^\\]]*)\\]"));
+    static const QRegularExpression baseSize(QStringLiteral("^\\s*base-size\\s*=\\s*([0-9]+)"));
+    for (const QString &line : QString::fromUtf8(file.readAll()).split('\n')) {
+        if (const auto match = section.match(line); match.hasMatch())
+            inFont = match.captured(1).trimmed() == QLatin1String("font");
+        else if (const auto match = baseSize.match(line); inFont && match.hasMatch())
+            return match.captured(1).toInt();
     }
-    return "#FFD60A";
+    return 0;
 }
 
+QString Theme::readAccent(const QString &path) {
+    return readColors(path).value(QStringLiteral("accent"), QStringLiteral("#FFD60A"));
+}
+
+// Every key = "#rrggbb" in a colors.toml, quoted or bare, with or without a
+// trailing comment, and whether the theme is light: its mode, a light.mode
+// file beside it, or failing both a light background, as Omarchy decides it.
 QHash<QString, QString> Theme::readColors(const QString &path) {
     QHash<QString, QString> colors;
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly))
         return colors;
-    static const QRegularExpression line(R"re(^\s*([a-z_0-9]+)\s*=\s*["']([^"']+)["'])re",
-                                         QRegularExpression::MultilineOption);
-    auto it = line.globalMatch(QString::fromUtf8(file.readAll()));
-    while (it.hasNext()) {
-        const auto match = it.next();
-        colors.insert(match.captured(1), match.captured(2).trimmed());
+    static const QRegularExpression entry(
+        QStringLiteral("^\\s*([a-z0-9_]+)\\s*=\\s*([\"']?)(#[0-9a-fA-F]{6}|light|dark)\\2\\s*(#.*)?$"));
+    QHash<QString, QString> modes;
+    while (!file.atEnd()) {
+        const auto match = entry.match(QString::fromUtf8(file.readLine()).trimmed());
+        if (!match.hasMatch())
+            continue;
+        const QString key = match.captured(1), value = match.captured(3);
+        (value.startsWith('#') ? colors : modes).insert(key, value);
     }
+    if (colors.isEmpty())
+        return colors;
+    // Older and hand-made themes name some colours differently. Each key
+    // takes the first of its other names the theme has, in the order
+    // omarchy-theme-color (Omarchy's full resolver) tries them.
+    static const QList<QStringList> aliases{
+        {"background", "bg", "color0"}, {"foreground", "fg", "color7"}, {"red", "color1"},
+        {"green", "color2"}, {"yellow", "color3"}, {"blue", "color4"}, {"magenta", "color5", "purple"},
+        {"cyan", "color6"},
+    };
+    for (const QStringList &names : aliases)
+        for (const QString &name : names.mid(1))
+            if (!colors.contains(names.first()) && colors.contains(name))
+                colors.insert(names.first(), colors.value(name));
+
+    QString mode = modes.value(QStringLiteral("mode"), modes.value(QStringLiteral("theme_type")));
+    if (mode.isEmpty() && QFileInfo::exists(QFileInfo(path).absolutePath() + "/light.mode"))
+        mode = QStringLiteral("light");
+    if (mode.isEmpty() && colors.contains(QStringLiteral("background"))) {
+        const QColor background(colors.value(QStringLiteral("background")));
+        mode = background.red() + background.green() + background.blue() > 382 ? QStringLiteral("light")
+                                                                               : QStringLiteral("dark");
+    }
+    if (!mode.isEmpty())
+        colors.insert(QStringLiteral("mode"), mode);
     return colors;
 }
 
@@ -243,7 +321,6 @@ void Theme::readSystemFont() {
 }
 
 void Theme::reload() {
-    refreshRounding();
     const auto paths = m_watcher.files() + m_watcher.directories();
     if (!paths.isEmpty())
         m_watcher.removePaths(paths);
@@ -255,17 +332,26 @@ void Theme::reload() {
     while (!QFileInfo::exists(ancestor) && ancestor != "/")
         ancestor = QFileInfo(ancestor).absolutePath();
     QStringList candidates{ancestor, QFileInfo(ancestor).absolutePath(), m_directory,
-                           m_directory + "/theme", m_directory + "/theme/colors.toml"};
+                           m_directory + "/theme", m_directory + "/theme/colors.toml",
+                           QFileInfo(m_shellConfig).absolutePath(), m_shellConfig};
     candidates.removeDuplicates();
     for (const auto &path : candidates)
         if (QFileInfo::exists(path))
             m_watcher.addPath(path);
 
-    const auto accent = readAccent(m_directory + "/theme/colors.toml");
+    // The user's override wins, then the theme's, then the shell's default,
+    // the same order the Omarchy shell resolves it in.
+    int textSize = readBaseSize(m_shellConfig);
+    if (textSize <= 0)
+        textSize = readBaseSize(m_directory + "/theme/shell.toml");
+    textSize = textSize <= 0 ? 12 : std::clamp(textSize, 8, 48);
+
     const auto colors = readColors(m_directory + "/theme/colors.toml");
-    if (accent != m_accent || colors != m_colors) {
+    const QString accent = colors.value(QStringLiteral("accent"), QStringLiteral("#FFD60A"));
+    if (accent != m_accent || colors != m_colors || textSize != m_textSize) {
         m_accent = accent;
         m_colors = colors;
+        m_textSize = textSize;
         deriveTextColors();
         emit changed();
     }

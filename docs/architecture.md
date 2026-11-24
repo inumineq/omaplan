@@ -1,8 +1,10 @@
 # Omaplan – architecture
 
-Built after the omarchy-app skill (C++ and Qt Quick, qmake6, one binary, Arch package). The skill lives on the build
-machine in `~/.claude/skills/omarchy-app/` (`SKILL.md` and `templates.md`) and is the binding source for project
-shape, theme, language and conventions. This document only describes what is particular to Omaplan.
+Built after Omarchy's `omarchy-make-app` skill (C++ and Qt Quick, CMake, one binary, packaged from omarchy-pkgs).
+The skill ships with Omarchy (`default/agents/skills/omarchy-make-app/`: `SKILL.md`, `templates.md`, `patterns.md`)
+and is the binding source for project shape, theme, language and conventions. The files it marks as shared are kept
+byte for byte: `bin/build`, `bin/test` and `src/translator.{h,cpp}`. `.github/workflows/test.yml` differs in one
+step while the recipe is not yet in omarchy-pkgs (see ADR 0006). This document only describes what is particular to Omaplan.
 
 ## Modules (flat `src/`)
 
@@ -22,7 +24,8 @@ shape, theme, language and conventions. This document only describes what is par
 | `engine.{h,cpp}` | abstract `AiEngine` (asynchronous `propose(text, context)` → proposal or error), timeout and cancel |
 | `engine_vibe.cpp` | Mistral via `vibe --prompt-file <private temp file> --output json --max-turns 1 --system-prompt-file …`, tools disabled (the Pro quota; no key in the app) |
 | `engine_claude.cpp` | Claude via `claude -p --output-format json` with the prompt on stdin and no tools, MCP servers, settings files or slash commands |
-| `engine_local.cpp` | a local model over HTTP: Ollama's `/api/chat` or an OpenAI-compatible `/v1/chat/completions` |
+| `engine_local.cpp` | a local model over HTTP: Ollama's `/api/chat` or an OpenAI-compatible `/v1/chat/completions`; with `api = "omarchy"` the model Omarchy runs, asked with Omarchy's key |
+| `omarchy.{h,cpp}` | what is read from Omarchy about AI: the default agent (`~/.config/omarchy/defaults/agent`), the local models' status file and their key file; read at each use, never stored |
 | `engine_command.cpp` | any command: prompt on stdin, JSON on stdout |
 | `proposal.{h,cpp}` | parses and validates the engine's JSON against `docs/ai-schema.json`; marks guessed fields; also accepts the old Danish keys from a model and always emits English |
 | `prompt.{h,cpp}` | builds the prompt (in English): today, time zone, interface language, existing tasks in the period, the schema; tells the model to keep titles and notes in the user's language |
@@ -31,8 +34,9 @@ shape, theme, language and conventions. This document only describes what is par
 | `snapshot.{h,cpp}` | writes `plan.json` atomically (QSaveFile) once after every change (`Store::committed`), from GUI, CLI and MCP |
 | `render.{h,cpp}` | the read-only edition's HTML from `plan.json`; port of `renderPage` in `web/app.js`, byte-identical with `web/index.html` and `web/index.da.html` (test) |
 | `server.{h,cpp}` | `serve`: small HTTP server over `QTcpServer`, GET/HEAD only, server-rendered HTML in the language of `Accept-Language`, plus `/plan.json`, `/style.css`, `/app.js`, `/i18n/<lang>.json` (Qt resources from `web/`) |
-| `theme.{h,cpp}` | Omarchy's theme, followed live; from the skill's templates. Also Omarchy's font: fontconfig's `monospace` resolved afresh (`FcInitLoadConfigAndFonts`), re-read when `~/.config/fontconfig/fonts.conf` changes (`omarchy-font-set`), as Folio does |
-| `uilanguage.{h,cpp}` | the interface language and its Qt translators (see Language below) |
+| `theme.{h,cpp}` | Omarchy's theme, followed live; from the skill's templates. Also the text size (`[font] base-size` in Omarchy's `shell.toml`, as `textScale`) and Hyprland's corner rounding, re-read on its `configreloaded` event. Also Omarchy's font: fontconfig's `monospace` resolved afresh (`FcInitLoadConfigAndFonts`), re-read when `~/.config/fontconfig/fonts.conf` changes (`omarchy-font-set`), as Folio does |
+| `uilanguage.{h,cpp}` | which interface language applies, its locale and layout direction (see Language below) |
+| `translator.{h,cpp}` | Omarchy's shared `Translator`: reads the JSON catalogs, per-string fallback, plural forms; kept byte for byte |
 | `Main.qml` + components | window, keys, the four views, input, proposal, compare; `SettingsOverlay.qml` is the settings panel |
 
 The engines run as `QProcess`/network asynchronously; the GUI never freezes. Timeout (default 90 s) and cancel (Esc)
@@ -62,26 +66,29 @@ expressions like "on Tuesday".
 ## Language
 
 `UiLanguage` picks the interface language: `--lang` > `language` in `config.toml` > Omarchy's language file
-(`~/.config/omarchy/language`) > the system locale > English. A source naming a language without a translation
-passes to the next. The window switches live when the Omarchy language file changes.
+(`~/.config/omarchy/language`) > the system locale (only with a catalog) > English. A flag, config or Omarchy
+choice counts even without a catalog: strings stay English, the locale and direction follow the language. The window switches live when the Omarchy language file changes.
 
 Translated: the GUI, the CLI's human-readable output, error messages and date formats (`QLocale`). Not translated
 (always English): `--json` output, JSON field names, MCP tool names and descriptions, code and documentation.
 
-UI strings are English source strings in `qsTr()`/`tr()`. Translations are Qt Linguist files
-`i18n/omaplan_<lang>.ts`; `lrelease` runs in the build (`CONFIG += lrelease embed_translations`), so the `.qm` files
-are embedded in the binary. `omaplan_en.ts` only carries the English plural forms. The read-only web page has its
+UI strings are English source strings in `qsTr()`/`tr()`. Translations are Omarchy's JSON catalogs,
+`src/i18n/<code>.json`, keyed by the English text and embedded in the binary. The shared `Translator` reads them
+with a per-string fallback to English, and `UiLanguage` (`src/uilanguage.cpp`) decides which language applies and
+sets the locale and the layout direction. `en.json` lists every string and carries the English plural forms. The
+read-only web page has its
 own small dictionaries, `web/i18n/<lang>.json`. See `docs/translating.md`.
 
 ## Test
 
 `bin/test` (Qt Test, offscreen): store and migration, `proposal` validation with good and bad answers (fixtures
 from each engine), prompt building, date parsing and annotation, snapshot atomicity, CLI exit codes, the rendered
-page against `web/index.html`/`web/index.da.html`, and that each engine can be replaced by a fake. It also runs
-`bin/i18n-check`, which fails on a missing translation. No test calls a real AI. A separate `bin/smoke-ai` calls the
+page against `web/index.html`/`web/index.da.html`, and that each engine can be replaced by a fake. `ctest` also runs the desktop tests
+(theme, text size, Hyprland events, and the catalogs: every string listed, Danish complete), the window test, which
+fails on any QML warning, and `qmllint`. No test calls a real AI. A separate `bin/smoke-ai` calls the
 real engines by hand.
 
 ## Dependencies
 
-Omarchy's standard Qt modules. `serve` uses `QTcpServer` from Qt Network, so there is no extra dependency. `qt6-tools`
-(lupdate, lrelease) is a build dependency only. Nothing else without an ADR.
+Omarchy's standard Qt modules. `serve` uses `QTcpServer` from Qt Network, so there is no extra dependency. `qt6-svg`
+draws the icon. Building needs `cmake`; `qt6-tools` is no longer needed. Nothing else without an ADR.

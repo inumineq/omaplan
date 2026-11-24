@@ -1,18 +1,21 @@
 pragma Singleton
 import QtQuick
 
-// Dates, times and durations in the interface language. Every binding that
-// calls these reads `lang`, so it re-renders on a language switch.
-// Danish: "mandag 24. november". The first day of the week and the clock
-// follow the date convention (the language's, or [dates] in config.toml),
-// and a binding that formats a time also reads `clock24`, so it re-renders
-// when the setting changes.
+// Dates, times and durations in the interface language. Danish: "mandag 24.
+// november". The first day of the week and the clock follow the date
+// convention (the language's, or [dates] in config.toml). A property read in
+// these functions is a dependency of the binding that calls them, so such a
+// binding re-renders when the locale, `clock24` or `weekStart` changes, and
+// qsTr() re-renders it on a language switch.
 QtObject {
     readonly property string lang: uiLanguage.language
     readonly property bool danish: lang.indexOf("da") === 0
-    readonly property var locale: Qt.locale(danish ? "da_DK" : "en_GB")
+    readonly property var locale: Qt.locale(uiLanguage.localeName)
     readonly property bool clock24: settings.clock24
     readonly property int weekStart: settings.weekStart // 1 = Monday, 7 = Sunday
+    // Moves on when the window stays open past midnight. planModel.today is
+    // only read: as a JS Date it is midnight UTC, the day before west of UTC.
+    readonly property var today: { void planModel.today; return startOfDay(new Date()) }
 
     function startOfDay(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()) }
     function addDays(d, n) { var x = new Date(d); x.setDate(x.getDate() + n); return x }
@@ -39,6 +42,17 @@ QtObject {
         var m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/.exec(text || "")
         if (!m) return new Date(NaN)
         return new Date(+m[1], +m[2] - 1, +m[3], m[4] ? +m[4] : 0, m[5] ? +m[5] : 0)
+    }
+    // A typed date as the app reads it: {ok, error, date, hasTime}. The C++
+    // parser follows the language and the date convention, which a binding cannot
+    // see through the call, so they are read here to make them its dependencies.
+    function parseDate(text) {
+        void lang
+        void settings.dayFirst
+        void settings.dottedIsTime
+        void weekStart
+        void clock24
+        return actions.guiParseDate(text)
     }
     function isoWeek(d) {
         var x = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()))

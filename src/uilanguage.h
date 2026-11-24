@@ -5,31 +5,39 @@
 #include <QObject>
 #include <QString>
 #include <QStringList>
+#include <QFile>
+#include <QTemporaryDir>
 #include <QTimer>
-#include <QTranslator>
+#include <memory>
 
 class QCoreApplication;
+class Translator;
 
 // The language of the interface (window, CLI text output, error messages and
-// date formats) and the Qt translators that carry it. Translations are Qt
-// Linguist files, i18n/omaplan_<lang>.ts, compiled into the binary as
-// :/i18n/omaplan_<lang>.qm; a language is available when its .qm is there
-// (English always is: it is the source language).
+// date formats). The catalogs and the per-string fallback to English are the
+// Translator's, the one every Omarchy app carries (src/translator.h):
+// src/i18n/<code>.json, compiled into the binary as :/i18n/<code>.json. This
+// class decides which language the Translator gets.
 //
-// The language is the first of these that names an available language:
+// The language is the first of these that names one:
 //   1. --lang on the command line
 //   2. `language` in config.toml
 //   3. Omarchy's language (~/.config/omarchy/language)
-//   4. the system locale (QLocale::system().uiLanguages())
+//   4. the system locale (QLocale::system().uiLanguages()), when it names a
+//      language with a catalog
 //   5. English
-// A source naming a language without a translation is passed over, so
-// "language = fr" falls through to the next source instead of to English.
+// The first three are choices, so they count whether or not the language has
+// a catalog: its strings show in English until it gets one, while dates,
+// numbers and the layout direction already follow it, as in every Omarchy
+// app. The system locale is only a guess, so it needs a catalog to count.
 //
 // While the window is open, a change of the Omarchy language switches the
 // interface live (when nothing earlier in the list decides).
 class UiLanguage : public QObject {
     Q_OBJECT
     Q_PROPERTY(QString language READ language NOTIFY changed)
+    // The locale dates and numbers are formatted with, for Qt.locale().
+    Q_PROPERTY(QString localeName READ localeName NOTIFY changed)
 
 public:
     struct Sources {
@@ -46,6 +54,9 @@ public:
     ~UiLanguage() override;
 
     QString language() const { return m_language; }
+    QString localeName() const { return formatLocale(m_language).name(); }
+    // The file the Translator reads the resolved choice from.
+    QString choiceFile() const { return m_pick ? m_pick->fileName() : QString(); }
 
     // The language picked last by any UiLanguage in this process, or, when
     // none was made, the one the sources give without a flag. For code that
@@ -53,10 +64,9 @@ public:
     // plan.json snapshot).
     static QString current();
 
-    // Pure precedence, for tests: the first source naming one of `available`
-    // ("da_DK", "da-DK" and "DA" all name "da"), else "en".
+    // Pure precedence, for tests ("da_DK", "da-DK" and "DA" all name "da").
     static QString resolve(const Sources &sources, const QStringList &available);
-    // Languages with an embedded translation, always including "en".
+    // Languages with a catalog, always including "en".
     static QStringList available();
     // The language code a text names, e.g. "da" for "da_DK.UTF-8"; empty when
     // it names none.
@@ -81,8 +91,11 @@ private:
     QString m_omarchyFile;
     QString m_language;
     bool m_watch;
-    QTranslator m_english;  // the plural forms of the English source strings
-    QTranslator m_translator;
+    // The Translator reads its language from a file, so the pick is written
+    // to a private one, and a new Translator made for each pick.
+    std::unique_ptr<QTemporaryDir> m_pickDirectory;
+    std::unique_ptr<QFile> m_pick;
+    std::unique_ptr<Translator> m_translator;
     QFileSystemWatcher m_watcher;
     QTimer m_debounce;
 };

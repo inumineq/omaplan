@@ -90,7 +90,7 @@ QString annotationFor(const QString &phrase, const QDate &today) {
 QString annotateDates(const QString &text, const QDate &today) {
     // Tokenize into words with their positions, keeping everything else.
     static const QRegularExpression wordRe(QStringLiteral("\\S+"));
-    struct Word { int pos; int len; QString text; };
+    struct Word { qsizetype pos; qsizetype len; QString text; };
     QList<Word> words;
     auto it = wordRe.globalMatch(text);
     while (it.hasNext()) {

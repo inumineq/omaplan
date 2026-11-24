@@ -2,7 +2,7 @@
 
 **Language: everything in this repository is in English.** All documentation, code, comments, identifiers,
 commit messages, CLI help, MCP descriptions and the skill are in English. UI strings are English source strings in
-`qsTr()`/`tr()`; translations live in `i18n/*.ts` (Qt Linguist files, compiled into the binary; see
+`qsTr()`/`tr()`; translations live in `src/i18n/*.json` (Omarchy's JSON catalogs, compiled into the binary; see
 `docs/translating.md`). User input may be in any language.
 
 **This is a public repository. No personal data may enter it** – not in code, tests, fixtures, documentation,

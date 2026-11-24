@@ -214,14 +214,16 @@ PlanServer::Response PlanServer::respond(const QByteArray &method, const QByteAr
     }
     if (path == "/style.css" || path == "/app.js") {
         QFile file(QStringLiteral(":/web") + QString::fromUtf8(path));
-        file.open(QIODevice::ReadOnly);
+        if (!file.open(QIODevice::ReadOnly))
+            return text(404, "Not found");
         return {200, path.endsWith(".css") ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8",
                 file.readAll(), {}};
     }
     for (const char *lang : Render::kLanguages) {
         if (path == "/i18n/" + QByteArray(lang) + ".json") {
             QFile file(QStringLiteral(":/web") + QString::fromUtf8(path));
-            file.open(QIODevice::ReadOnly);
+            if (!file.open(QIODevice::ReadOnly))
+                return text(404, "Not found");
             return {200, "application/json; charset=utf-8", file.readAll(), {}};
         }
     }

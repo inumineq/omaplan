@@ -3,7 +3,6 @@ import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
 
-import Omaplan
 
 ApplicationWindow {
     id: win
@@ -165,6 +164,9 @@ ApplicationWindow {
     // --- Header: the four views as tabs, the main action and a quiet ? -------
     // One bar in the window's own colour with a 1 px divider, as in Folio.
     header: Rectangle {
+        // The header sits outside keySink, so it mirrors on its own.
+        LayoutMirroring.enabled: Application.layoutDirection === Qt.RightToLeft
+        LayoutMirroring.childrenInherit: true
         height: 48
         color: theme.background
         Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: theme.border }
@@ -189,14 +191,14 @@ ApplicationWindow {
                         Text {
                             text: tab.index + 1
                             color: theme.muted
-                            font.pixelSize: 11
+                            font.pixelSize: Math.round(11 * theme.textScale)
                             font.family: theme.fontFamily
                         }
                         Text {
                             font.family: theme.fontFamily
                             text: tab.modelData
                             color: win.currentView === tab.index ? theme.foreground : theme.muted
-                            font.pixelSize: 14
+                            font.pixelSize: Math.round(14 * theme.textScale)
                             font.bold: win.currentView === tab.index
                         }
                     }
@@ -235,6 +237,7 @@ ApplicationWindow {
                 // A small gear drawn in the theme's colours (the ⚙ glyph
                 // comes out as a colour emoji in many fonts).
                 contentItem: Item {
+                    id: gear
                     readonly property color ink: settingsButton.hovered ? theme.foreground : theme.muted
                     Repeater {
                         model: 4
@@ -245,7 +248,7 @@ ApplicationWindow {
                             height: 13
                             radius: 1
                             rotation: index * 45
-                            color: parent.ink
+                            color: gear.ink
                         }
                     }
                     Rectangle {
@@ -253,7 +256,7 @@ ApplicationWindow {
                         width: 9
                         height: 9
                         radius: 4.5
-                        color: parent.ink
+                        color: gear.ink
                     }
                     Rectangle {
                         anchors.centerIn: parent
@@ -284,7 +287,7 @@ ApplicationWindow {
                     font.family: theme.fontFamily
                     text: "?"
                     color: helpButton.hovered ? theme.foreground : theme.muted
-                    font.pixelSize: 13
+                    font.pixelSize: Math.round(13 * theme.textScale)
                     font.bold: true
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
@@ -304,7 +307,7 @@ ApplicationWindow {
         id: keySink
         focus: true
         anchors.fill: parent
-        LayoutMirroring.enabled: Qt.application.layoutDirection === Qt.RightToLeft
+        LayoutMirroring.enabled: Application.layoutDirection === Qt.RightToLeft
         LayoutMirroring.childrenInherit: true
 
         ColumnLayout {
@@ -409,7 +412,7 @@ ApplicationWindow {
                 anchors.leftMargin: 14
                 text: toast.text
                 color: toast.isError ? theme.danger : theme.foreground
-                font.pixelSize: 13
+                font.pixelSize: Math.round(13 * theme.textScale)
                 wrapMode: Text.Wrap
                 horizontalAlignment: Text.AlignHCenter
             }

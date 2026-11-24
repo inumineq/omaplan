@@ -67,10 +67,14 @@ recurrence rules are the next version.
 
 One shared interface with several providers, chosen in the settings and per input:
 
-- **Mistral** via the Vibe CLI (default in the first version)
+- **Mistral** via the Vibe CLI
 - **Claude** via `claude -p` (the user's subscription)
-- **Local**: a local model via Ollama or an OpenAI-compatible endpoint
+- **Local**: the local model Omarchy runs (found through Omarchy's status file, with Omarchy's key read from its
+  file for each request and never stored), or a model of the user's own via Ollama or an OpenAI-compatible endpoint
 - **Command**: any command line that reads the prompt on stdin and writes JSON on stdout
+
+Until the user chooses, the default engine follows `omarchy default agent` (`claude` or `local`), and is `vibe`
+otherwise.
 
 All engines get the same prompt and must return JSON following the same schema (`docs/ai-schema.json`).
 The app validates the answer; an invalid answer is shown as an error in the window with the engine's raw answer,
@@ -154,14 +158,16 @@ The plan can be read from a phone or another machine on the user's Tailscale net
 
 Follows the theme live (colours from `colors.toml`, and Omarchy's font: fontconfig's `monospace`, which
 `omarchy-font-set` writes), follows Omarchy's language live (all strings through `qsTr`/`tr`, translations in
-`i18n/omaplan_<lang>.ts`; English and Danish in the first version, see `docs/translating.md`), corners from
+`src/i18n/<code>.json`; English and Danish are complete, see `docs/translating.md`), Omarchy's text size, corners from
 Hyprland, keyboard first (`?` shows the keys, `q` quits, Space is the main action, Ctrl+Z/Ctrl+Shift+Z), atomic
-saving, errors shown in the window. Installed with `bin/install` (makepkg), so it is in the app launcher.
+saving, errors shown in the window. Built with CMake; the package recipe lives in omarchy-pkgs, and the
+package puts it in the app launcher.
 
 ## Interface language
 
 The interface language is the first of: `--lang`, `language` in `config.toml`, Omarchy's language file, the system
-locale, English. A language without a translation passes to the next source. The GUI, the CLI's human-readable
+locale (when it has a catalog), English. A chosen language without a catalog still counts: the strings stay
+English, and dates, numbers and the layout direction follow the language. The GUI, the CLI's human-readable
 output, error messages and date formats are translated. `--json`, JSON field names, MCP tool names and
 descriptions, code and documentation are always English. User input may be in any language.
 

@@ -3,7 +3,6 @@ import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
 
-import Omaplan
 
 // One engine's answer inside ProposalView: waiting, an error with the raw
 // response, or the editable tasks.
@@ -11,7 +10,7 @@ Rectangle {
     id: column
     property int col: 0
     property var view
-    readonly property var info: { view.colRevision[col]; view.revision; return view.columns[col] || ({ state: "waiting", tasks: [], unclear: [] }) }
+    readonly property var info: view.columns[col] || ({ state: "waiting", tasks: [], unclear: [] })
     readonly property bool chosen: view.comparing && view.selected === col
 
     radius: Math.min(6, theme.radius)
@@ -34,21 +33,21 @@ Rectangle {
                 text: column.info.engine || ""
                 color: column.chosen ? theme.accentText : theme.foreground
                 font.bold: true
-                font.pixelSize: 14
+                font.pixelSize: Math.round(14 * theme.textScale)
             }
             Text {
                 font.family: theme.fontFamily
                 text: column.info.state === "ready" ? qsTr("%n tasks", "", column.info.tasks.length)
                     : column.info.state === "error" ? qsTr("failed") : qsTr("working…")
                 color: column.info.state === "error" ? theme.danger : theme.muted
-                font.pixelSize: 12
+                font.pixelSize: Math.round(12 * theme.textScale)
             }
             Item { Layout.fillWidth: true }
             Text {
                 visible: column.view.comparing && column.info.state === "ready"
                 text: qsTr("Ctrl+%1 approve").arg(column.col + 1)
                 color: theme.muted
-                font.pixelSize: 11
+                font.pixelSize: Math.round(11 * theme.textScale)
                 font.family: theme.fontFamily
             }
         }
@@ -83,7 +82,7 @@ Rectangle {
                 wrapMode: TextArea.Wrap
                 color: theme.foreground
                 font.family: theme.fontFamily
-                font.pixelSize: 12
+                font.pixelSize: Math.round(12 * theme.textScale)
                 background: null
             }
         }
@@ -98,7 +97,7 @@ Rectangle {
             spacing: 8
             boundsBehavior: Flickable.StopAtBounds
             ScrollBar.vertical: ScrollBar {}
-            model: { column.view.colRevision[column.col]; column.view.revision; return column.info.tasks.slice() }
+            model: column.info.tasks.slice()
             delegate: ProposalTask {
                 required property int index
                 required property var modelData
@@ -128,7 +127,7 @@ Rectangle {
             text: qsTr("Not understood: %1").arg((column.info.unclear || []).join(" · "))
             color: theme.muted
             wrapMode: Text.Wrap
-            font.pixelSize: 12
+            font.pixelSize: Math.round(12 * theme.textScale)
         }
     }
 }

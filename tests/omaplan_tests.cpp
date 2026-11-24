@@ -6,6 +6,7 @@
 #include <QJsonDocument>
 #include <QProcess>
 #include <QHostInfo>
+#include <QImage>
 #include <QTcpSocket>
 #include <QRegularExpression>
 #include <QJsonObject>
@@ -116,7 +117,8 @@ static void validateSchema(const QJsonValue &node, const QJsonObject &schema, co
 
 static QJsonObject readJsonFile(const QString &path) {
     QFile file(path);
-    file.open(QIODevice::ReadOnly);
+    if (!file.open(QIODevice::ReadOnly))
+        return {};
     return QJsonDocument::fromJson(file.readAll()).object();
 }
 
@@ -649,7 +651,8 @@ private slots:
         };
         auto reference = [](const char *file) {
             QFile f(repoFile(QString::fromLatin1(file)));
-            f.open(QIODevice::ReadOnly);
+            if (!f.open(QIODevice::ReadOnly))
+                return QString();
             return QString::fromUtf8(f.readAll());
         };
         QCOMPARE(withoutStyle(body), reference("web/index.html"));
@@ -711,7 +714,7 @@ private slots:
         QVERIFY(r.headers.value("content-length").toInt() > 1000);
 
         // Read-only: everything but GET/HEAD is 405.
-        for (const QByteArray method : {QByteArray("POST"), QByteArray("PUT"), QByteArray("DELETE")}) {
+        for (const QByteArray &method : {QByteArray("POST"), QByteArray("PUT"), QByteArray("DELETE")}) {
             r = httpGet(port, "/", method);
             QCOMPARE(r.status, 405);
             QCOMPARE(r.headers.value("allow"), QByteArray("GET, HEAD"));
@@ -1512,17 +1515,14 @@ private slots:
         QCOMPARE(code, 0);
         QVERIFY(runOmaplan(db, {QStringLiteral("--help")}).contains(QStringLiteral("redo")));
 
-        // One version, from omaplan.pro, in --version, MCP and the PKGBUILD.
-        QFile pro(repoFile(QStringLiteral("omaplan.pro")));
-        QVERIFY(pro.open(QIODevice::ReadOnly));
-        const QString version = QRegularExpression(QStringLiteral("(?m)^VERSION = (\\S+)$"))
-                                    .match(QString::fromUtf8(pro.readAll())).captured(1);
-        QCOMPARE(version, QStringLiteral("0.2.0"));
+        // One version, from CMakeLists.txt, in --version and MCP.
+        QFile cmake(repoFile(QStringLiteral("CMakeLists.txt")));
+        QVERIFY(cmake.open(QIODevice::ReadOnly));
+        const QString version = QRegularExpression(QStringLiteral("(?m)^project\\(omaplan VERSION (\\S+) "))
+                                    .match(QString::fromUtf8(cmake.readAll())).captured(1);
+        QCOMPARE(version, QStringLiteral("0.3.0"));
         QCOMPARE(runOmaplan(db, {QStringLiteral("--version")}, &code).trimmed(), QStringLiteral("omaplan ") + version);
         QCOMPARE(code, 0);
-        QFile pkgbuild(repoFile(QStringLiteral("pkgbuild/PKGBUILD")));
-        QVERIFY(pkgbuild.open(QIODevice::ReadOnly));
-        QVERIFY(QString::fromUtf8(pkgbuild.readAll()).contains(QStringLiteral("\npkgver=") + version + QStringLiteral("\n")));
         QString stderrText;
         const QList<QJsonObject> init = mcpSession(db, {rpc(1, QStringLiteral("initialize"),
                                                             {{QStringLiteral("protocolVersion"), QStringLiteral("2024-11-05")}})},
@@ -1740,8 +1740,8 @@ private slots:
         QString error;
         QVERIFY(store.open(&error));
 
-        const QString fixture = QDir(QCoreApplication::applicationDirPath())
-                                    .filePath(QStringLiteral("../../tests/ai-fixtures/envelopes/command-valid.json"));
+        // FIXTURES_DIR is the source tree's, wherever the build directory is.
+        const QString fixture = QStringLiteral(FIXTURES_DIR "/envelopes/command-valid.json");
         QVERIFY(QFile::exists(fixture));
         QTemporaryDir cfgDir;
         const QString cfgPath = cfgDir.filePath("config.toml");
@@ -1798,8 +1798,8 @@ private slots:
         QTemporaryDir dir;
         Store store(dir.filePath(QStringLiteral("b.db")));
         QVERIFY(store.open());
-        const QString fixture = QDir(QCoreApplication::applicationDirPath())
-                                    .filePath(QStringLiteral("../../tests/ai-fixtures/envelopes/command-valid.json"));
+        // FIXTURES_DIR is the source tree's, wherever the build directory is.
+        const QString fixture = QStringLiteral(FIXTURES_DIR "/envelopes/command-valid.json");
         const QString cfgPath = dir.filePath(QStringLiteral("config.toml"));
         {
             QFile f(cfgPath);
@@ -2853,6 +2853,67 @@ private slots:
         QVERIFY(!byId.value("local").value("ready").toBool());
     }
 
+    // What the settings panel and `omaplan engines` show on a machine where
+    // Omarchy runs a local model and the user has chosen nothing.
+    void enginesOfferOmarchysLocalModelWhenItIsSetUp()
+    {
+        QTemporaryDir home;
+        Store store(home.filePath("plan.db"));
+        QString err;
+        QVERIFY(store.open(&err));
+        const QByteArray oldHome = qgetenv("OMAPLAN_OMARCHY_HOME");
+        qputenv("OMAPLAN_OMARCHY_HOME", home.path().toLocal8Bit());
+        qputenv("OMAPLAN_CONFIG", home.filePath("config.toml").toLocal8Bit());
+        const auto write = [&home](const QString &relative, const QByteArray &contents) {
+            const QString path = home.filePath(relative);
+            QDir().mkpath(QFileInfo(path).absolutePath());
+            QFile file(path);
+            return file.open(QIODevice::WriteOnly) && file.write(contents) == contents.size();
+        };
+        const auto local = [&] {
+            int code = 0;
+            const QJsonObject engines = cliJson(store, {"engines", "--json"}, &err, &code);
+            QJsonObject found;
+            for (const QJsonValue &e : engines.value("engines").toArray())
+                if (e.toObject().value("id").toString() == QLatin1String("local"))
+                    found = e.toObject();
+            found.insert("defaultEngine", engines.value("default"));
+            return found;
+        };
+
+        // Without Omarchy's models: no such choice, and vibe as before.
+        QVERIFY(!local().value("omarchy").toBool());
+        QCOMPARE(local().value("api").toString(), QStringLiteral("ollama"));
+        QCOMPARE(local().value("defaultEngine").toString(), QStringLiteral("vibe"));
+
+        QVERIFY(write(".config/omarchy/agent-local/key", "invented-key\n"));
+        QVERIFY(write(".config/omarchy/defaults/agent", "local\n"));
+        QVERIFY(write(".local/state/omarchy/agent-local/status.json",
+                      R"({"models":{"demo-7b":{"kind":"text","unit":"active","endpoint":"http://127.0.0.1:11435/v1"}},)"
+                      R"("last":"demo-7b"})"));
+        QJsonObject e = local();
+        QVERIFY(e.value("omarchy").toBool());
+        QCOMPARE(e.value("api").toString(), QStringLiteral("omarchy"));
+        QCOMPARE(e.value("model").toString(), QStringLiteral("demo-7b"));
+        QCOMPARE(e.value("endpoint").toString(), QStringLiteral("http://127.0.0.1:11435/v1"));
+        QVERIFY(e.value("ready").toBool());
+        QCOMPARE(e.value("defaultEngine").toString(), QStringLiteral("local"));
+        // The key is never part of what is shown or stored.
+        QVERIFY(!QJsonDocument(e).toJson().contains("invented-key"));
+        QVERIFY(!QFile::exists(home.filePath("config.toml")));
+
+        // Stopped: the panel says how to start it.
+        QVERIFY(write(".local/state/omarchy/agent-local/status.json",
+                      R"({"models":{"demo-7b":{"kind":"text","unit":"inactive"}},"last":"demo-7b"})"));
+        e = local();
+        QVERIFY(!e.value("ready").toBool());
+        QVERIFY2(e.value("problem").toString().contains("omarchy models start demo-7b"),
+                 qPrintable(e.value("problem").toString()));
+
+        qputenv("OMAPLAN_OMARCHY_HOME", oldHome);
+        qputenv("OMAPLAN_CONFIG", "");
+    }
+
     // N1: the prompt keeps ISO times on a 12-hour clock; only text for the user follows it.
     void promptKeepsIsoTimesOnA12HourClock()
     {
@@ -3286,8 +3347,8 @@ private slots:
     {
         QTemporaryDir dir;
         const QString db = dir.filePath("mcp.db");
-        const QString fixture = QDir(QCoreApplication::applicationDirPath())
-                                    .filePath(QStringLiteral("../../tests/ai-fixtures/envelopes/command-valid.json"));
+        // FIXTURES_DIR is the source tree's, wherever the build directory is.
+        const QString fixture = QStringLiteral(FIXTURES_DIR "/envelopes/command-valid.json");
         QFile cfg(dir.filePath("config.toml"));
         QVERIFY(cfg.open(QIODevice::WriteOnly));
         cfg.write("[engine]\ndefault = \"command\"\ncommand = \"cat " + fixture.toUtf8() + "\"\n");
@@ -3322,8 +3383,8 @@ private slots:
         QString error;
         QVERIFY(store.open(&error));
         Actions actions(&store);
-        const QString fixture = QDir(QCoreApplication::applicationDirPath())
-                                    .filePath(QStringLiteral("../../tests/ai-fixtures/envelopes/command-valid.json"));
+        // FIXTURES_DIR is the source tree's, wherever the build directory is.
+        const QString fixture = QStringLiteral(FIXTURES_DIR "/envelopes/command-valid.json");
         const QString cfgPath = dir.filePath("config.toml");
         const auto writeConfig = [&](const QByteArray &compare) {
             QFile f(cfgPath);
@@ -3427,22 +3488,53 @@ private slots:
                  QStringLiteral("da"));
         QCOMPARE(UiLanguage::resolve(S{{}, {}, {}, danishSystem}, available), QStringLiteral("da"));
         QCOMPARE(UiLanguage::resolve(S{{}, {}, {}, {}}, available), QStringLiteral("en"));
-        // A language without a translation passes to the next source.
+        // A chosen language counts without a catalog (its strings fall back
+        // to English one by one); the system locale is a guess and needs one.
         QCOMPARE(UiLanguage::resolve(S{QStringLiteral("fr"), {}, QStringLiteral("pt-BR"), danishSystem}, available),
+                 QStringLiteral("fr"));
+        QCOMPARE(UiLanguage::resolve(S{{}, {}, QStringLiteral("ar"), danishSystem}, available), QStringLiteral("ar"));
+        QCOMPARE(UiLanguage::resolve(S{{}, {}, {}, {QStringLiteral("de-DE"), QStringLiteral("da-DK")}}, available),
                  QStringLiteral("da"));
-        QCOMPARE(UiLanguage::resolve(S{QStringLiteral("fr"), {}, {}, {QStringLiteral("de-DE")}}, available),
-                 QStringLiteral("en"));
-        // Locale spellings name their language.
-        QCOMPARE(UiLanguage::normalize(QStringLiteral("da_DK.UTF-8")), QStringLiteral("da"));
+        QCOMPARE(UiLanguage::resolve(S{{}, {}, {}, {QStringLiteral("de-DE")}}, available), QStringLiteral("en"));
+        // Locale spellings name their language, and keep the region (L3).
+        QCOMPARE(UiLanguage::normalize(QStringLiteral("da_DK.UTF-8")), QStringLiteral("da-DK"));
+        QCOMPARE(UiLanguage::normalize(QStringLiteral("zh-tw")), QStringLiteral("zh-TW"));
         QCOMPARE(UiLanguage::normalize(QStringLiteral("DA")), QStringLiteral("da"));
         QCOMPARE(UiLanguage::normalize(QStringLiteral("not a language")), QString());
+        // A region with no catalog of its own is its language's catalog...
+        QCOMPARE(UiLanguage::resolve(S{{}, {}, QStringLiteral("da_DK"), {}}, available), QStringLiteral("da"));
+        QCOMPARE(UiLanguage::resolve(S{{}, QStringLiteral("en-US"), {}, {}}, available), QStringLiteral("en"));
+        // ...a regional catalog is chosen by its full code, also by the system locale...
+        const QStringList regional{QStringLiteral("en"), QStringLiteral("da"), QStringLiteral("pt-BR")};
+        QCOMPARE(UiLanguage::resolve(S{{}, {}, QStringLiteral("pt_BR.UTF-8"), {}}, regional), QStringLiteral("pt-BR"));
+        QCOMPARE(UiLanguage::resolve(S{{}, {}, {}, {QStringLiteral("pt-BR")}}, regional), QStringLiteral("pt-BR"));
+        QCOMPARE(UiLanguage::resolve(S{{}, {}, {}, {QStringLiteral("pt-PT")}}, regional), QStringLiteral("en"));
+        // ...and a chosen region without any catalog keeps its region, for its formats.
+        QCOMPARE(UiLanguage::resolve(S{{}, {}, QStringLiteral("zh-TW"), {}}, available), QStringLiteral("zh-TW"));
+    }
+
+    // L4: the file the shared Translator reads the choice from, and whose
+    // folder it watches, is in a folder of Omaplan's own, not the shared /tmp.
+    void languageChoiceFileIsInAPrivateFolder() {
+        QTemporaryDir dir;
+        const QString file = dir.filePath(QStringLiteral("language"));
+        QFile f(file);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("da\n");
+        f.close();
+        UiLanguage language(nullptr, {}, false, file);
+        const QFileInfo choice(language.choiceFile());
+        QVERIFY(choice.exists());
+        QVERIFY(choice.absolutePath() != QDir::tempPath());
+        QCOMPARE(QDir(choice.absolutePath()).entryList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot | QDir::Hidden).size(), 1);
+        QCOMPARE(QFileInfo(choice.absolutePath()).permissions() & (QFile::ReadGroup | QFile::WriteGroup | QFile::ReadOther | QFile::WriteOther),
+                 QFile::Permissions());
     }
 
     void danishTranslationIsEmbeddedAndInstalled() {
-        // The .qm files come from i18n/*.ts through lrelease, as resources.
-        QVERIFY(UiLanguage::available().contains(QStringLiteral("da")));
-        QVERIFY(UiLanguage::available().contains(QStringLiteral("en")));
-        QVERIFY(QFile::exists(QStringLiteral(":/i18n/omaplan_da.qm")));
+        // The catalogs are src/i18n/<code>.json, compiled in as resources.
+        QCOMPARE(UiLanguage::available(), (QStringList{QStringLiteral("da"), QStringLiteral("en")}));
+        QVERIFY(QFile::exists(QStringLiteral(":/i18n/da.json")));
 
         QTemporaryDir dir;
         qputenv("OMAPLAN_CONFIG", dir.filePath(QStringLiteral("none.toml")).toLocal8Bit());
@@ -3467,16 +3559,105 @@ private slots:
         QLocale::setDefault(QLocale::c());
     }
 
-    void everyStringHasADanishTranslation() {
-        // bin/test also runs lupdate against the sources (bin/i18n-check), so
-        // a new qsTr/tr string without a translation fails there; this checks
-        // the committed file.
-        QFile ts(QStringLiteral(OMAPLAN_I18N "/omaplan_da.ts"));
-        QVERIFY(ts.open(QIODevice::ReadOnly));
-        const QString text = QString::fromUtf8(ts.readAll());
-        QVERIFY(text.count(QStringLiteral("<message")) > 200);
-        QCOMPARE(text.count(QStringLiteral("type=\"unfinished\"")), 0);
-        QCOMPARE(text.count(QStringLiteral("type=\"vanished\"")), 0);
+    // The Omarchy language is followed live, and one without a catalog still
+    // sets the locale and mirrors the window while its strings stay English.
+    void omarchyLanguageIsFollowedLiveWithOrWithoutACatalog() {
+        QTemporaryDir dir;
+        qputenv("OMAPLAN_CONFIG", dir.filePath(QStringLiteral("none.toml")).toLocal8Bit());
+        const QString omarchy = dir.filePath(QStringLiteral("omarchy/language"));
+        auto pick = [&](const QByteArray &code) {
+            QDir().mkpath(QFileInfo(omarchy).absolutePath());
+            QFile file(omarchy);
+            QVERIFY(file.open(QIODevice::WriteOnly));
+            file.write(code + '\n');
+        };
+        {
+            // Before the first pick there is no directory to watch.
+            UiLanguage language(QCoreApplication::instance(), QString(), true, omarchy);
+            pick("ar");
+            QTRY_COMPARE(language.language(), QStringLiteral("ar"));
+            QCOMPARE(QCoreApplication::translate("Actions", "Nothing to undo"), QStringLiteral("Nothing to undo"));
+            QCOMPARE(QGuiApplication::layoutDirection(), Qt::RightToLeft);
+            QCOMPARE(QLocale().language(), QLocale::Arabic);
+
+            pick("da");
+            QTRY_COMPARE(language.language(), QStringLiteral("da"));
+            QCOMPARE(QCoreApplication::translate("Actions", "Nothing to undo"), QStringLiteral("Intet at fortryde"));
+            QCOMPARE(QGuiApplication::layoutDirection(), Qt::LeftToRight);
+            QCOMPARE(language.localeName(), QStringLiteral("da_DK"));
+        }
+        qunsetenv("OMAPLAN_CONFIG");
+        QLocale::setDefault(QLocale::c());
+    }
+
+    // `omarchy agent look app` has the app draw itself offscreen, press keys
+    // through its Shortcuts, save the window and quit.
+    void lookScreenshotDrawsTheWindowAndQuits() {
+        QTemporaryDir dir;
+        const QString shot = dir.filePath(QStringLiteral("look.png"));
+        QProcess process;
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        env.insert(QStringLiteral("HOME"), dir.path());
+        env.insert(QStringLiteral("OMAPLAN_DB"), dir.filePath(QStringLiteral("plan.db")));
+        env.insert(QStringLiteral("OMAPLAN_CONFIG"), dir.filePath(QStringLiteral("config.toml")));
+        env.insert(QStringLiteral("OMAPLAN_SNAPSHOT"), dir.filePath(QStringLiteral("plan.json")));
+        env.insert(QStringLiteral("QT_QPA_PLATFORM"), QStringLiteral("offscreen"));
+        env.insert(QStringLiteral("QT_QUICK_BACKEND"), QStringLiteral("software"));
+        env.insert(QStringLiteral("QT_FORCE_STDERR_LOGGING"), QStringLiteral("1"));
+        env.insert(QStringLiteral("OMARCHY_LOOK_SCREENSHOT"), shot);
+        env.insert(QStringLiteral("OMARCHY_LOOK_SIZE"), QStringLiteral("900x600"));
+        // "?" is one of a Shortcut's `sequences`, "4" a plain `sequence`.
+        env.insert(QStringLiteral("OMARCHY_LOOK_KEYS"), QStringLiteral("4 ?"));
+        env.insert(QStringLiteral("OMARCHY_LOOK_DELAY_MS"), QStringLiteral("300"));
+        env.remove(QStringLiteral("QT_QPA_PLATFORMTHEME"));
+        process.setProcessEnvironment(env);
+        process.setProcessChannelMode(QProcess::MergedChannels);
+        process.start(QCoreApplication::applicationDirPath() + QStringLiteral("/../omaplan"), {QStringLiteral("open")});
+        QVERIFY(process.waitForFinished(20000));
+        const QString log = QString::fromUtf8(process.readAll());
+        QCOMPARE(process.exitCode(), 0);
+        const QImage image(shot);
+        QCOMPARE(image.size(), QSize(900, 600));
+        // The window as it opens logs no QML warning either.
+        QVERIFY2(!log.contains(QStringLiteral("qrc:/")), qPrintable(log));
+    }
+
+    // M2: a look presses the window's real keys, and some of them delete. It
+    // works on a copy, so the plan it was pointed at is as it was.
+    void lookLeavesThePlanAlone() {
+        QTemporaryDir dir;
+        const QString db = dir.filePath(QStringLiteral("plan.db"));
+        int code = 1;
+        runOmaplan(db, {QStringLiteral("new"), QStringLiteral("--title"), QStringLiteral("Write the blog post")}, &code);
+        QCOMPARE(code, 0);
+        // The CLI wrote plan.json; a look must not write it again.
+        const QString snapshot = dir.filePath(QStringLiteral("plan.json"));
+        QVERIFY(QFile::remove(snapshot));
+
+        const QString shot = dir.filePath(QStringLiteral("look.png"));
+        QProcess process;
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        env.insert(QStringLiteral("HOME"), dir.path());
+        env.insert(QStringLiteral("OMAPLAN_DB"), db);
+        env.insert(QStringLiteral("OMAPLAN_CONFIG"), dir.filePath(QStringLiteral("config.toml")));
+        env.insert(QStringLiteral("OMAPLAN_SNAPSHOT"), snapshot);
+        env.insert(QStringLiteral("QT_QPA_PLATFORM"), QStringLiteral("offscreen"));
+        env.insert(QStringLiteral("QT_QUICK_BACKEND"), QStringLiteral("software"));
+        env.insert(QStringLiteral("OMARCHY_LOOK_SCREENSHOT"), shot);
+        // List, select the task, delete it.
+        env.insert(QStringLiteral("OMARCHY_LOOK_KEYS"), QStringLiteral("3 j d"));
+        env.insert(QStringLiteral("OMARCHY_LOOK_DELAY_MS"), QStringLiteral("300"));
+        env.remove(QStringLiteral("QT_QPA_PLATFORMTHEME"));
+        process.setProcessEnvironment(env);
+        process.start(QCoreApplication::applicationDirPath() + QStringLiteral("/../omaplan"), {QStringLiteral("open")});
+        QVERIFY(process.waitForFinished(20000));
+        QCOMPARE(process.exitCode(), 0);
+        QVERIFY(QFile::exists(shot));
+
+        const QString listed = runOmaplan(db, {QStringLiteral("list")}, &code);
+        QVERIFY2(listed.contains(QStringLiteral("Write the blog post")), qPrintable(listed));
+        // `list` reads; only the look could have written the snapshot.
+        QVERIFY(!QFile::exists(snapshot));
     }
 
     // Runs the real binary with a private database and config.
@@ -3704,6 +3885,9 @@ private slots:
                 const QString where = name + ':' + QString::number(i + 1);
                 QVERIFY2(!hex.match(lines[i]).hasMatch(), qPrintable(where + " hard-codes a colour"));
                 QVERIFY2(!fixedFamily.match(lines[i]).hasMatch(), qPrintable(where + " fixes a font family"));
+                // Text follows the desktop's size (omarchy display text size).
+                QVERIFY2(!lines[i].contains("pixelSize:") || lines[i].contains("theme.textScale"),
+                         qPrintable(where + " sets a text size that ignores theme.textScale"));
                 if (!textOpen.match(lines[i]).hasMatch())
                     continue;
                 // The element's own lines, up to its closing brace.

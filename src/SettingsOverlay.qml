@@ -3,7 +3,6 @@ import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
 
-import Omaplan
 
 // The settings (, or Ctrl+,): the AI engines, how dates and times are read
 // and shown, and the project colours. config.toml stays the only source: every
@@ -40,7 +39,7 @@ Rectangle {
     // Closes without saving a half-typed field, and stops a running Test.
     function close() {
         closing = true
-        const f = Window.activeFocusItem
+        const f = Window.activeFocusItem as ConfigInput
         if (f && f.configField)
             f.text = f.configField.stored
         for (const id in tests)
@@ -51,7 +50,7 @@ Rectangle {
     }
     // Esc: first undoes a field's unsaved typing, then closes.
     function handleEscape() {
-        const f = Window.activeFocusItem
+        const f = Window.activeFocusItem as ConfigInput
         if (f && f.configField && f.text !== f.configField.stored) {
             f.text = f.configField.stored
             // A field in another section is not seen being restored: close too.
@@ -150,15 +149,20 @@ Rectangle {
         Layout.topMargin: 10
         color: theme.muted
         font.weight: Font.DemiBold
-        font.pixelSize: 11
+        font.pixelSize: Math.round(11 * theme.textScale)
         font.letterSpacing: 1.2
     }
     component Note: Text {
         font.family: theme.fontFamily
         Layout.fillWidth: true
         color: theme.muted
-        font.pixelSize: 11
+        font.pixelSize: Math.round(11 * theme.textScale)
         wrapMode: Text.Wrap
+    }
+    // The text field of a saving ConfigField knows it, so the panel can restore
+    // the focused field's stored value.
+    component ConfigInput: TextField {
+        property ConfigField configField: null
     }
     // A text setting: shows the file's value, writes it on Enter or when the
     // field loses focus.
@@ -168,10 +172,10 @@ Rectangle {
         property string label
         property string placeholder: ""
         property bool saves: true          // false: a scratch field (the date preview)
-        property alias input: input
+        property alias input: textField
         readonly property string stored: saves ? panel.value(key) : ""
-        onStoredChanged: if (!input.activeFocus) input.text = stored
-        Component.onCompleted: input.text = stored
+        onStoredChanged: if (!textField.activeFocus) textField.text = stored
+        Component.onCompleted: textField.text = stored
         spacing: 3
         Text {
             font.family: theme.fontFamily
@@ -179,16 +183,16 @@ Rectangle {
             wrapMode: Text.Wrap
             text: fieldBox.label
             color: theme.muted
-            font.pixelSize: 11
+            font.pixelSize: Math.round(11 * theme.textScale)
         }
-        TextField {
-            id: input
+        ConfigInput {
+            id: textField
             // Each engine card holds every kind of field; only the shown one is named.
             objectName: fieldBox.saves && fieldBox.visible ? "field:" + fieldBox.key : ""
-            readonly property var configField: fieldBox.saves ? fieldBox : null
+            configField: fieldBox.saves ? fieldBox : null
             Layout.fillWidth: true
             selectedTextColor: theme.accentForeground
-            font.pixelSize: 13
+            font.pixelSize: Math.round(13 * theme.textScale)
             color: theme.foreground
             placeholderText: text === "" ? fieldBox.placeholder : ""
             placeholderTextColor: theme.muted
@@ -199,7 +203,7 @@ Rectangle {
             background: Rectangle {
                 radius: Math.min(3, theme.radius)
                 color: theme.background
-                border.color: input.activeFocus ? theme.accent : theme.border
+                border.color: textField.activeFocus ? theme.accent : theme.border
             }
             // A rejected value goes back to the stored one; the error stays shown.
             onEditingFinished: {
@@ -213,6 +217,7 @@ Rectangle {
     // A choice setting as a row of buttons.
     component ConfigChoice: Segmented {
         property string key
+        objectName: "choice:" + key
         focusable: true
         keyInline: true
         maxWidth: flick.width
@@ -249,7 +254,7 @@ Rectangle {
                         font.family: theme.fontFamily
                         text: qsTr("Settings")
                         font.weight: Font.DemiBold
-                        font.pixelSize: 16
+                        font.pixelSize: Math.round(16 * theme.textScale)
                         color: theme.foreground
                     }
                     Item { Layout.fillWidth: true }
@@ -257,7 +262,7 @@ Rectangle {
                         font.family: theme.fontFamily
                         text: qsTr("Esc closes")
                         color: theme.muted
-                        font.pixelSize: 12
+                        font.pixelSize: Math.round(12 * theme.textScale)
                     }
                 }
                 Segmented {
@@ -281,8 +286,11 @@ Rectangle {
                     Heading { text: qsTr("Default engine").toUpperCase() }
                     ConfigChoice {
                         key: "engine.default"
-                        options: panel.engineInfo.engines.map(e => [e.id, e.name])
-                        value: panel.engineInfo.default || "vibe"
+                        // The first choice takes the line out of the file: the
+                        // engine then follows Omarchy's default agent, and
+                        // the choice names the engine that gives right now.
+                        options: [["auto", qsTr("Omarchy's (%1)").arg(panel.engine(panel.engineInfo.default || "vibe").name)]]
+                                 .concat(panel.engineInfo.engines.map(e => [e.id, e.name]))
                     }
                     Repeater {
                         // A fixed list: a saved field updates the card's
@@ -310,14 +318,14 @@ Rectangle {
                                     Layout.fillWidth: true
                                     spacing: 8
                                     Rectangle {
-                                        width: 8; height: 8; radius: 4
+                                        implicitWidth: 8; implicitHeight: 8; radius: 4
                                         color: card.info.ready ? theme.success : theme.danger
                                     }
                                     Text {
                                         font.family: theme.fontFamily
                                         text: card.info.name
                                         color: theme.foreground
-                                        font.pixelSize: 13
+                                        font.pixelSize: Math.round(13 * theme.textScale)
                                         font.bold: true
                                     }
                                     Text {
@@ -328,12 +336,12 @@ Rectangle {
                                               ? (card.info.path ? qsTr("found: %1").arg(card.info.path) : qsTr("ready"))
                                               : (card.info.problem || "")
                                         color: card.info.ready ? theme.muted : theme.danger
-                                        font.pixelSize: 11
+                                        font.pixelSize: Math.round(11 * theme.textScale)
                                     }
                                     HeaderButton {
                                         objectName: "test:" + card.modelData
                                         readonly property bool running: !!card.test && card.test.running
-                                        text: running ? qsTr("Cancel") : qsTr("Test")
+                                        text: running ? qsTr("Stop") : qsTr("Test")
                                         focusable: true
                                         toolTip: running ? qsTr("Stop the test") : qsTr("Send one short request to %1").arg(card.info.name)
                                         onClicked: running ? panel.cancelTest(card.modelData) : panel.test(card.modelData)
@@ -349,11 +357,15 @@ Rectangle {
                                         Layout.alignment: Qt.AlignBottom
                                         key: "engine.local.api"
                                         label: qsTr("API")
-                                        options: [["ollama", "Ollama"], ["openai", qsTr("OpenAI-compatible")]]
+                                        // Omarchy's own local model is a choice when it is set up
+                                        // (and then the default), or when the config names it.
+                                        options: (card.info.omarchy || card.info.api === "omarchy" ? [["omarchy", "Omarchy"]] : [])
+                                                 .concat([["ollama", "Ollama"], ["openai", qsTr("OpenAI-compatible")]])
                                         value: card.info.api || "ollama"
                                     }
                                     ConfigField {
-                                        visible: card.modelData === "local"
+                                        // Omarchy's model brings its own endpoint.
+                                        visible: card.modelData === "local" && card.info.api !== "omarchy"
                                         Layout.fillWidth: true
                                         key: "engine.local.endpoint"
                                         label: qsTr("Endpoint")
@@ -364,7 +376,8 @@ Rectangle {
                                         Layout.fillWidth: true
                                         key: "engine." + card.modelData + ".model"
                                         label: qsTr("Model")
-                                        placeholder: card.modelData === "local" ? "llama3.2" : qsTr("the tool's default")
+                                        placeholder: card.modelData !== "local" ? qsTr("the tool's default")
+                                                     : card.info.api === "omarchy" ? (card.info.model || qsTr("Omarchy's pick")) : "llama3.2"
                                     }
                                     ConfigField {
                                         visible: card.modelData === "command"
@@ -379,7 +392,7 @@ Rectangle {
                                     Layout.fillWidth: true
                                     visible: !!card.test && !card.test.running
                                     wrapMode: Text.Wrap
-                                    font.pixelSize: 12
+                                    font.pixelSize: Math.round(12 * theme.textScale)
                                     color: card.test && card.test.ok ? theme.foreground : theme.danger
                                     text: !card.test ? "" : card.test.ms > 0
                                           ? qsTr("%1 (%2 s)").arg(card.test.message).arg((card.test.ms / 1000).toFixed(1))
@@ -455,7 +468,7 @@ Rectangle {
                         text: qsTr("Now: %1 · 12.12 is %2 · the week starts on %3 · %4. Automatic follows the language.")
                               .arg(settings.dayFirst ? qsTr("day/month") : qsTr("month/day"))
                               .arg(settings.dottedIsTime ? qsTr("a time") : qsTr("a date"))
-                              .arg(settings.weekStart === 7 ? qsTr("Sunday", "mid-sentence") : qsTr("Monday", "mid-sentence"))
+                              .arg(Fmt.locale.dayName(settings.weekStart === 7 ? 0 : 1, Locale.LongFormat))
                               .arg(settings.clock24 ? qsTr("24-hour clock") : qsTr("12-hour clock"))
                     }
                     Heading { text: qsTr("Preview").toUpperCase() }
@@ -470,14 +483,14 @@ Rectangle {
                                 Layout.preferredWidth: 180
                                 text: "“" + parent.modelData + "”"
                                 color: theme.accentText
-                                font.pixelSize: 13
+                                font.pixelSize: Math.round(13 * theme.textScale)
                             }
                             Text {
                                 font.family: theme.fontFamily
                                 Layout.fillWidth: true
                                 text: panel.reading(parent.modelData)
                                 color: theme.foreground
-                                font.pixelSize: 13
+                                font.pixelSize: Math.round(13 * theme.textScale)
                             }
                         }
                     }
@@ -498,7 +511,7 @@ Rectangle {
                             Layout.bottomMargin: 6
                             text: tryField.input.text.trim() === "" ? "" : panel.reading(tryField.input.text)
                             color: theme.foreground
-                            font.pixelSize: 13
+                            font.pixelSize: Math.round(13 * theme.textScale)
                         }
                     }
                 }
@@ -524,7 +537,7 @@ Rectangle {
                             required property string modelData
                             // projectColor(), not a property lookup: a project may be
                             // called "constructor" or "toString".
-                            readonly property string current: { settings.projectColors; return settings.projectColor(modelData) }
+                            readonly property string current: { void settings.projectColors; return settings.projectColor(modelData) }
                             readonly property var choices: [""].concat(settings.paletteSlots)
                             Layout.fillWidth: true
                             implicitHeight: 34
@@ -610,7 +623,7 @@ Rectangle {
                     }
                 }
 
-                Rectangle { Layout.fillWidth: true; Layout.topMargin: 8; height: 1; color: theme.border }
+                Rectangle { Layout.fillWidth: true; Layout.topMargin: 8; implicitHeight: 1; color: theme.border }
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: 10
@@ -620,7 +633,7 @@ Rectangle {
                         elide: Text.ElideMiddle
                         text: qsTr("Saved at once in %1").arg(settings.path)
                         color: theme.muted
-                        font.pixelSize: 11
+                        font.pixelSize: Math.round(11 * theme.textScale)
                     }
                     HeaderButton {
                         text: qsTr("Open config.toml")
@@ -644,8 +657,7 @@ Rectangle {
 
     // How a date text is read right now, as the task editor shows it.
     function reading(text) {
-        settings.dayFirst; settings.dottedIsTime; settings.clock24; Fmt.lang
-        const r = actions.guiParseDate(text)
+        const r = Fmt.parseDate(text)
         if (!r.ok)
             return r.error
         const d = Fmt.fromIso(r.date)
