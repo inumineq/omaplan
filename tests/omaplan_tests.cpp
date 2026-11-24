@@ -116,7 +116,8 @@ static void validateSchema(const QJsonValue &node, const QJsonObject &schema, co
 
 static QJsonObject readJsonFile(const QString &path) {
     QFile file(path);
-    file.open(QIODevice::ReadOnly);
+    if (!file.open(QIODevice::ReadOnly))
+        return {};
     return QJsonDocument::fromJson(file.readAll()).object();
 }
 
@@ -649,7 +650,8 @@ private slots:
         };
         auto reference = [](const char *file) {
             QFile f(repoFile(QString::fromLatin1(file)));
-            f.open(QIODevice::ReadOnly);
+            if (!f.open(QIODevice::ReadOnly))
+                return QString();
             return QString::fromUtf8(f.readAll());
         };
         QCOMPARE(withoutStyle(body), reference("web/index.html"));
@@ -711,7 +713,7 @@ private slots:
         QVERIFY(r.headers.value("content-length").toInt() > 1000);
 
         // Read-only: everything but GET/HEAD is 405.
-        for (const QByteArray method : {QByteArray("POST"), QByteArray("PUT"), QByteArray("DELETE")}) {
+        for (const QByteArray &method : {QByteArray("POST"), QByteArray("PUT"), QByteArray("DELETE")}) {
             r = httpGet(port, "/", method);
             QCOMPARE(r.status, 405);
             QCOMPARE(r.headers.value("allow"), QByteArray("GET, HEAD"));
@@ -1512,17 +1514,14 @@ private slots:
         QCOMPARE(code, 0);
         QVERIFY(runOmaplan(db, {QStringLiteral("--help")}).contains(QStringLiteral("redo")));
 
-        // One version, from omaplan.pro, in --version, MCP and the PKGBUILD.
-        QFile pro(repoFile(QStringLiteral("omaplan.pro")));
-        QVERIFY(pro.open(QIODevice::ReadOnly));
-        const QString version = QRegularExpression(QStringLiteral("(?m)^VERSION = (\\S+)$"))
-                                    .match(QString::fromUtf8(pro.readAll())).captured(1);
+        // One version, from CMakeLists.txt, in --version and MCP.
+        QFile cmake(repoFile(QStringLiteral("CMakeLists.txt")));
+        QVERIFY(cmake.open(QIODevice::ReadOnly));
+        const QString version = QRegularExpression(QStringLiteral("(?m)^project\\(omaplan VERSION (\\S+) "))
+                                    .match(QString::fromUtf8(cmake.readAll())).captured(1);
         QCOMPARE(version, QStringLiteral("0.2.0"));
         QCOMPARE(runOmaplan(db, {QStringLiteral("--version")}, &code).trimmed(), QStringLiteral("omaplan ") + version);
         QCOMPARE(code, 0);
-        QFile pkgbuild(repoFile(QStringLiteral("pkgbuild/PKGBUILD")));
-        QVERIFY(pkgbuild.open(QIODevice::ReadOnly));
-        QVERIFY(QString::fromUtf8(pkgbuild.readAll()).contains(QStringLiteral("\npkgver=") + version + QStringLiteral("\n")));
         QString stderrText;
         const QList<QJsonObject> init = mcpSession(db, {rpc(1, QStringLiteral("initialize"),
                                                             {{QStringLiteral("protocolVersion"), QStringLiteral("2024-11-05")}})},

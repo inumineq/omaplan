@@ -1,7 +1,0 @@
-#!/bin/sh
-set -eu
-
-ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
-# makepkg builds (PKGBUILD build() runs bin/build), so no separate build here.
-cd "$ROOT/pkgbuild"
-exec makepkg -fsi "$@"
