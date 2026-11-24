@@ -49,12 +49,17 @@ struct AppConfig {
     static constexpr int maxTimeoutSeconds = 600;
 
     QString language;                         // top-level language; empty = not set
-    QString engine = QStringLiteral("vibe"); // [engine] default
+    // [engine] default. Unset, it follows `omarchy default agent` when that is
+    // claude or local, and is vibe otherwise.
+    QString engine = QStringLiteral("vibe");
     QString command;                          // [engine] command
     QStringList compare = {QStringLiteral("vibe"), QStringLiteral("claude")}; // [engine] compare
     int timeoutSeconds = defaultTimeoutSeconds; // [engine] timeout
     QString vibeModel;                        // [engine.vibe] model
     QString claudeModel;                      // [engine.claude] model
+    // [engine.local] api: ollama, openai or omarchy (the local model Omarchy
+    // runs). Unset, it is omarchy when Omarchy's local models are set up and
+    // no endpoint is given, and ollama otherwise.
     QString localApi = QStringLiteral("ollama");
     QString localEndpoint;
     QString localModel;
@@ -62,6 +67,10 @@ struct AppConfig {
     QString dateOrder, dateDotted, weekStart, clock;
     QMap<QString, QString> projectColors;     // [projects] name -> palette slot ("blue")
     QString snapshotPath;                     // [snapshot] path, ~ expanded; empty = default
+
+    // What an unset engine.default and engine.local.api stand for.
+    static QString defaultEngine();
+    static QString defaultLocalApi(const QString &endpoint);
 
     // Empty path = default location; OMAPLAN_CONFIG overrides it (tests).
     static QString defaultPath();

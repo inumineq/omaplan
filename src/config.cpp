@@ -1,4 +1,5 @@
 #include "config.h"
+#include "omarchy.h"
 
 #include <QDir>
 #include <QFile>
@@ -133,11 +134,30 @@ QString formatKey(const QString &key) {
 
 } // namespace
 
+QString AppConfig::defaultEngine() {
+    const QString omarchy = Omarchy::defaultEngine();
+    return omarchy.isEmpty() ? QStringLiteral("vibe") : omarchy;
+}
+
+QString AppConfig::defaultLocalApi(const QString &endpoint) {
+    return endpoint.isEmpty() && Omarchy::hasLocalModels() ? QStringLiteral("omarchy") : QStringLiteral("ollama");
+}
+
 AppConfig AppConfig::load(const QString &path) {
     AppConfig config;
+    bool engineSet = false, localApiSet = false;
+    // What the file leaves open follows Omarchy: its default agent, and its
+    // own local model when no endpoint is given.
+    const auto withDefaults = [&] {
+        if (!engineSet)
+            config.engine = defaultEngine();
+        if (!localApiSet)
+            config.localApi = defaultLocalApi(config.localEndpoint);
+        return config;
+    };
     QFile file(path.isEmpty() ? defaultPath() : path);
     if (!file.open(QIODevice::ReadOnly))
-        return config; // no config file: defaults
+        return withDefaults(); // no config file: defaults
     QString section;
     // Engine ids of 0.1: "lokal" is now "local".
     const auto engineId = [](const QString &id) {
@@ -157,8 +177,10 @@ AppConfig AppConfig::load(const QString &path) {
             if (key == QLatin1String("language"))
                 config.language = value.toLower();
         } else if (section == QLatin1String("engine")) {
-            if (key == QLatin1String("default"))
+            if (key == QLatin1String("default")) {
                 config.engine = engineId(value);
+                engineSet = !value.isEmpty();
+            }
             else if (key == QLatin1String("command"))
                 config.command = value;
             else if (key == QLatin1String("compare")) {
@@ -179,8 +201,10 @@ AppConfig AppConfig::load(const QString &path) {
             if (key == QLatin1String("model"))
                 config.claudeModel = value;
         } else if (section == QLatin1String("engine.local")) {
-            if (key == QLatin1String("api"))
+            if (key == QLatin1String("api")) {
                 config.localApi = value.toLower();
+                localApiSet = !value.isEmpty();
+            }
             else if (key == QLatin1String("endpoint"))
                 config.localEndpoint = value;
             else if (key == QLatin1String("model"))
@@ -203,7 +227,7 @@ AppConfig AppConfig::load(const QString &path) {
                 config.snapshotPath = value.startsWith(QLatin1String("~/")) ? QDir::homePath() + value.mid(1) : value;
         }
     }
-    return config;
+    return withDefaults();
 }
 
 namespace ConfigKeys {
@@ -213,14 +237,16 @@ const QList<ConfigKey> &all() {
                                         QStringLiteral("command")};
     static const QList<ConfigKey> keys = {
         {QStringLiteral("engine.default"), QStringLiteral("engine"), QStringLiteral("default"), engines,
-         QStringLiteral("vibe"), QStringLiteral("The AI engine a new input uses.")},
+         QStringLiteral("vibe"),
+         QStringLiteral("The AI engine a new input uses; unset follows Omarchy's default agent (claude or local), else vibe.")},
         {QStringLiteral("engine.vibe.model"), QStringLiteral("engine.vibe"), QStringLiteral("model"), {}, {},
          QStringLiteral("Model alias passed to vibe --model; empty uses vibe's own active model.")},
         {QStringLiteral("engine.claude.model"), QStringLiteral("engine.claude"), QStringLiteral("model"), {}, {},
          QStringLiteral("Model passed to claude --model (e.g. sonnet, opus); empty uses claude's default.")},
         {QStringLiteral("engine.local.api"), QStringLiteral("engine.local"), QStringLiteral("api"),
-         {QStringLiteral("ollama"), QStringLiteral("openai")}, QStringLiteral("ollama"),
-         QStringLiteral("The local endpoint's API: Ollama's /api/chat or OpenAI-compatible /v1/chat/completions.")},
+         {QStringLiteral("ollama"), QStringLiteral("openai"), QStringLiteral("omarchy")}, QStringLiteral("ollama"),
+         QStringLiteral("The local endpoint's API: Ollama's /api/chat, OpenAI-compatible /v1/chat/completions, or "
+                        "omarchy for the local model Omarchy runs (no endpoint needed; the default when it is set up).")},
         {QStringLiteral("engine.local.endpoint"), QStringLiteral("engine.local"), QStringLiteral("endpoint"), {}, {},
          QStringLiteral("URL of the local model server, e.g. http://127.0.0.1:11434.")},
         {QStringLiteral("engine.local.model"), QStringLiteral("engine.local"), QStringLiteral("model"), {}, {},
@@ -453,6 +479,9 @@ bool ConfigFile::save(QString *error) const {
         return false;
     }
     QSaveFile file(m_path);
+    // A folder no temp file can be made in fails the save; the old config is
+    // never truncated and rewritten in place.
+    file.setDirectWriteFallback(false);
     const QByteArray bytes = (text() + QLatin1Char('\n')).toUtf8();
     if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size() || !file.commit()) {
         if (error) *error = QStringLiteral("%1: %2").arg(m_path, file.errorString());

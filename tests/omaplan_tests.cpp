@@ -1520,7 +1520,7 @@ private slots:
         QVERIFY(cmake.open(QIODevice::ReadOnly));
         const QString version = QRegularExpression(QStringLiteral("(?m)^project\\(omaplan VERSION (\\S+) "))
                                     .match(QString::fromUtf8(cmake.readAll())).captured(1);
-        QCOMPARE(version, QStringLiteral("0.2.0"));
+        QCOMPARE(version, QStringLiteral("0.3.0"));
         QCOMPARE(runOmaplan(db, {QStringLiteral("--version")}, &code).trimmed(), QStringLiteral("omaplan ") + version);
         QCOMPARE(code, 0);
         QString stderrText;
@@ -2851,6 +2851,67 @@ private slots:
         QVERIFY(byId.value("claude").value("problem").toString().contains("PATH"));
         QCOMPARE(byId.value("claude").value("model").toString(), QStringLiteral("sonnet"));
         QVERIFY(!byId.value("local").value("ready").toBool());
+    }
+
+    // What the settings panel and `omaplan engines` show on a machine where
+    // Omarchy runs a local model and the user has chosen nothing.
+    void enginesOfferOmarchysLocalModelWhenItIsSetUp()
+    {
+        QTemporaryDir home;
+        Store store(home.filePath("plan.db"));
+        QString err;
+        QVERIFY(store.open(&err));
+        const QByteArray oldHome = qgetenv("OMAPLAN_OMARCHY_HOME");
+        qputenv("OMAPLAN_OMARCHY_HOME", home.path().toLocal8Bit());
+        qputenv("OMAPLAN_CONFIG", home.filePath("config.toml").toLocal8Bit());
+        const auto write = [&home](const QString &relative, const QByteArray &contents) {
+            const QString path = home.filePath(relative);
+            QDir().mkpath(QFileInfo(path).absolutePath());
+            QFile file(path);
+            return file.open(QIODevice::WriteOnly) && file.write(contents) == contents.size();
+        };
+        const auto local = [&] {
+            int code = 0;
+            const QJsonObject engines = cliJson(store, {"engines", "--json"}, &err, &code);
+            QJsonObject found;
+            for (const QJsonValue &e : engines.value("engines").toArray())
+                if (e.toObject().value("id").toString() == QLatin1String("local"))
+                    found = e.toObject();
+            found.insert("defaultEngine", engines.value("default"));
+            return found;
+        };
+
+        // Without Omarchy's models: no such choice, and vibe as before.
+        QVERIFY(!local().value("omarchy").toBool());
+        QCOMPARE(local().value("api").toString(), QStringLiteral("ollama"));
+        QCOMPARE(local().value("defaultEngine").toString(), QStringLiteral("vibe"));
+
+        QVERIFY(write(".config/omarchy/agent-local/key", "invented-key\n"));
+        QVERIFY(write(".config/omarchy/defaults/agent", "local\n"));
+        QVERIFY(write(".local/state/omarchy/agent-local/status.json",
+                      R"({"models":{"demo-7b":{"kind":"text","unit":"active","endpoint":"http://127.0.0.1:11435/v1"}},)"
+                      R"("last":"demo-7b"})"));
+        QJsonObject e = local();
+        QVERIFY(e.value("omarchy").toBool());
+        QCOMPARE(e.value("api").toString(), QStringLiteral("omarchy"));
+        QCOMPARE(e.value("model").toString(), QStringLiteral("demo-7b"));
+        QCOMPARE(e.value("endpoint").toString(), QStringLiteral("http://127.0.0.1:11435/v1"));
+        QVERIFY(e.value("ready").toBool());
+        QCOMPARE(e.value("defaultEngine").toString(), QStringLiteral("local"));
+        // The key is never part of what is shown or stored.
+        QVERIFY(!QJsonDocument(e).toJson().contains("invented-key"));
+        QVERIFY(!QFile::exists(home.filePath("config.toml")));
+
+        // Stopped: the panel says how to start it.
+        QVERIFY(write(".local/state/omarchy/agent-local/status.json",
+                      R"({"models":{"demo-7b":{"kind":"text","unit":"inactive"}},"last":"demo-7b"})"));
+        e = local();
+        QVERIFY(!e.value("ready").toBool());
+        QVERIFY2(e.value("problem").toString().contains("omarchy models start demo-7b"),
+                 qPrintable(e.value("problem").toString()));
+
+        qputenv("OMAPLAN_OMARCHY_HOME", oldHome);
+        qputenv("OMAPLAN_CONFIG", "");
     }
 
     // N1: the prompt keeps ISO times on a 12-hour clock; only text for the user follows it.

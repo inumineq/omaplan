@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
 # The one place for the version: --version, the MCP serverInfo and the release
 # tag (the recipe in omarchy-pkgs follows the tag).
-project(omaplan VERSION 0.2.0 LANGUAGES CXX)
+project(omaplan VERSION 0.3.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -46,9 +46,10 @@ function(omaplan_test name)
   set_target_properties(${name} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests)
   add_dependencies(${name} omaplan)
   add_test(NAME ${name} COMMAND ${name})
-  # A desktop platform theme (gtk3) would need a display.
+  # A desktop platform theme (gtk3) would need a display. The machine's own
+  # Omarchy choices (default agent, local models) must not decide a test.
   set_tests_properties(${name} PROPERTIES
-    ENVIRONMENT QT_QPA_PLATFORM=offscreen
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;OMAPLAN_OMARCHY_HOME=${CMAKE_BINARY_DIR}/no-omarchy"
     ENVIRONMENT_MODIFICATION QT_QPA_PLATFORMTHEME=unset:)
 endfunction()
 

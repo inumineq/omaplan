@@ -16,6 +16,7 @@
 #include "config.h"
 #include "dateannotate.h"
 #include "datewords.h"
+#include "omarchy.h"
 #include "uilanguage.h"
 
 namespace {
@@ -37,6 +38,14 @@ QJsonObject entry(const ConfigKey &key, const ConfigFile &file, const AppConfig 
     } else if (key.name == QLatin1String("language") && source != QLatin1String("file")) {
         effective = UiLanguage::current();
         source = QStringLiteral("system");
+    } else if (key.name == QLatin1String("engine.default") && source != QLatin1String("file")) {
+        effective = config.engine;
+        if (!Omarchy::defaultEngine().isEmpty())
+            source = QStringLiteral("omarchy");
+    } else if (key.name == QLatin1String("engine.local.api") && source != QLatin1String("file")) {
+        effective = config.localApi;
+        if (effective == QLatin1String("omarchy"))
+            source = QStringLiteral("omarchy");
     } else if (source != QLatin1String("file")) {
         effective = key.defaultValue;
     }
@@ -61,6 +70,8 @@ QString entryLine(const QJsonObject &e) {
                    + (effective.isEmpty() ? QCoreApplication::translate("Actions", "(not set)") : effective);
     if (source == QLatin1String("language"))
         line += QStringLiteral("  ") + QCoreApplication::translate("Actions", "(the language's)");
+    else if (source == QLatin1String("omarchy"))
+        line += QStringLiteral("  ") + QCoreApplication::translate("Actions", "(Omarchy's)");
     else if (source == QLatin1String("default") && !effective.isEmpty())
         line += QStringLiteral("  ") + QCoreApplication::translate("Actions", "(default)");
     return line;
@@ -195,11 +206,22 @@ ActionResult Actions::engines() {
                 problem = tr("'%1' was not found on PATH").arg(tool);
         } else if (info.id == QLatin1String("local")) {
             o.insert(QStringLiteral("api"), config.localApi);
-            o.insert(QStringLiteral("endpoint"), config.localEndpoint);
-            o.insert(QStringLiteral("model"), config.localModel);
-            ready = !config.localEndpoint.isEmpty() && !config.localModel.isEmpty();
-            if (!ready)
-                problem = tr("needs an endpoint and a model");
+            // Whether Omarchy's own local model is there to choose.
+            o.insert(QStringLiteral("omarchy"), Omarchy::hasLocalModels());
+            if (config.localApi == QLatin1String("omarchy")) {
+                // Omarchy's own model: where and which come from Omarchy.
+                const Omarchy::LocalModel model = Omarchy::localModel(config.localModel);
+                o.insert(QStringLiteral("endpoint"), model.endpoint);
+                o.insert(QStringLiteral("model"), model.recipe);
+                ready = model.problem.isEmpty();
+                problem = model.problem;
+            } else {
+                o.insert(QStringLiteral("endpoint"), config.localEndpoint);
+                o.insert(QStringLiteral("model"), config.localModel);
+                ready = !config.localEndpoint.isEmpty() && !config.localModel.isEmpty();
+                if (!ready)
+                    problem = tr("needs an endpoint and a model");
+            }
         } else {
             o.insert(QStringLiteral("command"), config.command);
             ready = !config.command.isEmpty() && !path.isEmpty();

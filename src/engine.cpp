@@ -212,7 +212,9 @@ std::unique_ptr<AiEngine> createEngine(const QString &id, const QString &modelOv
         engine = createClaudeEngine(pick(config.claudeModel));
     } else if (id == QLatin1String("local") || id == QLatin1String("lokal")) { // "lokal" until 0.1
         const QString endpoint = !endpointOverride.isEmpty() ? endpointOverride : config.localEndpoint;
-        engine = createLocalEngine(endpoint, pick(config.localModel), config.localApi);
+        // An endpoint on the command line is the user's own server, not Omarchy's.
+        const bool omarchy = config.localApi == QLatin1String("omarchy") && endpointOverride.isEmpty();
+        engine = createLocalEngine(omarchy ? QString() : endpoint, pick(config.localModel), config.localApi);
     } else if (id == QLatin1String("command")) {
         if (config.command.isEmpty()) {
             if (error)

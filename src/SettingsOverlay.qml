@@ -353,11 +353,15 @@ Rectangle {
                                         Layout.alignment: Qt.AlignBottom
                                         key: "engine.local.api"
                                         label: qsTr("API")
-                                        options: [["ollama", "Ollama"], ["openai", qsTr("OpenAI-compatible")]]
+                                        // Omarchy's own local model is a choice when it is set up
+                                        // (and then the default), or when the config names it.
+                                        options: (card.info.omarchy || card.info.api === "omarchy" ? [["omarchy", "Omarchy"]] : [])
+                                                 .concat([["ollama", "Ollama"], ["openai", qsTr("OpenAI-compatible")]])
                                         value: card.info.api || "ollama"
                                     }
                                     ConfigField {
-                                        visible: card.modelData === "local"
+                                        // Omarchy's model brings its own endpoint.
+                                        visible: card.modelData === "local" && card.info.api !== "omarchy"
                                         Layout.fillWidth: true
                                         key: "engine.local.endpoint"
                                         label: qsTr("Endpoint")
@@ -368,7 +372,8 @@ Rectangle {
                                         Layout.fillWidth: true
                                         key: "engine." + card.modelData + ".model"
                                         label: qsTr("Model")
-                                        placeholder: card.modelData === "local" ? "llama3.2" : qsTr("the tool's default")
+                                        placeholder: card.modelData !== "local" ? qsTr("the tool's default")
+                                                     : card.info.api === "omarchy" ? (card.info.model || qsTr("Omarchy's pick")) : "llama3.2"
                                     }
                                     ConfigField {
                                         visible: card.modelData === "command"

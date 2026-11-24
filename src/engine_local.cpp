@@ -1,5 +1,6 @@
 #include "engine.h"
 #include "config.h"
+#include "omarchy.h"
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -16,23 +17,33 @@
 // hardcoded and no model is bundled. The schema is sent as grammar (Ollama
 // "format", OpenAI response_format json_schema) so small models stay valid.
 // A truncated answer (done_reason/finish_reason "length") is an error and
-// carries the raw response. No API key is sent. Any URL is accepted, and the
-// prompt (the text and the open tasks) goes to it, so the endpoint is meant
-// to be the user's own machine or network.
+// carries the raw response. Any URL is accepted, and the prompt (the text and
+// the open tasks) goes to it, so the endpoint is meant to be the user's own
+// machine or network. No API key is sent, except with api "omarchy": the
+// model Omarchy itself runs (omarchy-local-ai), OpenAI-compatible on a
+// loopback port, found through Omarchy's status file at each request, with
+// Omarchy's key read from its file for that request and never stored.
 class LocalEngine : public AiEngine {
 public:
     LocalEngine(const QString &endpoint, const QString &model, const QString &api, QObject *parent)
         : AiEngine(parent)
         , m_endpoint(endpoint)
         , m_model(model)
-        , m_api(api == QLatin1String("openai") ? QLatin1String("openai") : QLatin1String("ollama"))
+        , m_omarchy(api == QLatin1String("omarchy") && endpoint.isEmpty())
+        , m_api(api == QLatin1String("openai") || api == QLatin1String("omarchy") ? QLatin1String("openai")
+                                                                                   : QLatin1String("ollama"))
         , m_nam(new QNetworkAccessManager(this))
     {
     }
 
     QString id() const override { return QStringLiteral("local"); }
-    QString displayName() const override { return m_model.isEmpty() ? AiEngine::tr("Local") : AiEngine::tr("Local (%1)").arg(m_model); }
-    QString modelInfo() const override { return m_model; }
+    QString displayName() const override
+    {
+        const QString model = modelInfo();
+        return model.isEmpty() ? AiEngine::tr("Local") : AiEngine::tr("Local (%1)").arg(model);
+    }
+    // Omarchy's model is named before the first request too.
+    QString modelInfo() const override { return m_omarchy ? Omarchy::localModel(m_wanted).recipe : m_model; }
 
     // No external binary; reachability and configuration are reported per
     // request, so available() is true and start() fails clearly instead.
@@ -45,6 +56,20 @@ public:
 protected:
     void start(const QString &systemPrompt, const QString &userPrompt) override
     {
+        QByteArray key;
+        if (m_omarchy) {
+            // Asked now, so a model started or stopped since counts.
+            const Omarchy::LocalModel model = Omarchy::localModel(m_wanted);
+            key = Omarchy::localKey();
+            if (!model.problem.isEmpty() || key.isEmpty()) {
+                fail(!model.problem.isEmpty() ? model.problem
+                                              : AiEngine::tr("Omarchy's local model key could not be read "
+                                                             "(~/.config/omarchy/agent-local/key)."));
+                return;
+            }
+            m_endpoint = model.endpoint;
+            m_model = model.recipe;
+        }
         if (m_model.isEmpty() || m_endpoint.isEmpty()) {
             fail(AiEngine::tr("The local engine needs a model and an endpoint. Example config "
                                 "(~/.config/omaplan/config.toml):\n\n"
@@ -92,6 +117,8 @@ protected:
                                                                : QStringLiteral("/v1/chat/completions");
         QNetworkRequest request(base.resolved(QUrl(path)));
         request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+        if (!key.isEmpty())
+            request.setRawHeader("Authorization", "Bearer " + key);
 
         m_reply = m_nam->post(request, QJsonDocument(body).toJson(QJsonDocument::Compact));
         connect(m_reply, &QNetworkReply::readyRead, this, [this] {
@@ -165,6 +192,10 @@ protected:
 private:
     QString m_endpoint;
     QString m_model;
+    // With Omarchy's model: the recipe the config asks for (empty = Omarchy's
+    // pick), while m_model and m_endpoint are what the last request found.
+    bool m_omarchy;
+    QString m_wanted = m_omarchy ? m_model : QString();
     QString m_api;
     QNetworkAccessManager *m_nam;
     QNetworkReply *m_reply = nullptr;

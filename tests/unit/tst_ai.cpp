@@ -1,5 +1,6 @@
 // Unit tests for the AI layer. No test calls a real AI: engines are either
 // a FakeEngine subclass or a CommandEngine running cat/printf/sleep.
+#include "config.h"
 #include "engine.h"
 #include "prompt.h"
 #include "proposal.h"
@@ -67,6 +68,7 @@ struct FakeHttpServer {
     QTcpServer server;
     QByteArray incoming; // one request is expected per test
     QByteArray requestLine;
+    QByteArray requestHeaders; // lower-case
     QByteArray requestBody;
     QByteArray responseBody;
     int responseStatus = 200;
@@ -91,6 +93,7 @@ struct FakeHttpServer {
                 if (incoming.size() < headerEnd + 4 + contentLength)
                     return; // body not complete yet
                 requestLine = headers.left(headers.indexOf("\r\n"));
+                requestHeaders = headers.toLower();
                 requestBody = incoming.mid(headerEnd + 4, contentLength);
                 ++requests;
                 const QByteArray reason = responseStatus == 200 ? QByteArrayLiteral("OK")
@@ -571,6 +574,37 @@ private slots:
     }
 };
 
+static void writeFile(const QString &path, const QByteArray &contents)
+{
+    QFile file(path);
+    if (file.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        file.write(contents);
+}
+
+// A home as Omarchy leaves it once a local model is set up: the engine's
+// status file and its private key. Invented names; no real model.
+static void writeOmarchyHome(const QString &home, const QString &endpoint, const QString &unit,
+                             const QByteArray &key = "invented-key\n")
+{
+    QDir().mkpath(home + QStringLiteral("/.local/state/omarchy/agent-local"));
+    QDir().mkpath(home + QStringLiteral("/.config/omarchy/agent-local"));
+    QDir().mkpath(home + QStringLiteral("/.config/omarchy/defaults"));
+    const QJsonObject model{{QStringLiteral("recipe"), QStringLiteral("demo-7b")},
+                            {QStringLiteral("kind"), QStringLiteral("text")},
+                            {QStringLiteral("unit"), unit},
+                            {QStringLiteral("endpoint"), endpoint}};
+    const QJsonObject image{{QStringLiteral("kind"), QStringLiteral("image")},
+                            {QStringLiteral("unit"), QStringLiteral("active")}};
+    writeFile(home + QStringLiteral("/.local/state/omarchy/agent-local/status.json"),
+              QJsonDocument(QJsonObject{{QStringLiteral("models"),
+                                         QJsonObject{{QStringLiteral("demo-7b"), model},
+                                                     {QStringLiteral("painter"), image}}},
+                                        {QStringLiteral("last"), QStringLiteral("demo-7b")}})
+                  .toJson());
+    if (!key.isEmpty())
+        writeFile(home + QStringLiteral("/.config/omarchy/agent-local/key"), key);
+}
+
 class TestEngine : public QObject {
     Q_OBJECT
 private slots:
@@ -993,6 +1027,122 @@ private slots:
                         .value(QStringLiteral("schema")).isObject());
         QVERIFY(!body.contains(QStringLiteral("format")));
         QVERIFY(!body.contains(QStringLiteral("think")));
+        // The user's own server gets no key.
+        QVERIFY(!srv.requestHeaders.contains("authorization"));
+    }
+
+    void localEngineAsksOmarchysOwnModelWithItsKey()
+    {
+        FakeHttpServer srv;
+        const QJsonObject choice{{QStringLiteral("message"),
+                                  QJsonObject{{QStringLiteral("role"), QStringLiteral("assistant")},
+                                              {QStringLiteral("content"),
+                                               QString::fromUtf8(proposalJson(QStringLiteral("Write the blog post")))}}},
+                                 {QStringLiteral("finish_reason"), QStringLiteral("stop")}};
+        srv.responseBody = QJsonDocument(QJsonObject{{QStringLiteral("choices"), QJsonArray{choice}}})
+                               .toJson(QJsonDocument::Compact);
+        QVERIFY(srv.listen());
+        QTemporaryDir home;
+        writeOmarchyHome(home.path(), srv.endpoint() + QStringLiteral("/v1"), QStringLiteral("active"));
+        qputenv("OMAPLAN_OMARCHY_HOME", home.path().toLocal8Bit());
+
+        // No endpoint and no model in the config: both come from Omarchy.
+        auto engine = createLocalEngine(QString(), QString(), QStringLiteral("omarchy"));
+        QCOMPARE(engine->modelInfo(), QStringLiteral("demo-7b"));
+        Proposal proposal;
+        QString error;
+        QVERIFY2(runEngine(*engine, QStringLiteral("write the blog post"), &proposal, &error), qPrintable(error));
+        QCOMPARE(proposal.tasks.size(), 1);
+        QVERIFY2(srv.requestLine.startsWith("POST /v1/chat/completions"), qPrintable(srv.requestLine));
+        QVERIFY2(srv.requestHeaders.contains("authorization: bearer invented-key\r\n")
+                     || srv.requestHeaders.endsWith("authorization: bearer invented-key"),
+                 qPrintable(srv.requestHeaders));
+        QCOMPARE(QJsonDocument::fromJson(srv.requestBody).object().value(QStringLiteral("model")).toString(),
+                 QStringLiteral("demo-7b"));
+        qunsetenv("OMAPLAN_OMARCHY_HOME");
+    }
+
+    void localEngineSaysWhatOmarchysModelNeeds()
+    {
+        FakeHttpServer srv;
+        QVERIFY(srv.listen());
+        QString error;
+        auto ask = [&](const QString &model = {}) {
+            error.clear();
+            auto engine = createLocalEngine(QString(), model, QStringLiteral("omarchy"));
+            return runEngine(*engine, QStringLiteral("x"), nullptr, &error);
+        };
+        {
+            // No Omarchy model at all.
+            QTemporaryDir home;
+            qputenv("OMAPLAN_OMARCHY_HOME", home.path().toLocal8Bit());
+            QVERIFY(!ask());
+            QVERIFY2(error.contains(QStringLiteral("omarchy models use")), qPrintable(error));
+        }
+        {
+            // Set up, but stopped.
+            QTemporaryDir home;
+            writeOmarchyHome(home.path(), srv.endpoint() + QStringLiteral("/v1"), QStringLiteral("inactive"));
+            qputenv("OMAPLAN_OMARCHY_HOME", home.path().toLocal8Bit());
+            QVERIFY(!ask());
+            QVERIFY2(error.contains(QStringLiteral("omarchy models start demo-7b")), qPrintable(error));
+            // An image model, or one that is not there, is not a text model.
+            QVERIFY(!ask(QStringLiteral("painter")));
+            QVERIFY2(error.contains(QStringLiteral("painter")), qPrintable(error));
+        }
+        {
+            // The key never leaves the machine: an endpoint elsewhere is refused.
+            QTemporaryDir home;
+            writeOmarchyHome(home.path(), QStringLiteral("http://model.example:11435/v1"), QStringLiteral("active"));
+            qputenv("OMAPLAN_OMARCHY_HOME", home.path().toLocal8Bit());
+            QVERIFY(!ask());
+            QVERIFY2(error.contains(QStringLiteral("model.example")), qPrintable(error));
+        }
+        {
+            // Running, but the key file is gone.
+            QTemporaryDir home;
+            writeOmarchyHome(home.path(), srv.endpoint() + QStringLiteral("/v1"), QStringLiteral("active"), {});
+            qputenv("OMAPLAN_OMARCHY_HOME", home.path().toLocal8Bit());
+            QVERIFY(!ask());
+            QVERIFY2(error.contains(QStringLiteral("agent-local/key")), qPrintable(error));
+        }
+        QCOMPARE(srv.requests, 0);
+        qunsetenv("OMAPLAN_OMARCHY_HOME");
+    }
+
+    void unsetEngineChoicesFollowOmarchy()
+    {
+        QTemporaryDir home;
+        qputenv("OMAPLAN_OMARCHY_HOME", home.path().toLocal8Bit());
+        const QString config = home.filePath(QStringLiteral("config.toml"));
+        const QString agent = home.path() + QStringLiteral("/.config/omarchy/defaults/agent");
+        QDir().mkpath(QFileInfo(agent).absolutePath());
+
+        // Without Omarchy: vibe, and Ollama's API.
+        QCOMPARE(AppConfig::load(config).engine, QStringLiteral("vibe"));
+        QCOMPARE(AppConfig::load(config).localApi, QStringLiteral("ollama"));
+
+        // omarchy default agent: claude and local have an engine here.
+        writeFile(agent, "claude\n");
+        QCOMPARE(AppConfig::load(config).engine, QStringLiteral("claude"));
+        writeFile(agent, "local\n");
+        QCOMPARE(AppConfig::load(config).engine, QStringLiteral("local"));
+        writeFile(agent, "codex\n");
+        QCOMPARE(AppConfig::load(config).engine, QStringLiteral("vibe"));
+
+        // Omarchy's local models set up: the local engine uses them...
+        writeOmarchyHome(home.path(), QStringLiteral("http://127.0.0.1:11435/v1"), QStringLiteral("active"));
+        QCOMPARE(AppConfig::load(config).localApi, QStringLiteral("omarchy"));
+        // ...unless the user points it at a server of their own.
+        writeFile(config, "[engine.local]\nendpoint = \"http://127.0.0.1:11434\"\n");
+        QCOMPARE(AppConfig::load(config).localApi, QStringLiteral("ollama"));
+
+        // What the user chose stays, whatever Omarchy's default is.
+        writeFile(agent, "claude\n");
+        writeFile(config, "[engine]\ndefault = \"vibe\"\n[engine.local]\napi = \"openai\"\n");
+        QCOMPARE(AppConfig::load(config).engine, QStringLiteral("vibe"));
+        QCOMPARE(AppConfig::load(config).localApi, QStringLiteral("openai"));
+        qunsetenv("OMAPLAN_OMARCHY_HOME");
     }
 
     void localEngineTruncationFailsWithRaw()
