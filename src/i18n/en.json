@@ -132,7 +132,7 @@
   "Month/day": "Month/day",
   "Move a day earlier / later": "Move a day earlier / later",
   "Move a quarter hour earlier / later": "Move a quarter hour earlier / later",
-  "Move to another day or time; drag the right edge of a bar for duration": "Move to another day or time; drag the right edge of a bar for duration",
+  "Move to another day or time; drag the right edge of a bar for its length": "Move to another day or time; drag the right edge of a bar for its length",
   "Moved %1 to %2": "Moved %1 to %2",
   "New task": "New task",
   "New task by hand": "New task by hand",

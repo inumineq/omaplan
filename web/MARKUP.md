@@ -45,7 +45,7 @@ template with placeholders: `{weekday}`/`{Weekday}` (the weekday as written in `
 
 Times are `09:00` (24-hour, colon) in both; an interval is `09:00–10:30` (U+2013 en dash). With `"clock": "12h"`
 in `plan.json` every time on the page (task times, deadlines, the export time, timeline titles) is written
-`9:00 AM` / `2:30 PM` instead, in both languages; the timeline's hour axis stays numbers. The export time is the
+`9:00 AM` / `2:30 PM` instead, in both languages; the hours in the timeline's description stay numbers. The export time is the
 wall time as written in `exported` (no time zone conversion).
 
 The examples below are the English rendering.
@@ -214,51 +214,65 @@ Groups are sorted by project name (collated in the page's language). Tasks witho
 ```html
 <section id="timeline" class="view" aria-label="Timeline">
   <h2>Timeline</h2>
-  <p class="description">Gantt chart of every date with tasks or deadlines – window 8–18, overlapping tasks get a track each.</p>
-  <div class="gantt" style="--from:8;--to:18">
-    <div class="gantt-head" aria-hidden="true">
-      <div class="gantt-date gantt-date-empty"></div>
-      <div class="gantt-hours"><span style="--hour:8">8</span><span style="--hour:10">10</span>…<span style="--hour:18">18</span></div>
-    </div>
-    <div class="gantt-rows">
-      <section class="gantt-day today" data-date="2026-11-23">
-        <h3 class="gantt-date"><time datetime="2026-11-23">Mon 23/11</time></h3>
-        <div class="tracks" style="--tracks:3">
-          <div class="bar bar-all-day" style="--start:8;--length:10;--track:0" data-id="…" title="…"><span class="bar-title">…</span></div>
-          <div class="bar" style="--start:14;--length:1.5;--track:1" data-id="…" title="…"></div>
-          <span class="bar-label" style="--start:14;--length:1.5;--track:1" data-id="…" title="…">Edit podcast clip for social media</span>
-          <div class="deadline-mark" style="--start:12" data-id="…" title="deadline: …"></div>
-        </div>
-      </section>
-      …
-    </div>
+  <p class="description">Gantt chart, a week per block: each task spans its days, and a day runs from 8 to 18. A title sits in its bar when it fits, otherwise beside it; ◆ is a deadline.</p>
+  <div class="gantt">
+    <section class="gantt-week" data-week="2026-11-23">
+      <div class="gantt-days">
+        <h3 class="gantt-date today"><time datetime="2026-11-23">Mon 23/11</time></h3>
+        <h3 class="gantt-date"><time datetime="2026-11-24">Tue 24/11</time></h3>
+        …
+      </div>
+      <div class="lanes" style="--lanes:3">
+        <div class="bar bar-all-day" style="--x:0;--w:71.43;--lane:0" data-id="…" title="…"><span class="bar-title">Write the article</span></div>
+        <div class="bar" style="--x:15.71;--w:1.43;--lane:1" data-id="…" data-color="green" title="…"></div>
+        <div class="deadline-line" style="--x:17.14;--w:30.2;--lane:1"></div>
+        <div class="deadline-mark" style="--x:47.34;--lane:1" data-id="…" title="deadline: …"></div>
+        <span class="bar-label" style="--x:48.6;--lane:1" data-id="…" title="…">Draft the newsletter</span>
+        <span class="bar-label bar-label-before" style="--x:84.3;--lane:2" data-id="…" title="…">Send out newsletter</span>
+        …
+      </div>
+    </section>
+    …
   </div>
 </section>
 ```
 
-- One row per day from the earliest to the latest date among all `start` and `deadline` values (every day in the
-  span, empty ones too). Today has the class `today`. Tasks without `start` have no bar (only a deadline mark, if
-  any).
-- **Time window**: `--from`/`--to` on `.gantt` are set inline (whole hours) to the earliest start and the latest
-  end among tasks **with a time**, rounded to whole hours (`floor`/`ceil`), at least `8`–`18`. CSS places bars with
-  `left: calc((var(--start) - var(--from)) / (var(--to) - var(--from)) * 100%)` and
-  `width: calc(var(--length) / (var(--to) - var(--from)) * 100%)` — `--start`/`--length` are absolute hours.
-- The hour axis shows labels every 1/2/3 hours depending on the window's width as `<span style="--hour:8">8</span>`.
-- All-day tasks (start without a time) span the whole window: `--start: from`, `--length: to - from`, class
-  `bar-all-day`. A task with a time but no duration: a 30-minute bar (`--length:0.5`). Done tasks: `status-done`
-  on the bar.
-- **Title**: inside the bar (`<span class="bar-title">`) when it fits – a conservative estimate: title length ≤
-  `--length` × 64 characters per all-day window (the column's minimum width is 34rem), divided by the window's
-  length (`to - from`), so an hour is narrower in a wide window. Otherwise as `<span class="bar-label">` right
-  after the bar (the same `--start`, `--length`, `--track` and `title` as the bar) – never clipped in the bar,
-  not even when there is no room to the right.
-- **Track algorithm** (overlap): sort the day's bars by start (ascending), at equal start longest first; put each
-  bar in the first track whose latest end ≤ the bar's start, otherwise in a new track. `--tracks` = number of
-  tracks (at least 1).
-- Deadlines show as `deadline-mark` (a diamond) on the deadline day at the deadline time (`--start` = hours within
-  the window), or at the right edge (class `deadline-mark-edge`) when the deadline is a date only or lies outside
-  the window. They take no track.
-- `title` on bars and marks: `Title – Mon 23/11 14:00–15:30` (all-day: `Title – Mon 23/11 (all day)`) /
+- **Weeks**: one `.gantt-week` per week (Monday to Sunday, `data-week` = the Monday) from the week of the earliest
+  date to the week of the latest, empty weeks too. The dates are each task's first and last day and its deadline
+  mark's day. With no dated tasks, the current week. `.gantt-days` has seven `h3.gantt-date` headings; today's has
+  the class `today`.
+- **Span** (`taskSpan`, the same rule as the window's `taskSpan` in `src/task.h`), in wall time:
+  - with `duration_min`: from `start` for that long; a start without a time covers whole days,
+    `ceil(duration / 1440)` of them, at least one;
+  - without a duration but with a deadline on a later day: from `start` to the deadline (the end of its day if
+    the start has no time);
+  - otherwise the start's day (no time) or 30 minutes.
+  A deadline after the span's end, or a task with only a deadline, gets a mark. Tasks with neither `start` nor
+  `deadline` are not in the timeline.
+- **Positions**: a day runs from `from` to `to` (whole hours: the earliest start and the latest same-day end among
+  tasks **with a time**, at least `8`–`18`, at most 24); a whole-day span starts and ends on day boundaries.
+  `--x` and `--w` are percentages of the week (two decimals), `--lane` the row inside the week. A span is drawn as
+  a bar in every week it touches; `bar-cut-start` / `bar-cut-end` mark the side where it goes on into the
+  week before or after. A bar is at least `0.35rem` wide (`BAR_MIN_REM`).
+- **Deadlines**: a `deadline-mark` (a diamond) at the deadline's time, or just before the end of its day when it
+  has no time, never closer than half a mark to its own bar. When the task has a bar in that week, a
+  `deadline-line` runs from the bar to the mark.
+- **Layout** (`layoutTimeline`, the same algorithm as `Timeline::layout` in `src/timeline.cpp`), computed in rem
+  for the week's minimum width `WEEK_REM = 48` with a title's width estimated as `0.47rem` per character
+  (`CHAR_REM`); `gap 0.3`, `pad 0.3`, `spacing 0.9`. The title goes, in this order of preference:
+  1. inside its bar (`<span class="bar-title">`), when its width plus padding on both sides fits;
+  2. after the bar, before its mark (`<span class="bar-label">`);
+  3. before the bar (`bar-label bar-label-before`; `--x` is then the title's **right** edge, so it stays at the
+     bar on a wider page);
+  4. after the mark;
+  5. otherwise shortened on the side with the most room, with `--max` (rem) as its width and an ellipsis.
+  Then each task takes the first lane where all it occupies (bar, title, mark) is `spacing` clear of the last task
+  there; tasks are taken by start, longest first. `--lanes` is the number of lanes (at least 1). Since positions
+  are percentages and titles keep their width in rem, a wider page only spreads things further apart; below the
+  minimum width the week scrolls sideways.
+- Done tasks: `status-done` on the bar, the label and the mark.
+- `title` on bars and labels: `Title – Mon 23/11 14:00–15:30`, `Title – Mon 23/11 (all day)`,
+  `Title – Mon 23/11 – Fri 27/11` or `Title – Mon 23/11 14:00 – Wed 25/11 10:00`; on marks
   `deadline: Friday 27 November 2026 at 12:00 – Title`.
 
 ## Message pages (server only)

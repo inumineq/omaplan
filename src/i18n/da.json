@@ -132,7 +132,7 @@
   "Month/day": "Måned/dag",
   "Move a day earlier / later": "Flyt en dag tidligere / senere",
   "Move a quarter hour earlier / later": "Flyt et kvarter tidligere / senere",
-  "Move to another day or time; drag the right edge of a bar for duration": "Flyt til en anden dag eller tid; træk i en bjælkes højre kant for varighed",
+  "Move to another day or time; drag the right edge of a bar for its length": "Flyt til en anden dag eller tid; træk i en bjælkes højre kant for dens længde",
   "Moved %1 to %2": "Flyttet %1 til %2",
   "New task": "Ny opgave",
   "New task by hand": "Ny opgave uden AI",
