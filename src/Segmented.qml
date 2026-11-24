@@ -4,6 +4,8 @@ import QtQuick.Controls
 // A labelled row of choices: "Group [Date|Project|None]". The key shows in a
 // tooltip ("Group (g)"), or beside the choices in dialogs (keyInline).
 // With focusable, Tab reaches it and ← / → pick the previous / next choice.
+// With maxWidth, the choices wrap onto more lines rather than grow past it
+// (a wide font, a long translation or a narrow window).
 Row {
     id: seg
     property string label: ""
@@ -12,9 +14,10 @@ Row {
     property var options: []   // [[value, text], ...]
     property string value: ""
     property bool focusable: false
+    property real maxWidth: 0   // 0: one line, however long
     signal picked(string value)
     spacing: 8
-    height: 32
+    height: Math.max(32, choices.height + 4)
     activeFocusOnTab: focusable
 
     function step(delta) {
@@ -32,16 +35,33 @@ Row {
     ToolTip.text: keyHint === "" || keyInline ? "" : (label !== "" ? label + " (" + keyHint + ")" : keyHint)
 
     Text {
+        id: labelText
         font.family: theme.fontFamily
         anchors.verticalCenter: parent.verticalCenter
         text: seg.label
         color: theme.muted
         font.pixelSize: 12
     }
-    Row {
+    // A Flow wraps only once its width is set; unset, it is one line.
+    Flow {
+        id: choices
         anchors.verticalCenter: parent.verticalCenter
         spacing: 0
+        readonly property real oneLine: {
+            let w = 0
+            for (let i = 0; i < choiceRepeater.count; ++i) {
+                const c = choiceRepeater.itemAt(i)
+                if (c)
+                    w += c.width
+            }
+            return w
+        }
+        // A Row skips empty and hidden items, and their spacing.
+        readonly property real room: seg.maxWidth - (labelText.width > 0 ? labelText.width + seg.spacing : 0)
+                                     - (hintText.visible && hintText.width > 0 ? hintText.width + seg.spacing : 0)
+        width: seg.maxWidth > 0 ? Math.max(0, Math.min(oneLine, room)) : undefined
         Repeater {
+            id: choiceRepeater
             model: seg.options
             delegate: Rectangle {
                 id: choice
@@ -71,6 +91,7 @@ Row {
         }
     }
     Text {
+        id: hintText
         anchors.verticalCenter: parent.verticalCenter
         visible: seg.keyInline && seg.keyHint !== ""
         text: seg.keyHint
