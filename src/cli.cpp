@@ -127,8 +127,10 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
             rest.append(args[i]);
     }
 
-    if (rest.isEmpty() || rest.first() == QLatin1String("--help") || rest.first() == QLatin1String("-h")
-        || rest.first() == QLatin1String("help")) {
+    // --help or -h anywhere shows the help and runs nothing: an agent that
+    // asks for the help of `undo` must not undo.
+    if (rest.isEmpty() || rest.first() == QLatin1String("help") || rest.contains(QLatin1String("--help"))
+        || rest.contains(QLatin1String("-h"))) {
         printHelp(out);
         return 0;
     }

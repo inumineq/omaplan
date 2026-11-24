@@ -37,7 +37,9 @@ int main(int argc, char *argv[]) {
 
     // Everything except `open` (and no arguments) is a CLI command, which runs
     // without a display.
-    const bool gui = command.isEmpty() || command.first() == QLatin1String("open");
+    // `open --help` prints the help too.
+    const bool gui = (command.isEmpty() || command.first() == QLatin1String("open"))
+            && !command.contains(QLatin1String("--help")) && !command.contains(QLatin1String("-h"));
     if (!gui) {
         QCoreApplication app(argc, argv);
         app.setApplicationName("omaplan");

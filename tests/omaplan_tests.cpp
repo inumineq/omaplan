@@ -1151,6 +1151,40 @@ private slots:
         QVERIFY(!Actions::parseDateTime(QStringLiteral("2026-13-40"), today, &out, &hasTime, &error));
     }
 
+    // An agent that reads the help of `undo` or `rm` must not change the plan.
+    void helpAnywhereOnTheLineChangesNothing()
+    {
+        QTemporaryDir dir;
+        const QString db = dir.filePath(QStringLiteral("help.db"));
+        int code = -1;
+        runOmaplan(db, {QStringLiteral("new"), QStringLiteral("--title"), QStringLiteral("Blog")}, &code);
+        QCOMPARE(code, 0);
+        const QString listed = runOmaplan(db, {QStringLiteral("list"), QStringLiteral("--json")});
+        const QString id = QJsonDocument::fromJson(listed.toUtf8()).object()[QStringLiteral("tasks")].toArray()
+                               .first().toObject()[QStringLiteral("id")].toString();
+        QVERIFY(!id.isEmpty());
+        const QString snapshot = dir.filePath(QStringLiteral("elsewhere.json"));
+        const QList<QStringList> lines = {
+            {QStringLiteral("undo"), QStringLiteral("--help")},
+            {QStringLiteral("undo"), QStringLiteral("--json"), QStringLiteral("-h")},
+            {QStringLiteral("rm"), id, QStringLiteral("--help")},
+            {QStringLiteral("done"), QStringLiteral("--help"), id},
+            {QStringLiteral("new"), QStringLiteral("--title"), QStringLiteral("X"), QStringLiteral("--help")},
+            {QStringLiteral("snapshot"), snapshot, QStringLiteral("--help")},
+        };
+        for (const QStringList &line : lines) {
+            const QString output = runOmaplan(db, line, &code);
+            QVERIFY2(code == 0, qPrintable(line.join(' ')));
+            QVERIFY2(output.contains(QStringLiteral("Usage:")), qPrintable(line.join(' ') + ": " + output));
+        }
+        const QJsonObject after = QJsonDocument::fromJson(
+            runOmaplan(db, {QStringLiteral("show"), id, QStringLiteral("--json")}).toUtf8()).object();
+        QCOMPARE(after[QStringLiteral("task")].toObject()[QStringLiteral("status")].toString(), QStringLiteral("todo"));
+        QCOMPARE(QJsonDocument::fromJson(runOmaplan(db, {QStringLiteral("list"), QStringLiteral("--json")}).toUtf8())
+                     .object()[QStringLiteral("tasks")].toArray().size(), 1);
+        QVERIFY(!QFile::exists(snapshot));
+    }
+
     void cliExitCodesAndJson()
     {
         QTemporaryDir dir;
