@@ -453,7 +453,7 @@ Rectangle {
                             spacing: 12
                             Text {
                                 font.family: theme.fontFamily
-                                Layout.preferredWidth: 140
+                                Layout.preferredWidth: 180
                                 text: "“" + parent.modelData + "”"
                                 color: theme.accentText
                                 font.pixelSize: 13
@@ -472,7 +472,7 @@ Rectangle {
                         spacing: 12
                         ConfigField {
                             id: tryField
-                            Layout.preferredWidth: 140
+                            Layout.preferredWidth: 180
                             label: qsTr("Try it")
                             saves: false
                             placeholder: qsTr("e.g. friday 10")
