@@ -116,6 +116,7 @@
   "List": "List",
   "Local": "Local",
   "Local (%1)": "Local (%1)",
+  "Local engine at %1 answered HTTP %2, a redirect to another address. Omaplan does not follow it; give the server's own address.": "Local engine at %1 answered HTTP %2, a redirect to another address. Omaplan does not follow it; give the server's own address.",
   "Local engine at %1 answered HTTP %2.\n\nRaw response:\n%3": "Local engine at %1 answered HTTP %2.\n\nRaw response:\n%3",
   "Local engine at %1 is not reachable (%2, HTTP %3). Is the server running?": "Local engine at %1 is not reachable (%2, HTTP %3). Is the server running?",
   "Local engine error: %1\n\nRaw response:\n%2": "Local engine error: %1\n\nRaw response:\n%2",

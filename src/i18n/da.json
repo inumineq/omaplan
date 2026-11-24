@@ -116,6 +116,7 @@
   "List": "Liste",
   "Local": "Lokal",
   "Local (%1)": "Lokal (%1)",
+  "Local engine at %1 answered HTTP %2, a redirect to another address. Omaplan does not follow it; give the server's own address.": "Den lokale motor på %1 svarede HTTP %2, en omdirigering til en anden adresse. Omaplan følger den ikke; angiv serverens egen adresse.",
   "Local engine at %1 answered HTTP %2.\n\nRaw response:\n%3": "Den lokale motor på %1 svarede HTTP %2.\n\nRåt svar:\n%3",
   "Local engine at %1 is not reachable (%2, HTTP %3). Is the server running?": "Den lokale motor på %1 er ikke at nå (%2, HTTP %3). Kører serveren?",
   "Local engine error: %1\n\nRaw response:\n%2": "Fejl fra den lokale motor: %1\n\nRåt svar:\n%2",

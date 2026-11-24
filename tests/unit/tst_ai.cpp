@@ -71,6 +71,7 @@ struct FakeHttpServer {
     QByteArray requestHeaders; // lower-case
     QByteArray requestBody;
     QByteArray responseBody;
+    QByteArray responseHeaders; // extra lines, each ending in \r\n
     int responseStatus = 200;
     int requests = 0;
 
@@ -96,11 +97,14 @@ struct FakeHttpServer {
                 requestHeaders = headers.toLower();
                 requestBody = incoming.mid(headerEnd + 4, contentLength);
                 ++requests;
+                incoming.clear();
                 const QByteArray reason = responseStatus == 200 ? QByteArrayLiteral("OK")
-                                                                : QByteArrayLiteral("Server Error");
+                                          : responseStatus < 400 ? QByteArrayLiteral("Temporary Redirect")
+                                                                 : QByteArrayLiteral("Server Error");
                 sock->write("HTTP/1.1 " + QByteArray::number(responseStatus) + " " + reason
                             + "\r\nContent-Type: application/json\r\nContent-Length: "
-                            + QByteArray::number(responseBody.size()) + "\r\nConnection: close\r\n\r\n"
+                            + QByteArray::number(responseBody.size()) + "\r\n" + responseHeaders
+                            + "Connection: close\r\n\r\n"
                             + responseBody);
                 sock->flush();
                 sock->disconnectFromHost();
@@ -1059,6 +1063,33 @@ private slots:
                  qPrintable(srv.requestHeaders));
         QCOMPARE(QJsonDocument::fromJson(srv.requestBody).object().value(QStringLiteral("model")).toString(),
                  QStringLiteral("demo-7b"));
+        qunsetenv("OMAPLAN_OMARCHY_HOME");
+    }
+
+    // M1: whatever answers on the model's port must not be able to send the
+    // prompt, or Omarchy's key, on to another address.
+    void localEngineNeverFollowsARedirect()
+    {
+        FakeHttpServer elsewhere;
+        elsewhere.responseBody = "{}";
+        QVERIFY(elsewhere.listen());
+        FakeHttpServer srv;
+        srv.responseStatus = 307;
+        srv.responseHeaders = "Location: " + elsewhere.endpoint().toUtf8() + "/v1/chat/completions\r\n";
+        QVERIFY(srv.listen());
+        QTemporaryDir home;
+        writeOmarchyHome(home.path(), srv.endpoint() + QStringLiteral("/v1"), QStringLiteral("active"));
+        qputenv("OMAPLAN_OMARCHY_HOME", home.path().toLocal8Bit());
+        const auto refused = [&](std::unique_ptr<AiEngine> engine) {
+            QString error;
+            const bool ok = runEngine(*engine, QStringLiteral("x"), nullptr, &error);
+            QTest::qWait(100); // a followed redirect would arrive by now
+            return !ok && error.contains(QStringLiteral("307")) && !error.contains(QStringLiteral("invented-key"));
+        };
+        QVERIFY(refused(createLocalEngine(QString(), QString(), QStringLiteral("omarchy"))));
+        QVERIFY(refused(createLocalEngine(srv.endpoint(), QStringLiteral("m"), QStringLiteral("ollama"))));
+        QCOMPARE(srv.requests, 2);
+        QCOMPARE(elsewhere.requests, 0);
         qunsetenv("OMAPLAN_OMARCHY_HOME");
     }
 

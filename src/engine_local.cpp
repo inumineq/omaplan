@@ -119,6 +119,9 @@ protected:
         request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
         if (!key.isEmpty())
             request.setRawHeader("Authorization", "Bearer " + key);
+        // Never followed: a redirect would carry the prompt, and the key, to
+        // an address nobody chose. A 3xx answer is reported as an error.
+        request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::ManualRedirectPolicy);
 
         m_reply = m_nam->post(request, QJsonDocument(body).toJson(QJsonDocument::Compact));
         connect(m_reply, &QNetworkReply::readyRead, this, [this] {
@@ -140,6 +143,12 @@ protected:
 
             // HTTP status errors (QNetworkAccessManager also reports them as
             // network errors) carry the body -- show status + raw response.
+            if (httpStatus >= 300 && httpStatus < 400) {
+                fail(AiEngine::tr("Local engine at %1 answered HTTP %2, a redirect to another address. "
+                                  "Omaplan does not follow it; give the server's own address.")
+                         .arg(m_endpoint).arg(httpStatus));
+                return;
+            }
             if (httpStatus >= 400) {
                 fail(AiEngine::tr("Local engine at %1 answered HTTP %2.\n\nRaw response:\n%3")
                          .arg(m_endpoint).arg(httpStatus).arg(QString::fromUtf8(bodyBytes)));
