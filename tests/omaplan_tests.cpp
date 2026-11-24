@@ -1526,6 +1526,38 @@ private slots:
         qputenv("OMAPLAN_CONFIG", "");
     }
 
+    // --yes, --force, --week and --month never take the next word as their
+    // value, and a config string may hold \" (TOML's escape).
+    void booleanFlagsAndEscapedConfigStrings()
+    {
+        QTemporaryDir dir;
+        Store store(dir.filePath(QStringLiteral("b.db")));
+        QVERIFY(store.open());
+        const QString fixture = QDir(QCoreApplication::applicationDirPath())
+                                    .filePath(QStringLiteral("../../tests/ai-fixtures/envelopes/command-valid.json"));
+        const QString cfgPath = dir.filePath(QStringLiteral("config.toml"));
+        {
+            QFile f(cfgPath);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write("[engine]\ndefault = \"command\"\ncommand = \"sh -c \\\"cat >/dev/null; cat '" + fixture.toUtf8()
+                    + "'\\\"\"  # the prompt is read and dropped\n");
+        }
+        QCOMPARE(AppConfig::load(cfgPath).command,
+                 QStringLiteral("sh -c \"cat >/dev/null; cat '") + fixture + QStringLiteral("'\""));
+        qputenv("OMAPLAN_CONFIG", cfgPath.toLocal8Bit());
+        QString out, err;
+        QCOMPARE(cli(store, {QStringLiteral("add"), QStringLiteral("--yes"), QStringLiteral("buy"), QStringLiteral("milk"),
+                             QStringLiteral("tomorrow")}, &out, &err), 0);
+        const auto captures = store.captures();
+        QCOMPARE(captures.size(), 1);
+        QCOMPARE(captures.first().rawText, QStringLiteral("buy milk tomorrow"));
+        QCOMPARE(store.tasks().size(), 1); // --yes stored it
+        out.clear();
+        QCOMPARE(cli(store, {QStringLiteral("summary"), QStringLiteral("--month"), QStringLiteral("--json")}, &out, &err), 0);
+        QVERIFY2(QJsonDocument::fromJson(out.toUtf8()).isObject(), qPrintable(out));
+        qputenv("OMAPLAN_CONFIG", "");
+    }
+
     void dateAnnotation()
     {
         const QDate today(2026, 11, 23); // Monday

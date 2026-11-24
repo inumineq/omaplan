@@ -76,14 +76,17 @@ static const QHash<QString, QString> &legacyFlags() {
 }
 
 // Splits "--flag value" pairs from positional arguments. A flag at the end, or
-// followed by another flag, gets an empty value. Old Danish flag names are
-// stored under their English names.
+// followed by another flag, gets an empty value; the switches (--yes,
+// --force, --week, --month) never take a value, so `add --yes buy milk`
+// keeps "buy". Old Danish flag names are stored under their English names.
 static QHash<QString, QString> parseFlags(const QStringList &args, QStringList *positional) {
+    static const QStringList switches = {QStringLiteral("yes"), QStringLiteral("force"), QStringLiteral("week"),
+                                         QStringLiteral("month")};
     QHash<QString, QString> flags;
     for (int i = 0; i < args.size(); ++i) {
         if (args[i].startsWith(QLatin1String("--"))) {
             const QString key = legacyFlags().value(args[i].mid(2), args[i].mid(2));
-            if (i + 1 < args.size() && !args[i + 1].startsWith(QLatin1String("--")))
+            if (!switches.contains(key) && i + 1 < args.size() && !args[i + 1].startsWith(QLatin1String("--")))
                 flags[key] = args[++i];
             else
                 flags[key] = QString();
