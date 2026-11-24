@@ -1,4 +1,4 @@
-QT += core gui qml quick quickcontrols2 dbus sql network
+QT += core gui qml quick quickcontrols2 sql network
 
 CONFIG += c++17 release
 TARGET = omaplan
