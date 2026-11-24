@@ -143,14 +143,16 @@ Rectangle {
         }
         GridLayout {
             Layout.fillWidth: true
-            columns: card.width > 560 ? 5 : 3
+            columns: card.width > 640 ? 5 : 3
             columnSpacing: 8
             rowSpacing: 4
-            Field { Layout.fillWidth: true; Layout.preferredWidth: 3; key: "start"; label: qsTr("Start"); isDate: true }
-            Field { Layout.fillWidth: true; Layout.preferredWidth: 1; key: "duration_min"; label: qsTr("Minutes") }
-            Field { Layout.fillWidth: true; Layout.preferredWidth: 3; key: "deadline"; label: qsTr("Deadline"); isDate: true }
+            // Shares of the row. The short fields still hold their label in a
+            // monospace font (Omarchy's), "· guess" included.
+            Field { Layout.fillWidth: true; Layout.preferredWidth: 4; key: "start"; label: qsTr("Start"); isDate: true }
+            Field { Layout.fillWidth: true; Layout.preferredWidth: 2; key: "duration_min"; label: qsTr("Minutes") }
+            Field { Layout.fillWidth: true; Layout.preferredWidth: 4; key: "deadline"; label: qsTr("Deadline"); isDate: true }
             Field { Layout.fillWidth: true; Layout.preferredWidth: 2; key: "project"; label: qsTr("Project") }
-            Field { Layout.fillWidth: true; Layout.preferredWidth: 1; key: "priority"; label: qsTr("Priority 1-3") }
+            Field { Layout.fillWidth: true; Layout.preferredWidth: 2; key: "priority"; label: qsTr("Priority 1-3") }
         }
     }
 }
