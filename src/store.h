@@ -109,6 +109,7 @@ public:
 
 private:
     bool migrate(QString *error);
+    bool migrateLocked(QSqlQuery &query, QString *error);
     bool createTables(QSqlQuery &query, QString *error);
     bool writeTask(const Task &task, bool replace, QString *error);
     Task rowToTask(const QSqlQuery &query) const;

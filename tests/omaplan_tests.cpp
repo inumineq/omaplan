@@ -672,17 +672,16 @@ private slots:
         }
     }
 
-    void migrationFromV1Database()
+    // A database as schema v1 left it: no undo_of column.
+    static bool makeV1Database(const QString &path)
     {
-        QTemporaryDir dir;
-        const QString path = dir.filePath("v1.db");
+        bool ok = true;
         {
-            // A database as trin 1's schema v1 left it: no undo_of column.
             QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("v1test"));
             db.setDatabaseName(path);
-            QVERIFY(db.open());
+            ok = ok && (db.open());
             QSqlQuery q(db);
-            QVERIFY(q.exec(QStringLiteral("CREATE TABLE tasks (id TEXT PRIMARY KEY, title TEXT NOT NULL,"
+            ok = ok && (q.exec(QStringLiteral("CREATE TABLE tasks (id TEXT PRIMARY KEY, title TEXT NOT NULL,"
                                           " notes TEXT NOT NULL DEFAULT '', project TEXT NOT NULL DEFAULT '',"
                                           " priority INTEGER NOT NULL DEFAULT 3, status TEXT NOT NULL DEFAULT 'todo',"
                                           " start TEXT, start_has_time INTEGER NOT NULL DEFAULT 0,"
@@ -690,18 +689,26 @@ private slots:
                                           " deadline_has_time INTEGER NOT NULL DEFAULT 0,"
                                           " guesses TEXT NOT NULL DEFAULT '[]', capture_id TEXT NOT NULL DEFAULT '',"
                                           " created TEXT NOT NULL, modified TEXT NOT NULL)")));
-            QVERIFY(q.exec(QStringLiteral("CREATE TABLE captures (id TEXT PRIMARY KEY, raw_text TEXT NOT NULL,"
+            ok = ok && (q.exec(QStringLiteral("CREATE TABLE captures (id TEXT PRIMARY KEY, raw_text TEXT NOT NULL,"
                                           " engine TEXT NOT NULL DEFAULT '', model TEXT NOT NULL DEFAULT '',"
                                           " response TEXT NOT NULL DEFAULT '', created TEXT NOT NULL)")));
-            QVERIFY(q.exec(QStringLiteral("CREATE TABLE changes (id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            ok = ok && (q.exec(QStringLiteral("CREATE TABLE changes (id INTEGER PRIMARY KEY AUTOINCREMENT,"
                                           " at TEXT NOT NULL, source TEXT NOT NULL, kind TEXT NOT NULL,"
                                           " task_id TEXT NOT NULL, before_json TEXT, after_json TEXT)")));
-            QVERIFY(q.exec(QStringLiteral("PRAGMA user_version=1")));
+            ok = ok && (q.exec(QStringLiteral("PRAGMA user_version=1")));
             q.finish();
             db.close();
             db = QSqlDatabase();
             QSqlDatabase::removeDatabase(QStringLiteral("v1test"));
         }
+        return ok;
+    }
+
+    void migrationFromV1Database()
+    {
+        QTemporaryDir dir;
+        const QString path = dir.filePath("v1.db");
+        QVERIFY(makeV1Database(path));
         Store store(path);
         QString error;
         QVERIFY2(store.open(&error), qPrintable(error));
@@ -719,6 +726,56 @@ private slots:
         while (q.next())
             captureColumns << q.value(1).toString();
         QVERIFY(captureColumns.contains(QStringLiteral("annotated_text")));
+    }
+
+    // Starts the real binary on `db` without waiting for it.
+    static QProcess *startOmaplan(const QString &db, const QStringList &args, QObject *parent) {
+        auto *process = new QProcess(parent);
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        env.insert(QStringLiteral("OMAPLAN_DB"), db);
+        env.insert(QStringLiteral("OMAPLAN_CONFIG"), QFileInfo(db).absolutePath() + QStringLiteral("/config.toml"));
+        env.insert(QStringLiteral("OMAPLAN_SNAPSHOT"), QFileInfo(db).absolutePath() + QStringLiteral("/plan.json"));
+        process->setProcessEnvironment(env);
+        process->start(QCoreApplication::applicationDirPath() + QStringLiteral("/../omaplan"), args);
+        return process;
+    }
+
+    // The window and an `omaplan mcp` often open a new or older database at
+    // the same moment. Only one of them may migrate; the others must see the
+    // finished schema instead of failing half-way and leaving user_version
+    // behind the columns (which made every later open fail).
+    void concurrentFirstOpenMigratesOnce_data()
+    {
+        QTest::addColumn<bool>("v1");
+        QTest::newRow("fresh") << false;
+        QTest::newRow("from v1") << true;
+    }
+
+    void concurrentFirstOpenMigratesOnce()
+    {
+        QFETCH(bool, v1);
+        for (int round = 0; round < 3; ++round) {
+            QTemporaryDir dir;
+            const QString db = dir.filePath(QStringLiteral("race.db"));
+            if (v1)
+                QVERIFY(makeV1Database(db));
+            QObject owner;
+            QList<QProcess *> processes;
+            for (int i = 0; i < 12; ++i)
+                processes << startOmaplan(db, {QStringLiteral("new"), QStringLiteral("--title"),
+                                               QStringLiteral("Task %1").arg(i)}, &owner);
+            for (QProcess *process : processes) {
+                QVERIFY(process->waitForFinished(30000));
+                QVERIFY2(process->exitCode() == 0, process->readAllStandardError().constData());
+            }
+            int code = -1;
+            const QString listed = runOmaplan(db, {QStringLiteral("list"), QStringLiteral("--json")}, &code);
+            QVERIFY2(code == 0, qPrintable(listed));
+            QCOMPARE(QJsonDocument::fromJson(listed.toUtf8()).object()[QStringLiteral("tasks")].toArray().size(), 12);
+            Store store(db);
+            QVERIFY(store.open());
+            QCOMPARE(store.schemaVersion(), 5);
+        }
     }
 
     void changeLogRecordsBeforeAfterAndSource()

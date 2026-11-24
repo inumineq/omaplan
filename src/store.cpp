@@ -62,9 +62,11 @@ bool Store::open(QString *error) {
     // WAL plus a busy timeout are what make concurrent writers from separate
     // processes (GUI, CLI, MCP) safe instead of failing with "database is
     // locked".
+    // The busy timeout comes first so that switching to WAL waits for a
+    // concurrent first open instead of failing.
     QSqlQuery pragma(m_db);
-    pragma.exec(QStringLiteral("PRAGMA journal_mode=WAL"));
     pragma.exec(QStringLiteral("PRAGMA busy_timeout=5000"));
+    pragma.exec(QStringLiteral("PRAGMA journal_mode=WAL"));
     pragma.exec(QStringLiteral("PRAGMA foreign_keys=ON"));
     pragma.exec(QStringLiteral("PRAGMA synchronous=NORMAL"));
 
@@ -93,8 +95,14 @@ int Store::dataVersion(bool *ok) const {
     return query.value(0).toInt();
 }
 
+// The whole migration is one BEGIN IMMEDIATE transaction, and the version is
+// read again once the write lock is held: when several processes open a new
+// or older database at once, one migrates and the others find the work done.
+// An interrupted migration rolls back completely.
 bool Store::migrate(QString *error) {
     int version = schemaVersion();
+    if (version == kSchemaVersion)
+        return true;
     if (version > kSchemaVersion) {
         if (error) *error = QStringLiteral("database schema version %1 is newer than this build (%2)")
                                 .arg(version).arg(kSchemaVersion);
@@ -102,55 +110,70 @@ bool Store::migrate(QString *error) {
     }
 
     QSqlQuery query(m_db);
+    if (!query.exec(QStringLiteral("BEGIN IMMEDIATE"))) {
+        if (error) *error = query.lastError().text();
+        return false;
+    }
+    if (!migrateLocked(query, error)) {
+        QSqlQuery(m_db).exec(QStringLiteral("ROLLBACK"));
+        return false;
+    }
+    if (!query.exec(QStringLiteral("COMMIT"))) {
+        if (error) *error = query.lastError().text();
+        QSqlQuery(m_db).exec(QStringLiteral("ROLLBACK"));
+        return false;
+    }
+    return true;
+}
+
+bool Store::migrateLocked(QSqlQuery &query, QString *error) {
+    int version = schemaVersion();
+    if (version > kSchemaVersion) {
+        if (error) *error = QStringLiteral("database schema version %1 is newer than this build (%2)")
+                                .arg(version).arg(kSchemaVersion);
+        return false;
+    }
+    const auto alter = [&](const char *sql) {
+        if (query.exec(QString::fromLatin1(sql)))
+            return true;
+        if (error) *error = query.lastError().text();
+        return false;
+    };
     while (version < kSchemaVersion) {
         if (version == 0) {
             // Version 1: the three tables (see below).
             if (!createTables(query, error))
                 return false;
-            version = 1;
         } else if (version == 1) {
             // Version 2: changes.undo_of links an undo to the change it
             // inverted, so repeated undo walks back through the history
             // instead of inverting the same change twice.
-            if (!query.exec(QStringLiteral("ALTER TABLE changes ADD COLUMN undo_of INTEGER"))) {
-                if (error) *error = query.lastError().text();
+            if (!alter("ALTER TABLE changes ADD COLUMN undo_of INTEGER"))
                 return false;
-            }
-            version = 2;
         } else if (version == 2) {
             // Version 3: changes.redo_of marks an undo as re-applied by a
             // redo, so redo walks forward through the undos.
-            if (!query.exec(QStringLiteral("ALTER TABLE changes ADD COLUMN redo_of INTEGER"))) {
-                if (error) *error = query.lastError().text();
+            if (!alter("ALTER TABLE changes ADD COLUMN redo_of INTEGER"))
                 return false;
-            }
-            version = 3;
         } else if (version == 3) {
             // Version 4: captures.annotated_text keeps the date-annotated
             // text next to the raw input, so a proposal stays traceable.
-            if (!query.exec(QStringLiteral(
-                    "ALTER TABLE captures ADD COLUMN annotated_text TEXT NOT NULL DEFAULT ''"))) {
-                if (error) *error = query.lastError().text();
+            if (!alter("ALTER TABLE captures ADD COLUMN annotated_text TEXT NOT NULL DEFAULT ''"))
                 return false;
-            }
-            version = 4;
         } else if (version == 4) {
             // Version 5: changes.batch groups changes made as one step (an
             // approved AI proposal), so undo/redo handle them together.
-            if (!query.exec(QStringLiteral("ALTER TABLE changes ADD COLUMN batch TEXT"))) {
-                if (error) *error = query.lastError().text();
+            if (!alter("ALTER TABLE changes ADD COLUMN batch TEXT"))
                 return false;
-            }
-            version = 5;
         } else {
             if (error) *error = QStringLiteral("unknown schema version %1").arg(version);
             return false;
         }
-        query.prepare(QStringLiteral("PRAGMA user_version=%1").arg(version));
-        if (!query.exec()) {
-            if (error) *error = query.lastError().text();
-            return false;
-        }
+        ++version;
+    }
+    if (!query.exec(QStringLiteral("PRAGMA user_version=%1").arg(version))) {
+        if (error) *error = query.lastError().text();
+        return false;
     }
     return true;
 }
