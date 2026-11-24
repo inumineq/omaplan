@@ -82,6 +82,7 @@ Item {
             }
             Row {
                 spacing: 8
+                height: 32 // as tall as the Segmented rows beside it
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
                     text: qsTr("Project")
@@ -93,8 +94,16 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     focusPolicy: Qt.NoFocus
                     implicitWidth: 180
-                    implicitHeight: 32
-                    font.pixelSize: 13
+                    implicitHeight: 28
+                    topInset: 0
+                    bottomInset: 0
+                    font.pixelSize: 12
+                    // Flat like the choices beside it, not Material's outlined field.
+                    background: Rectangle {
+                        radius: Math.min(4, theme.radius)
+                        color: projectBox.hovered ? theme.raised : theme.surface
+                        border.color: theme.border
+                    }
                     model: [qsTr("All projects")].concat(root.projects)
                     currentIndex: root.project === "" ? 0 : root.projects.indexOf(root.project) + 1
                     onActivated: index => root.project = index === 0 ? "" : root.projects[index - 1]
