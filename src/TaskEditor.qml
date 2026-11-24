@@ -136,12 +136,12 @@ Rectangle {
         readonly property var parsed: { Fmt.lang; return isDate && input.text.trim() !== "" ? actions.guiParseDate(input.text) : null }
         Layout.alignment: Qt.AlignTop
         spacing: 3
-        Text { font.family: theme.fontFamily; text: fieldBox.label; color: theme.muted; font.pixelSize: 11 }
+        Text { font.family: theme.fontFamily; text: fieldBox.label; color: theme.muted; font.pixelSize: Math.round(11 * theme.textScale) }
         TextField {
             id: input
             selectedTextColor: theme.accentForeground
             Layout.fillWidth: true
-            font.pixelSize: 14
+            font.pixelSize: Math.round(14 * theme.textScale)
             color: theme.foreground
             // Only while empty: Material would float it above the text.
             placeholderText: text === "" ? fieldBox.placeholder : ""
@@ -163,7 +163,7 @@ Rectangle {
             visible: fieldBox.isDate
             Layout.fillWidth: true
             elide: Text.ElideRight
-            font.pixelSize: 11
+            font.pixelSize: Math.round(11 * theme.textScale)
             color: fieldBox.parsed && !fieldBox.parsed.ok ? theme.danger : theme.muted
             text: {
                 Fmt.lang
@@ -195,14 +195,14 @@ Rectangle {
                 font.family: theme.fontFamily
                 text: editor.taskId === "" ? qsTr("New task") : qsTr("Edit task")
                 font.weight: Font.DemiBold
-                font.pixelSize: 16
+                font.pixelSize: Math.round(16 * theme.textScale)
                 color: theme.foreground
             }
             Field {
                 id: titleField
                 Layout.fillWidth: true
                 label: qsTr("Title")
-                input.font.pixelSize: 16
+                input.font.pixelSize: Math.round(16 * theme.textScale)
             }
             RowLayout {
                 Layout.fillWidth: true
@@ -224,7 +224,7 @@ Rectangle {
                 ColumnLayout {
                     Layout.alignment: Qt.AlignTop
                     spacing: 3
-                    Text { font.family: theme.fontFamily; text: qsTr("Priority (Alt+1/2/3)"); color: theme.muted; font.pixelSize: 11 }
+                    Text { font.family: theme.fontFamily; text: qsTr("Priority (Alt+1/2/3)"); color: theme.muted; font.pixelSize: Math.round(11 * theme.textScale) }
                     Segmented {
                         options: [["1", qsTr("High")], ["2", qsTr("Medium")], ["3", qsTr("Normal")]]
                         value: String(editor.priority)
@@ -235,7 +235,7 @@ Rectangle {
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 3
-                Text { font.family: theme.fontFamily; text: qsTr("Notes"); color: theme.muted; font.pixelSize: 11 }
+                Text { font.family: theme.fontFamily; text: qsTr("Notes"); color: theme.muted; font.pixelSize: Math.round(11 * theme.textScale) }
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 70
@@ -249,7 +249,7 @@ Rectangle {
                             selectedTextColor: theme.accentForeground
                             wrapMode: TextArea.Wrap
                             color: theme.foreground
-                            font.pixelSize: 13
+                            font.pixelSize: Math.round(13 * theme.textScale)
                             background: null
                         }
                     }
@@ -259,7 +259,7 @@ Rectangle {
                 Layout.fillWidth: true
                 spacing: 10
                 CheckMark { checked: editor.done; onToggled: editor.done = !editor.done }
-                Text { font.family: theme.fontFamily; text: qsTr("Done (Alt+X)"); color: theme.foreground; font.pixelSize: 13 }
+                Text { font.family: theme.fontFamily; text: qsTr("Done (Alt+X)"); color: theme.foreground; font.pixelSize: Math.round(13 * theme.textScale) }
                 Item { Layout.fillWidth: true }
                 HeaderButton {
                     visible: editor.taskId !== ""

@@ -88,7 +88,7 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     text: qsTr("Project")
                     color: theme.muted
-                    font.pixelSize: 12
+                    font.pixelSize: Math.round(12 * theme.textScale)
                 }
                 ComboBox {
                     id: projectBox
@@ -98,7 +98,7 @@ Item {
                     implicitHeight: 28
                     topInset: 0
                     bottomInset: 0
-                    font.pixelSize: 12
+                    font.pixelSize: Math.round(12 * theme.textScale)
                     // Flat like the choices beside it, not Material's outlined field.
                     background: Rectangle {
                         radius: Math.min(4, theme.radius)
@@ -119,7 +119,7 @@ Item {
                 verticalAlignment: Text.AlignVCenter
                 text: qsTr("%n tasks", "", list.count)
                 color: theme.muted
-                font.pixelSize: 12
+                font.pixelSize: Math.round(12 * theme.textScale)
             }
         }
 
@@ -152,7 +152,7 @@ Item {
                     anchors.bottomMargin: 6
                     anchors.left: parent.left
                     anchors.leftMargin: 4
-                    font.pixelSize: 13
+                    font.pixelSize: Math.round(13 * theme.textScale)
                     font.bold: true
                     color: theme.accentText
                     textFormat: Text.PlainText

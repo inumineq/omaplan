@@ -50,7 +50,7 @@ Rectangle {
             elide: Text.ElideRight
             text: field.label + (field.guess ? " · " + qsTr("guess") : "")
             color: field.guess ? theme.accentText : theme.muted
-            font.pixelSize: 10
+            font.pixelSize: Math.round(10 * theme.textScale)
             font.bold: field.guess
         }
         TextField {
@@ -58,7 +58,7 @@ Rectangle {
             selectedTextColor: theme.accentForeground
             Layout.fillWidth: true
             text: card.task[field.key] || ""
-            font.pixelSize: 13
+            font.pixelSize: Math.round(13 * theme.textScale)
             color: theme.foreground
             selectByMouse: true
             topPadding: 4
@@ -78,7 +78,7 @@ Rectangle {
             visible: field.isDate
             Layout.fillWidth: true
             elide: Text.ElideRight
-            font.pixelSize: 10
+            font.pixelSize: Math.round(10 * theme.textScale)
             color: field.parsed && !field.parsed.ok ? theme.danger : theme.muted
             text: {
                 Fmt.lang
@@ -108,7 +108,7 @@ Rectangle {
                 Layout.fillWidth: true
                 text: card.task.title
                 placeholderText: text === "" ? qsTr("Title") : ""
-                font.pixelSize: 14
+                font.pixelSize: Math.round(14 * theme.textScale)
                 font.weight: Font.DemiBold
                 color: theme.foreground
                 selectByMouse: true
@@ -134,7 +134,7 @@ Rectangle {
                     font.family: theme.fontFamily
                     text: "×"
                     color: parent.hovered ? theme.danger : theme.muted
-                    font.pixelSize: 18
+                    font.pixelSize: Math.round(18 * theme.textScale)
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                 }

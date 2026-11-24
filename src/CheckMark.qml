@@ -17,7 +17,7 @@ Rectangle {
         visible: box.checked
         text: "✓"
         color: theme.accentForeground
-        font.pixelSize: 13
+        font.pixelSize: Math.round(13 * theme.textScale)
         font.bold: true
     }
     HoverHandler { id: hover; cursorShape: Qt.PointingHandCursor }

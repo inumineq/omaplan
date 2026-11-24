@@ -30,7 +30,7 @@ AbstractButton {
             anchors.verticalCenter: parent.verticalCenter
             text: button.text
             color: button.primary ? theme.accentForeground : (button.active ? theme.foreground : theme.muted)
-            font.pixelSize: 13
+            font.pixelSize: Math.round(13 * theme.textScale)
             font.bold: button.primary || button.active
         }
         Text {
@@ -39,7 +39,7 @@ AbstractButton {
             text: button.keyHint
             color: button.primary ? theme.accentForeground : theme.muted
             opacity: 0.75
-            font.pixelSize: 11
+            font.pixelSize: Math.round(11 * theme.textScale)
             font.family: theme.fontFamily
         }
     }

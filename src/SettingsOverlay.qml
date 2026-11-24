@@ -150,14 +150,14 @@ Rectangle {
         Layout.topMargin: 10
         color: theme.muted
         font.weight: Font.DemiBold
-        font.pixelSize: 11
+        font.pixelSize: Math.round(11 * theme.textScale)
         font.letterSpacing: 1.2
     }
     component Note: Text {
         font.family: theme.fontFamily
         Layout.fillWidth: true
         color: theme.muted
-        font.pixelSize: 11
+        font.pixelSize: Math.round(11 * theme.textScale)
         wrapMode: Text.Wrap
     }
     // A text setting: shows the file's value, writes it on Enter or when the
@@ -179,7 +179,7 @@ Rectangle {
             wrapMode: Text.Wrap
             text: fieldBox.label
             color: theme.muted
-            font.pixelSize: 11
+            font.pixelSize: Math.round(11 * theme.textScale)
         }
         TextField {
             id: input
@@ -188,7 +188,7 @@ Rectangle {
             readonly property var configField: fieldBox.saves ? fieldBox : null
             Layout.fillWidth: true
             selectedTextColor: theme.accentForeground
-            font.pixelSize: 13
+            font.pixelSize: Math.round(13 * theme.textScale)
             color: theme.foreground
             placeholderText: text === "" ? fieldBox.placeholder : ""
             placeholderTextColor: theme.muted
@@ -249,7 +249,7 @@ Rectangle {
                         font.family: theme.fontFamily
                         text: qsTr("Settings")
                         font.weight: Font.DemiBold
-                        font.pixelSize: 16
+                        font.pixelSize: Math.round(16 * theme.textScale)
                         color: theme.foreground
                     }
                     Item { Layout.fillWidth: true }
@@ -257,7 +257,7 @@ Rectangle {
                         font.family: theme.fontFamily
                         text: qsTr("Esc closes")
                         color: theme.muted
-                        font.pixelSize: 12
+                        font.pixelSize: Math.round(12 * theme.textScale)
                     }
                 }
                 Segmented {
@@ -317,7 +317,7 @@ Rectangle {
                                         font.family: theme.fontFamily
                                         text: card.info.name
                                         color: theme.foreground
-                                        font.pixelSize: 13
+                                        font.pixelSize: Math.round(13 * theme.textScale)
                                         font.bold: true
                                     }
                                     Text {
@@ -328,7 +328,7 @@ Rectangle {
                                               ? (card.info.path ? qsTr("found: %1").arg(card.info.path) : qsTr("ready"))
                                               : (card.info.problem || "")
                                         color: card.info.ready ? theme.muted : theme.danger
-                                        font.pixelSize: 11
+                                        font.pixelSize: Math.round(11 * theme.textScale)
                                     }
                                     HeaderButton {
                                         objectName: "test:" + card.modelData
@@ -379,7 +379,7 @@ Rectangle {
                                     Layout.fillWidth: true
                                     visible: !!card.test && !card.test.running
                                     wrapMode: Text.Wrap
-                                    font.pixelSize: 12
+                                    font.pixelSize: Math.round(12 * theme.textScale)
                                     color: card.test && card.test.ok ? theme.foreground : theme.danger
                                     text: !card.test ? "" : card.test.ms > 0
                                           ? qsTr("%1 (%2 s)").arg(card.test.message).arg((card.test.ms / 1000).toFixed(1))
@@ -470,14 +470,14 @@ Rectangle {
                                 Layout.preferredWidth: 180
                                 text: "“" + parent.modelData + "”"
                                 color: theme.accentText
-                                font.pixelSize: 13
+                                font.pixelSize: Math.round(13 * theme.textScale)
                             }
                             Text {
                                 font.family: theme.fontFamily
                                 Layout.fillWidth: true
                                 text: panel.reading(parent.modelData)
                                 color: theme.foreground
-                                font.pixelSize: 13
+                                font.pixelSize: Math.round(13 * theme.textScale)
                             }
                         }
                     }
@@ -498,7 +498,7 @@ Rectangle {
                             Layout.bottomMargin: 6
                             text: tryField.input.text.trim() === "" ? "" : panel.reading(tryField.input.text)
                             color: theme.foreground
-                            font.pixelSize: 13
+                            font.pixelSize: Math.round(13 * theme.textScale)
                         }
                     }
                 }
@@ -620,7 +620,7 @@ Rectangle {
                         elide: Text.ElideMiddle
                         text: qsTr("Saved at once in %1").arg(settings.path)
                         color: theme.muted
-                        font.pixelSize: 11
+                        font.pixelSize: Math.round(11 * theme.textScale)
                     }
                     HeaderButton {
                         text: qsTr("Open config.toml")

@@ -75,14 +75,14 @@ Rectangle {
                 elide: Text.ElideRight
                 color: row.done ? theme.muted : theme.foreground
                 font.strikeout: row.done
-                font.pixelSize: 14
+                font.pixelSize: Math.round(14 * theme.textScale)
             }
             Text {
                 font.family: theme.fontFamily
                 Layout.fillWidth: true
                 visible: text !== ""
                 elide: Text.ElideRight
-                font.pixelSize: 12
+                font.pixelSize: Math.round(12 * theme.textScale)
                 color: theme.muted
                 textFormat: Text.StyledText
                 text: {

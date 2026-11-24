@@ -189,14 +189,14 @@ ApplicationWindow {
                         Text {
                             text: tab.index + 1
                             color: theme.muted
-                            font.pixelSize: 11
+                            font.pixelSize: Math.round(11 * theme.textScale)
                             font.family: theme.fontFamily
                         }
                         Text {
                             font.family: theme.fontFamily
                             text: tab.modelData
                             color: win.currentView === tab.index ? theme.foreground : theme.muted
-                            font.pixelSize: 14
+                            font.pixelSize: Math.round(14 * theme.textScale)
                             font.bold: win.currentView === tab.index
                         }
                     }
@@ -284,7 +284,7 @@ ApplicationWindow {
                     font.family: theme.fontFamily
                     text: "?"
                     color: helpButton.hovered ? theme.foreground : theme.muted
-                    font.pixelSize: 13
+                    font.pixelSize: Math.round(13 * theme.textScale)
                     font.bold: true
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
@@ -409,7 +409,7 @@ ApplicationWindow {
                 anchors.leftMargin: 14
                 text: toast.text
                 color: toast.isError ? theme.danger : theme.foreground
-                font.pixelSize: 13
+                font.pixelSize: Math.round(13 * theme.textScale)
                 wrapMode: Text.Wrap
                 horizontalAlignment: Text.AlignHCenter
             }

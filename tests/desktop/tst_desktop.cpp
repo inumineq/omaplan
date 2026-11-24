@@ -1,14 +1,18 @@
-// What Omaplan follows from the desktop: the language and its catalogs. The
-// translator and catalog cases are the ones every Omarchy app keeps (from the
-// app templates), with temp files, never the user's own.
+// What Omaplan follows from the desktop: the language and its catalogs,
+// Hyprland's rounding, the theme's palette and the text size. The translator,
+// catalog and rounding cases are the ones every Omarchy app keeps (from the
+// app templates), with temp files and a fake Hyprland, never the user's own.
 #include <QDir>
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLocalServer>
+#include <QLocalSocket>
 #include <QRegularExpression>
 #include <QTemporaryDir>
 #include <QtTest>
 
+#include "theme.h"
 #include "translator.h"
 #include "uilanguage.h"
 
@@ -17,6 +21,20 @@ namespace {
 bool write(const QString &path, const QByteArray &contents) {
     QFile file(path);
     return file.open(QIODevice::WriteOnly) && file.write(contents) == contents.size();
+}
+
+int lines(const QString &path) {
+    QFile file(path);
+    return file.open(QIODevice::ReadOnly) ? file.readAll().count('\n') : 0;
+}
+
+// A hyprctl that answers with response.json beside it and counts its calls.
+QString fakeHyprctl(const QString &directory) {
+    const QString command = directory + "/hyprctl";
+    write(command, "#!/bin/bash\necho >> '" + directory.toUtf8() + "/calls'\ncat '" + directory.toUtf8()
+                       + "/response.json'\n");
+    QFile::setPermissions(command, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
+    return command;
 }
 
 QJsonObject readCatalog(const QString &path) {
@@ -153,6 +171,96 @@ class DesktopTests : public QObject {
     Q_OBJECT
 
 private slots:
+    void themeAsksHyprlandAgainOnlyWhenItReloads() {
+        // The fake Hyprland lives outside the theme directory, whose changes
+        // the Theme also follows.
+        QTemporaryDir dir, hypr;
+        const QString command = fakeHyprctl(hypr.path());
+        QVERIFY(write(hypr.filePath("response.json"), "{\"int\":4}"));
+        QLocalServer events;
+        QVERIFY(events.listen(hypr.filePath("events.sock")));
+
+        // Once on start, and once more when the event socket connects.
+        Theme theme(dir.path(), nullptr, command, events.fullServerName());
+        QTRY_VERIFY(events.hasPendingConnections());
+        QLocalSocket *hyprland = events.nextPendingConnection();
+        QTRY_COMPARE(lines(hypr.filePath("calls")), 2);
+        QTRY_COMPARE(theme.radius(), 4);
+
+        // No timer asks in between: a new value is only seen on a reload.
+        QVERIFY(write(hypr.filePath("response.json"), "{\"int\":10}"));
+        QTest::qWait(1300);
+        QCOMPARE(lines(hypr.filePath("calls")), 2);
+        // Events arrive in pieces; only a whole configreloaded line counts.
+        hyprland->write("activewindow>>kitty,~\nconfigrel");
+        hyprland->flush();
+        QTest::qWait(100);
+        QCOMPARE(lines(hypr.filePath("calls")), 2);
+        hyprland->write("oaded>>\n");
+        QTRY_COMPARE(theme.radius(), 10);
+        QCOMPARE(lines(hypr.filePath("calls")), 3);
+    }
+
+    void themeReachesHyprlandOnceItListens() {
+        QTemporaryDir dir, hypr;
+        const QString command = fakeHyprctl(hypr.path());
+        QVERIFY(write(hypr.filePath("response.json"), "{\"int\":4}"));
+        Theme theme(dir.path(), nullptr, command, hypr.filePath("events.sock"));
+        QTRY_COMPARE(theme.radius(), 4);
+
+        QVERIFY(write(hypr.filePath("response.json"), "{\"int\":8}"));
+        QLocalServer events;
+        QVERIFY(events.listen(hypr.filePath("events.sock")));
+        QTRY_VERIFY_WITH_TIMEOUT(events.hasPendingConnections(), 5000);
+        QTRY_COMPARE(theme.radius(), 8);
+    }
+
+    void themeReadsEveryWayAThemeWritesColors() {
+        QTemporaryDir dir;
+        QVERIFY(QDir(dir.path()).mkpath("theme"));
+        QVERIFY(write(dir.path() + "/theme/colors.toml", "accent = \"#112233\"\n"
+                                                         "bg = #fafafa # paper\n"
+                                                         "foreground = '#202020'\n"
+                                                         "color1 = \"#aa0000\"\n"));
+        Theme theme(dir.path());
+        QCOMPARE(theme.accent(), QString("#112233"));
+        QCOMPARE(theme.accentForeground(), QString("white"));
+        QCOMPARE(theme.background(), QString("#fafafa"));
+        QCOMPARE(theme.foreground(), QString("#202020"));
+        // No mode given: a light background makes a light theme.
+        QVERIFY(!theme.dark());
+        // color1 is red under its older name; as text it reads on the paper.
+        QVERIFY(Theme::contrast(theme.danger(), theme.background()) >= 4.5);
+        QCOMPARE(Theme::readColors(dir.path() + "/theme/colors.toml").value("red"), QString("#aa0000"));
+
+        // A light.mode file beside the palette decides it too.
+        QVERIFY(write(dir.path() + "/theme/colors.toml", "background = \"#101010\"\n"));
+        QVERIFY(write(dir.path() + "/theme/light.mode", ""));
+        QTRY_COMPARE(theme.background(), QString("#101010"));
+        QVERIFY(!theme.dark());
+    }
+
+    void textSizeFollowsTheDesktop() {
+        // omarchy display text size writes [font] base-size in the user's
+        // shell.toml; the theme's own is the default under it, then 12 px.
+        QTemporaryDir dir;
+        QVERIFY(QDir(dir.path()).mkpath("theme"));
+        Theme theme(dir.path());
+        QCOMPARE(theme.textSize(), 12);
+        QCOMPARE(theme.textScale(), 1.0);
+
+        QVERIFY(write(dir.path() + "/theme/shell.toml", "[bar]\nbase-size = 30\n[font]\nbase-size = 14\n"));
+        QTRY_COMPARE(theme.textSize(), 14);
+        QVERIFY(write(dir.path() + "/shell.toml", "[font]\nbase-size = 18\n"));
+        QTRY_COMPARE(theme.textSize(), 18);
+        QCOMPARE(theme.textScale(), 1.5);
+        QVERIFY(QFile::remove(dir.path() + "/shell.toml"));
+        QTRY_COMPARE(theme.textSize(), 14);
+        // An absurd size is held to what a window can show.
+        QVERIFY(write(dir.path() + "/shell.toml", "[font]\nbase-size = 400\n"));
+        QTRY_COMPARE(theme.textSize(), 48);
+    }
+
     void translatorFallsBackToEnglish() {
         QTemporaryDir dir;
         Translator translator(dir.path() + "/language", dir.path());

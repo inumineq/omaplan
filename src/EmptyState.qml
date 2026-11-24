@@ -11,7 +11,7 @@ ColumnLayout {
         Layout.alignment: Qt.AlignHCenter
         text: parent.title
         color: theme.foreground
-        font.pixelSize: 16
+        font.pixelSize: Math.round(16 * theme.textScale)
     }
     Text {
         font.family: theme.fontFamily
@@ -19,7 +19,7 @@ ColumnLayout {
         Layout.maximumWidth: 420
         text: parent.hint
         color: theme.muted
-        font.pixelSize: 13
+        font.pixelSize: Math.round(13 * theme.textScale)
         wrapMode: Text.Wrap
         horizontalAlignment: Text.AlignHCenter
     }

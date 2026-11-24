@@ -91,7 +91,7 @@ Rectangle {
                         font.family: theme.fontFamily
                         text: qsTr("Keyboard shortcuts")
                         font.weight: Font.DemiBold
-                        font.pixelSize: 16
+                        font.pixelSize: Math.round(16 * theme.textScale)
                         color: theme.foreground
                     }
                     Item { Layout.fillWidth: true }
@@ -99,7 +99,7 @@ Rectangle {
                         font.family: theme.fontFamily
                         text: qsTr("Esc closes")
                         color: theme.muted
-                        font.pixelSize: 12
+                        font.pixelSize: Math.round(12 * theme.textScale)
                     }
                 }
                 // The groups lie in two columns so every key stays on one
@@ -126,7 +126,7 @@ Rectangle {
                                         text: parent.modelData[0].toUpperCase()
                                         color: theme.muted
                                         font.weight: Font.DemiBold
-                                        font.pixelSize: 11
+                                        font.pixelSize: Math.round(11 * theme.textScale)
                                         font.letterSpacing: 1.2
                                     }
                                     Repeater {
@@ -140,14 +140,14 @@ Rectangle {
                                                 text: parent.modelData[0]
                                                 color: theme.accentText
                                                 font.family: theme.fontFamily
-                                                font.pixelSize: 12
+                                                font.pixelSize: Math.round(12 * theme.textScale)
                                             }
                                             Text {
                                                 font.family: theme.fontFamily
                                                 Layout.fillWidth: true
                                                 text: parent.modelData[1]
                                                 color: theme.foreground
-                                                font.pixelSize: 12
+                                                font.pixelSize: Math.round(12 * theme.textScale)
                                                 wrapMode: Text.Wrap
                                             }
                                         }

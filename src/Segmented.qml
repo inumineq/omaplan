@@ -40,7 +40,7 @@ Row {
         anchors.verticalCenter: parent.verticalCenter
         text: seg.label
         color: theme.muted
-        font.pixelSize: 12
+        font.pixelSize: Math.round(12 * theme.textScale)
     }
     // A Flow wraps only once its width is set; unset, it is one line.
     Flow {
@@ -82,7 +82,7 @@ Row {
                     textFormat: Text.PlainText
                     text: choice.modelData[1]
                     color: choice.active ? theme.accentForeground : theme.foreground
-                    font.pixelSize: 12
+                    font.pixelSize: Math.round(12 * theme.textScale)
                     font.bold: choice.active
                 }
                 HoverHandler { id: hover; cursorShape: Qt.PointingHandCursor }
@@ -96,7 +96,7 @@ Row {
         visible: seg.keyInline && seg.keyHint !== ""
         text: seg.keyHint
         color: theme.muted
-        font.pixelSize: 11
+        font.pixelSize: Math.round(11 * theme.textScale)
         font.family: theme.fontFamily
     }
 }

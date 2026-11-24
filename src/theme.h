@@ -2,6 +2,7 @@
 
 #include <QFileSystemWatcher>
 #include <QHash>
+#include <QLocalSocket>
 #include <QObject>
 #include <QProcess>
 #include <QTimer>
@@ -11,7 +12,15 @@ class Theme : public QObject {
     Q_OBJECT
     Q_PROPERTY(QString accent READ accent NOTIFY changed)
     Q_PROPERTY(QString accentForeground READ accentForeground NOTIFY changed)
+    // Hyprland's window rounding, asked for on start and whenever Hyprland
+    // says its config reloaded.
     Q_PROPERTY(int radius READ radius NOTIFY changed)
+    // The desktop's text size (omarchy display text size): the shell's
+    // [font] base-size, 12 px by default. textScale is that over 12, the
+    // size the interface is drawn for, and every font.pixelSize multiplies
+    // by it.
+    Q_PROPERTY(int textSize READ textSize NOTIFY changed)
+    Q_PROPERTY(qreal textScale READ textScale NOTIFY changed)
     // The rest of Omarchy's colors.toml, so no view hardcodes a color.
     // Missing keys fall back to a dark default palette.
     Q_PROPERTY(bool dark READ dark NOTIFY changed)
@@ -35,15 +44,24 @@ class Theme : public QObject {
     Q_PROPERTY(QVariantMap palette READ palette NOTIFY changed)
 
 public:
-    explicit Theme(const QString &currentDirectory = {}, QObject *parent = nullptr, const QString &hyprctl = {});
+    // Tests pass a temp directory (with shell.toml in it), a fake hyprctl and
+    // their own event socket.
+    explicit Theme(const QString &currentDirectory = {}, QObject *parent = nullptr, const QString &hyprctl = {},
+                   const QString &hyprlandEvents = {});
     ~Theme() override;
 
     QString accent() const { return m_accent; }
     QString accentForeground() const;
     int radius() const { return m_radius; }
+    int textSize() const { return m_textSize; }
+    qreal textScale() const { return m_textSize / 12.0; }
 
+    // base-size under [font] in a shell.toml, or 0 when it isn't set.
+    static int readBaseSize(const QString &path);
     static QString readAccent(const QString &path);
-    // key -> "#rrggbb" (or text for "mode") from a colors.toml.
+    // key -> "#rrggbb" from a colors.toml, quoted or bare, with or without
+    // a trailing comment, older names for a colour filled in, and "mode" as
+    // "light" or "dark" the way Omarchy decides it.
     static QHash<QString, QString> readColors(const QString &path);
 
     bool dark() const { return color("mode", "dark") != QLatin1String("light"); }
@@ -87,14 +105,19 @@ private:
     void refreshRounding();
 
     QString m_directory;
+    QString m_shellConfig;
+    int m_textSize = 12;
     QString m_accent = "#FFD60A";
     QHash<QString, QString> m_colors;
     QFileSystemWatcher m_watcher;
     QTimer m_debounce;
     QString m_hyprctl;
     int m_radius = 0;
+    bool m_roundingAgain = false;
     QProcess m_roundingProcess;
-    QTimer m_roundingPoll, m_roundingTimeout;
+    QTimer m_roundingTimeout;
+    QLocalSocket m_events;
+    QTimer m_reconnect;
     QString m_muted, m_danger, m_success, m_accentText;
     QHash<QString, QString> m_palette; // slot -> readable colour
     QString m_fontFamily = "monospace";

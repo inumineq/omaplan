@@ -210,7 +210,7 @@ Rectangle {
                     font.family: theme.fontFamily
                     text: overlay.comparing ? qsTr("Compare proposals") : qsTr("Proposal")
                     font.weight: Font.DemiBold
-                    font.pixelSize: 16
+                    font.pixelSize: Math.round(16 * theme.textScale)
                     color: theme.foreground
                 }
                 Text {
@@ -220,7 +220,7 @@ Rectangle {
                     text: "“" + overlay.text + "”"
                     elide: Text.ElideRight
                     color: theme.muted
-                    font.pixelSize: 13
+                    font.pixelSize: Math.round(13 * theme.textScale)
                     font.italic: true
                 }
             }
@@ -249,14 +249,14 @@ Rectangle {
                 text: overlay.problem
                 color: theme.danger
                 wrapMode: Text.Wrap
-                font.pixelSize: 13
+                font.pixelSize: Math.round(13 * theme.textScale)
             }
             Text {
                 font.family: theme.fontFamily
                 Layout.fillWidth: true
                 wrapMode: Text.Wrap
                 color: theme.muted
-                font.pixelSize: 12
+                font.pixelSize: Math.round(12 * theme.textScale)
                 text: {
                     const anyReady = overlay.columns.some(c => c.state === "ready")
                     if (!anyReady && overlay.columns.every(c => c.state === "error"))

@@ -3724,6 +3724,9 @@ private slots:
                 const QString where = name + ':' + QString::number(i + 1);
                 QVERIFY2(!hex.match(lines[i]).hasMatch(), qPrintable(where + " hard-codes a colour"));
                 QVERIFY2(!fixedFamily.match(lines[i]).hasMatch(), qPrintable(where + " fixes a font family"));
+                // Text follows the desktop's size (omarchy display text size).
+                QVERIFY2(!lines[i].contains("pixelSize:") || lines[i].contains("theme.textScale"),
+                         qPrintable(where + " sets a text size that ignores theme.textScale"));
                 if (!textOpen.match(lines[i]).hasMatch())
                     continue;
                 // The element's own lines, up to its closing brace.

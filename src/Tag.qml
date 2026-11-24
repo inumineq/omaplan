@@ -22,6 +22,6 @@ Rectangle {
         textFormat: Text.PlainText
         text: tag.text
         color: tag.tint
-        font.pixelSize: 11
+        font.pixelSize: Math.round(11 * theme.textScale)
     }
 }

@@ -134,7 +134,7 @@ Item {
                     return Fmt.dateShort(gantt.rangeStart) + " – " + Fmt.dateShort(Fmt.addDays(gantt.rangeStart, gantt.dayCount - 1))
                 }
                 color: theme.foreground
-                font.pixelSize: 17
+                font.pixelSize: Math.round(17 * theme.textScale)
                 font.bold: true
             }
             Item { Layout.fillWidth: true }
@@ -174,7 +174,7 @@ Item {
                         elide: Text.ElideRight
                         text: { Fmt.lang; return gantt.dayCount > 7 ? Fmt.dayShort(parent.date) : Fmt.capitalize(Fmt.dayLong(parent.date)) }
                         color: parent.isToday ? theme.accentText : theme.foreground
-                        font.pixelSize: 12
+                        font.pixelSize: Math.round(12 * theme.textScale)
                         font.bold: parent.isToday
                     }
                     // Hour ticks where there is room for them.
@@ -188,7 +188,7 @@ Item {
                             y: 22
                             text: Fmt.hour(gantt.firstHour + index, true)
                             color: theme.muted
-                            font.pixelSize: 10
+                            font.pixelSize: Math.round(10 * theme.textScale)
                         }
                     }
                 }
@@ -273,7 +273,7 @@ Item {
                                    ? (barItem.projectColor !== "" ? theme.background : theme.accentForeground)
                                  : barItem.done ? theme.muted : theme.foreground
                             font.strikeout: barItem.done
-                            font.pixelSize: 12
+                            font.pixelSize: Math.round(12 * theme.textScale)
                         }
 
                         // Move: drag the bar; it snaps to a quarter hour (or a day).
