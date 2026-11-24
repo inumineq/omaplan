@@ -45,6 +45,8 @@ bool write(Store *store, const QString &path, QString *error = nullptr,
 
 // Rewrites the snapshot after every outermost commit of `store`. A failed
 // snapshot never fails the change itself; it is reported on stderr.
+class Settings;
+
 class Snapshotter : public QObject {
     Q_OBJECT
 public:
@@ -53,6 +55,8 @@ public:
     // The `language` written into plan.json; "en" until set.
     void setLanguage(const QString &language) { m_language = language; }
     void write();
+    // Writes again whenever config.toml changes (project colours, the clock).
+    void follow(Settings *settings);
 
 private:
     Store *m_store;

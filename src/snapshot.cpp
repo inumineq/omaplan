@@ -12,6 +12,7 @@
 
 #include "config.h"
 #include "datewords.h"
+#include "settings.h"
 #include "store.h"
 #include "theme.h"
 
@@ -201,4 +202,8 @@ void Snapshotter::write() {
     QString error;
     if (!m_path.isEmpty() && !Snapshot::write(m_store, m_path, &error, m_language))
         QTextStream(stderr) << "omaplan: snapshot: " << error << "\n";
+}
+
+void Snapshotter::follow(Settings *settings) {
+    connect(settings, &Settings::changed, this, &Snapshotter::write);
 }

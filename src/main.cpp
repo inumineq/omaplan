@@ -105,8 +105,10 @@ int main(int argc, char *argv[]) {
         if (storeOpen)
             snapshotter.write();
     });
-    if (storeOpen)
+    if (storeOpen) {
         snapshotter.write();
+        snapshotter.follow(&settings);
+    }
     PlanModel planModel(&store);
     // The window still opens, and says why the plan is missing.
     if (!storeOpen)

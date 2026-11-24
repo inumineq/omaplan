@@ -2953,6 +2953,36 @@ private slots:
         QCOMPARE(language.language(), before);
     }
 
+    // L2: a settings change (a colour, the clock) reaches plan.json at once,
+    // not only with the next change to the plan.
+    void snapshotFollowsSettings()
+    {
+        QTemporaryDir dir;
+        const QString cfg = dir.filePath("config.toml");
+        qputenv("OMAPLAN_CONFIG", cfg.toLocal8Bit());
+        Store store(dir.filePath("t.db"));
+        QString error;
+        QVERIFY(store.open(&error));
+        Task task;
+        task.title = QStringLiteral("Write the blog post");
+        task.project = QStringLiteral("Blog");
+        QVERIFY(Actions(&store).create(task, "test").ok);
+        UiLanguage language(nullptr, QStringLiteral("en"), false, dir.filePath("no-omarchy-language"));
+        Settings settings(&language, cfg);
+        Snapshotter snapshotter(&store, dir.filePath("plan.json"));
+        snapshotter.follow(&settings);
+        snapshotter.write();
+        QVERIFY(!readJsonFile(dir.filePath("plan.json")).contains("project_colors"));
+        QVERIFY(Actions::configSet("projects.Blog", "green").ok);
+        QVERIFY(Actions::configSet("dates.clock", "12h").ok);
+        settings.reload(); // what the file watcher does
+        const QJsonObject plan = readJsonFile(dir.filePath("plan.json"));
+        qputenv("OMAPLAN_CONFIG", "");
+        DateConvention::setActive(DateConvention::forLanguage(UiLanguage::current()));
+        QCOMPARE(plan.value("project_colors").toObject().value("Blog").toString(), QStringLiteral("green"));
+        QCOMPARE(plan.value("clock").toString(), QStringLiteral("12h"));
+    }
+
     // M3: set/get/unset act on the line the program reads, the last one.
     void configWritesTheOccurrenceThatApplies()
     {
