@@ -53,8 +53,11 @@ const Texts &texts(const QString &language) {
     auto it = cache.find(lang);
     if (it == cache.end()) {
         QFile file(QStringLiteral(":/web/i18n/%1.json").arg(lang));
-        file.open(QIODevice::ReadOnly);
-        it = cache.insert(lang, Texts{QJsonDocument::fromJson(file.readAll()).object()});
+        // A compiled-in resource: it opens, or the dictionary is empty.
+        Texts texts;
+        if (file.open(QIODevice::ReadOnly))
+            texts.json = QJsonDocument::fromJson(file.readAll()).object();
+        it = cache.insert(lang, texts);
     }
     return *it;
 }
@@ -201,7 +204,7 @@ QString startDate(const Item &o) { return parseWhen(o.start).date; }
 // sortTasks: dated first (by date, timed before all-day, by time), then
 // undated; then priority, then title (collated in the page's language).
 QList<Item> sortTasks(QList<Item> items, const Texts &t) {
-    const QCollator &coll = collator(t.language());
+    const QCollator coll = collator(t.language());
     std::stable_sort(items.begin(), items.end(), [&](const Item &a, const Item &b) {
         const When sa = parseWhen(a.start), sb = parseWhen(b.start);
         if (sa.date.isEmpty() != sb.date.isEmpty())
@@ -367,7 +370,7 @@ QString renderListByProject(const QList<Item> &items, const Texts &t, const QStr
             names << p;
         groups[p].append(o);
     }
-    const QCollator &coll = collator(t.language());
+    const QCollator coll = collator(t.language());
     std::stable_sort(names.begin(), names.end(), [&](const QString &a, const QString &b) {
         if (a == none || b == none)
             return b == none && a != none;
@@ -455,7 +458,7 @@ QString renderTimeline(const QList<Item> &items, const QString &today, const Tex
     for (int h = int(std::ceil(double(from) / step)) * step; h <= to; h += step)
         hourLabels += QStringLiteral("<span style=\"--hour:%1\">%1</span>").arg(h);
 
-    const QCollator &coll = collator(t.language());
+    const QCollator coll = collator(t.language());
     QStringList dayParts;
     for (const QString &day : days) {
         QList<Bar> bars = raw.value(day);
