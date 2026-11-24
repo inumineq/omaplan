@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
 # The one place for the version: --version, the MCP serverInfo and the release
 # tag (the recipe in omarchy-pkgs follows the tag).
-project(omaplan VERSION 0.3.0 LANGUAGES CXX)
+project(omaplan VERSION 0.3.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

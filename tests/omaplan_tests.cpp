@@ -1522,7 +1522,7 @@ private slots:
         QVERIFY(cmake.open(QIODevice::ReadOnly));
         const QString version = QRegularExpression(QStringLiteral("(?m)^project\\(omaplan VERSION (\\S+) "))
                                     .match(QString::fromUtf8(cmake.readAll())).captured(1);
-        QCOMPARE(version, QStringLiteral("0.3.0"));
+        QCOMPARE(version, QStringLiteral("0.3.1"));
         QCOMPARE(runOmaplan(db, {QStringLiteral("--version")}, &code).trimmed(), QStringLiteral("omaplan ") + version);
         QCOMPARE(code, 0);
         QString stderrText;

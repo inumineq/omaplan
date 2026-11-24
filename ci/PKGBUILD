@@ -3,7 +3,7 @@
 # Maintainer: inumineq (https://github.com/inumineq)
 
 pkgname=omaplan
-pkgver=0.3.0
+pkgver=0.3.1
 pkgrel=1
 pkgdesc='Plan your tasks with AI: write them in plain text and see the plan as overview, calendar, list or timeline'
 arch=('x86_64' 'aarch64')

@@ -15,6 +15,9 @@ the approach can be agreed first.
    - the read-only page's "today" in the plan's time zone rather than the server's or the browser's;
    - the layout of the fields when comparing two engines (Alt+S).
 
+Done in 0.3.1: **the timeline is a Gantt chart** – multi-day tasks span their days, a deadline is a diamond, and every
+title stays readable, in the app and on the read-only page.
+
 Done in 0.3.0: **built like Omarchy's own apps** – CMake and `ctest` with the shared `bin/build`, `bin/test` and CI
 workflow; Omarchy's JSON catalogs and shared `Translator`; text size and corner rounding followed live;
 `omarchy agent look app` support; the default engine follows `omarchy default agent`, and the `local` engine can
