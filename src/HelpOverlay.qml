@@ -3,6 +3,8 @@ import QtQuick.Controls
 import QtQuick.Layouts
 
 // Every key in the window, shown with ?. Esc, ? or a click closes it.
+// Laid out like Omacut's and Folio's: keys in accent monospace, actions in the
+// foreground, small capital group headings.
 Rectangle {
     id: overlay
     color: Qt.alpha(theme.background, 0.82) // a scrim in the theme's own colour, light or dark
@@ -61,7 +63,7 @@ Rectangle {
         anchors.centerIn: parent
         width: Math.min(900, parent.width - 48)
         height: Math.min(content.implicitHeight + 48, parent.height - 48)
-        radius: Math.min(8, theme.radius)
+        radius: theme.radius
         color: theme.surface
         border.color: theme.accent
 
@@ -77,11 +79,20 @@ Rectangle {
                 width: parent.width
                 spacing: 4
 
-                Text {
-                    text: qsTr("Keys")
-                    font.bold: true
-                    font.pixelSize: 18
-                    color: theme.foreground
+                RowLayout {
+                    Layout.fillWidth: true
+                    Text {
+                        text: qsTr("Keyboard shortcuts")
+                        font.weight: Font.DemiBold
+                        font.pixelSize: 16
+                        color: theme.foreground
+                    }
+                    Item { Layout.fillWidth: true }
+                    Text {
+                        text: qsTr("Esc closes")
+                        color: theme.muted
+                        font.pixelSize: 12
+                    }
                 }
                 // The groups lie in two columns so every key stays on one
                 // screen; the Flickable still takes over on shorter windows.
@@ -103,10 +114,11 @@ Rectangle {
                                     Layout.topMargin: 8
                                     spacing: 3
                                     Text {
-                                        text: parent.modelData[0]
-                                        color: theme.accent
-                                        font.bold: true
-                                        font.pixelSize: 13
+                                        text: parent.modelData[0].toUpperCase()
+                                        color: theme.muted
+                                        font.weight: Font.DemiBold
+                                        font.pixelSize: 11
+                                        font.letterSpacing: 1.2
                                     }
                                     Repeater {
                                         model: parent.modelData[1]
@@ -117,14 +129,14 @@ Rectangle {
                                             Text {
                                                 Layout.preferredWidth: 160
                                                 text: parent.modelData[0]
-                                                color: theme.foreground
+                                                color: theme.accent
                                                 font.family: "monospace"
                                                 font.pixelSize: 12
                                             }
                                             Text {
                                                 Layout.fillWidth: true
                                                 text: parent.modelData[1]
-                                                color: theme.muted
+                                                color: theme.foreground
                                                 font.pixelSize: 12
                                                 wrapMode: Text.Wrap
                                             }
@@ -134,12 +146,6 @@ Rectangle {
                             }
                         }
                     }
-                }
-                Text {
-                    Layout.topMargin: 10
-                    text: qsTr("Esc, ? or a click closes this")
-                    color: theme.muted
-                    font.pixelSize: 12
                 }
             }
         }

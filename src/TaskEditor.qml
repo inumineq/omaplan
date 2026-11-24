@@ -191,8 +191,8 @@ Rectangle {
 
             Text {
                 text: editor.taskId === "" ? qsTr("New task") : qsTr("Edit task")
-                font.bold: true
-                font.pixelSize: 18
+                font.weight: Font.DemiBold
+                font.pixelSize: 16
                 color: theme.foreground
             }
             Field {
@@ -261,10 +261,11 @@ Rectangle {
                     visible: editor.taskId !== ""
                     text: qsTr("Delete")
                     keyHint: "Ctrl+Del"
+                    keyInline: true
                     onClicked: editor.remove()
                 }
-                HeaderButton { text: qsTr("Cancel"); keyHint: "Esc"; onClicked: editor.close() }
-                HeaderButton { text: qsTr("Save"); keyHint: "Enter"; primary: true; onClicked: editor.save() }
+                HeaderButton { text: qsTr("Cancel"); keyHint: "Esc"; keyInline: true; onClicked: editor.close() }
+                HeaderButton { text: qsTr("Save"); keyHint: "Enter"; keyInline: true; primary: true; onClicked: editor.save() }
             }
             Text {
                 Layout.fillWidth: true

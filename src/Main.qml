@@ -41,7 +41,7 @@ ApplicationWindow {
     function notify(text, isError) {
         toast.text = text
         toast.isError = !!isError
-        toastTimer.interval = isError ? 7000 : 3000
+        toastTimer.interval = isError ? 10000 : 4000 // Hype's timings
         toastTimer.restart()
     }
     // Shows the error of a failed action; returns whether it succeeded.
@@ -153,10 +153,11 @@ ApplicationWindow {
     Shortcut { sequences: ["+", "="]; enabled: !win.modal && win.currentView === 3; onActivated: ganttView.zoom(-1) }
     Shortcut { sequence: "-"; enabled: !win.modal && win.currentView === 3; onActivated: ganttView.zoom(1) }
 
-    // --- Header: the four views as tabs, and the two main actions ----------
+    // --- Header: the four views as tabs, the main action and a quiet ? -------
+    // One bar in the window's own colour with a 1 px divider, as in Folio.
     header: Rectangle {
         height: 48
-        color: theme.surface
+        color: theme.background
         Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: theme.border }
 
         RowLayout {
@@ -210,10 +211,30 @@ ApplicationWindow {
                 primary: true
                 onClicked: win.openInput()
             }
-            HeaderButton {
-                text: qsTr("Keys")
-                keyHint: "?"
+            // The shortcuts behind a small ?, like Omacut's and Folio's.
+            AbstractButton {
+                id: helpButton
+                Layout.leftMargin: 6
+                focusPolicy: Qt.NoFocus
+                implicitWidth: 24
+                implicitHeight: 24
                 onClicked: win.helpVisible = !win.helpVisible
+                ToolTip.visible: hovered
+                ToolTip.delay: 600
+                ToolTip.text: qsTr("Keyboard shortcuts") + " (?)"
+                contentItem: Text {
+                    text: "?"
+                    color: helpButton.hovered ? theme.foreground : theme.muted
+                    font.pixelSize: 13
+                    font.bold: true
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+                background: Rectangle {
+                    radius: width / 2
+                    color: helpButton.hovered ? theme.raised : "transparent"
+                    border.color: theme.border
+                }
             }
         }
     }
@@ -309,10 +330,9 @@ ApplicationWindow {
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.bottomMargin: 18
             visible: text !== ""
-            color: theme.surface
-            border.color: isError ? theme.danger : theme.accent
-            border.width: 1
-            radius: Math.min(6, theme.radius)
+            // A quiet pill like Monologue's: no frame; errors are in red.
+            color: theme.raised
+            radius: Math.min(4, theme.radius)
             width: Math.min(toastLabel.implicitWidth + 28, parent.width - 48)
             height: toastLabel.implicitHeight + 16
             Text {
@@ -321,7 +341,7 @@ ApplicationWindow {
                 anchors.margins: 8
                 anchors.leftMargin: 14
                 text: toast.text
-                color: theme.foreground
+                color: toast.isError ? theme.danger : theme.foreground
                 font.pixelSize: 13
                 wrapMode: Text.Wrap
                 horizontalAlignment: Text.AlignHCenter

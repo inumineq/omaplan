@@ -9,7 +9,8 @@ and `docs/architecture.md`.
 
 ## Keys (in the window)
 
-Everything can be done with the keyboard. `?` shows every key in the window.
+Everything can be done with the keyboard. `?` (or the small `?` at the top right) shows every key in the window, and
+hovering a button shows its key.
 
 | Key | Action |
 | --- | --- |

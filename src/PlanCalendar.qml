@@ -182,21 +182,15 @@ Item {
         RowLayout {
             Layout.fillWidth: true
             spacing: 6
-            HeaderButton { text: "‹"; onClicked: cal.page(-1) }
+            HeaderButton { text: "‹"; toolTip: qsTr("Previous"); keyHint: "h"; onClicked: cal.page(-1) }
             HeaderButton { text: qsTr("Today"); keyHint: "t"; onClicked: cal.goToday() }
-            HeaderButton { text: "›"; onClicked: cal.page(1) }
+            HeaderButton { text: "›"; toolTip: qsTr("Next"); keyHint: "l"; onClicked: cal.page(1) }
             Text {
                 Layout.leftMargin: 10
                 text: { Fmt.lang; return cal.mode === "week" ? Fmt.weekTitle(cal.weekStart) : Fmt.capitalize(Fmt.monthTitle(cal.monthStart)) }
                 color: theme.foreground
                 font.pixelSize: 17
                 font.bold: true
-            }
-            Text {
-                text: "h / l"
-                color: theme.muted
-                font.pixelSize: 11
-                font.family: "monospace"
             }
             Item { Layout.fillWidth: true }
             HeaderButton { text: qsTr("Week"); keyHint: "w"; active: cal.mode === "week"; onClicked: win.calendarMode = "week" }

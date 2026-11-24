@@ -282,4 +282,4 @@ Omarchy's `colors.toml`, fallback `#FFD60A`):
 
 `serve` sets the variables inline on `<html>` from the theme of the machine it runs on (or else the `theme` in
 `plan.json`); `app.js` does the same from `plan.json`'s `theme` when the page is opened statically. `--radius`
-defaults to `8px`.
+defaults to `0px`, the sharp corners of Omarchy's default; tags and bars round at most 3–4 px.

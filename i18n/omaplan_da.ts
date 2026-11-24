@@ -216,6 +216,14 @@
         <translation>Den valgte kommando er ikke installeret eller ikke på PATH.</translation>
     </message>
     <message>
+        <source>Local</source>
+        <translation>Lokal</translation>
+    </message>
+    <message>
+        <source>Local (%1)</source>
+        <translation>Lokal (%1)</translation>
+    </message>
+    <message>
         <source>The local engine needs a model and an endpoint. Example config (~/.config/omaplan/config.toml):
 
 [engine.local]
@@ -333,8 +341,16 @@ Råt svar:
 <context>
     <name>GanttView</name>
     <message>
+        <source>Previous</source>
+        <translation>Forrige</translation>
+    </message>
+    <message>
         <source>Today</source>
         <translation>I dag</translation>
+    </message>
+    <message>
+        <source>Next</source>
+        <translation>Næste</translation>
     </message>
     <message>
         <source>Zoom</source>
@@ -524,12 +540,12 @@ Råt svar:
         <translation>Annullér</translation>
     </message>
     <message>
-        <source>Keys</source>
-        <translation>Taster</translation>
+        <source>Keyboard shortcuts</source>
+        <translation>Tastaturgenveje</translation>
     </message>
     <message>
-        <source>Esc, ? or a click closes this</source>
-        <translation>Esc, ? eller et klik lukker</translation>
+        <source>Esc closes</source>
+        <translation>Esc lukker</translation>
     </message>
 </context>
 <context>
@@ -610,8 +626,8 @@ Råt svar:
         <translation>Ny opgave</translation>
     </message>
     <message>
-        <source>Keys</source>
-        <translation>Taster</translation>
+        <source>Keyboard shortcuts</source>
+        <translation>Tastaturgenveje</translation>
     </message>
     <message>
         <source>1 task added · Ctrl+Z takes it back</source>
@@ -660,8 +676,16 @@ Råt svar:
 <context>
     <name>PlanCalendar</name>
     <message>
+        <source>Previous</source>
+        <translation>Forrige</translation>
+    </message>
+    <message>
         <source>Today</source>
         <translation>I dag</translation>
+    </message>
+    <message>
+        <source>Next</source>
+        <translation>Næste</translation>
     </message>
     <message>
         <source>Week</source>
@@ -792,8 +816,8 @@ Råt svar:
         <translation>Ctrl+%1 godkender</translation>
     </message>
     <message>
-        <source>Waiting for %1 …</source>
-        <translation>Venter på %1 …</translation>
+        <source>Waiting for %1…</source>
+        <translation>Venter på %1…</translation>
     </message>
     <message>
         <source>+ Add task</source>

@@ -113,7 +113,8 @@ QString Theme::border() const { return mix(background(), foreground(), 0.18); }
 
 QString Theme::muted() const {
     const QString value = color("muted", "");
-    return value.isEmpty() ? mix(foreground(), background(), 0.42) : value;
+    // Folio's secondary text: about 4.5:1 on the background, so metadata stays readable.
+    return value.isEmpty() ? mix(background(), foreground(), 0.68) : value;
 }
 
 // Black or white, whichever reads on the accent (WCAG relative luminance).
