@@ -172,6 +172,61 @@
         <source>%1 is not a %2</source>
         <translation>%1 er ikke en %2</translation>
     </message>
+    <message>
+        <source>(not set)</source>
+        <translation>(ikke sat)</translation>
+    </message>
+    <message>
+        <source>(the language&apos;s)</source>
+        <translation>(sprogets)</translation>
+    </message>
+    <message>
+        <source>(default)</source>
+        <translation>(standard)</translation>
+    </message>
+    <message>
+        <source>Settings in %1</source>
+        <translation>Indstillinger i %1</translation>
+    </message>
+    <message>
+        <source>Unknown setting: %1 (see omaplan config list)</source>
+        <translation>Ukendt indstilling: %1 (se omaplan config list)</translation>
+    </message>
+    <message>
+        <source>&apos;%1&apos; was not found on PATH</source>
+        <translation>&apos;%1&apos; blev ikke fundet på PATH</translation>
+    </message>
+    <message>
+        <source>needs an endpoint and a model</source>
+        <translation>mangler et endpoint og en model</translation>
+    </message>
+    <message>
+        <source>needs a command line</source>
+        <translation>mangler en kommandolinje</translation>
+    </message>
+    <message>
+        <source>ready</source>
+        <translation>klar</translation>
+    </message>
+    <message>
+        <source>model: %1</source>
+        <translation>model: %1</translation>
+    </message>
+    <message>
+        <source>the tool&apos;s default</source>
+        <translation>værktøjets standard</translation>
+    </message>
+    <message>
+        <source>Answered, but proposed no tasks.</source>
+        <translation>Svarede, men foreslog ingen opgaver.</translation>
+    </message>
+    <message numerus="yes">
+        <source>Answered with %n task(s): %1</source>
+        <translation>
+            <numerusform>Svarede med %n opgave: %1</numerusform>
+            <numerusform>Svarede med %n opgaver: %1</numerusform>
+        </translation>
+    </message>
 </context>
 <context>
     <name>AiEngine</name>
@@ -917,6 +972,10 @@ Commands:
   projects
   summary [--week|--month]
   add &lt;text&gt; [--engine ...] [--yes] [--model M] [--endpoint URL]   AI proposal; --yes stores it
+  config list | get &lt;key&gt; | set &lt;key&gt; &lt;value&gt; | unset &lt;key&gt; | path
+                        settings in config.toml (engine.default, engine.claude.model, dates.order,
+                        projects.&lt;name&gt;, ...); `config list` shows every key
+  engines               the AI engines: installed or not, and the model each one uses
   skill install [--force]|uninstall   install/remove the bundled agent skill
   mcp                   MCP server over stdio (claude mcp add omaplan -- omaplan mcp)
   snapshot [path]       write plan.json for the read-only edition (also automatic after every change)
@@ -932,6 +991,8 @@ Examples:
   omaplan move &lt;id&gt; &quot;tuesday at 14:00&quot;
   omaplan done &lt;id&gt;
   omaplan undo --json
+  omaplan config set engine.claude.model sonnet
+  omaplan config set projects.Blog blue
   omaplan skill install --force   replace customized skill files
 </source>
         <translation>Brug: omaplan [--db &lt;sti&gt;] [--lang da|en] &lt;kommando&gt; [tilvalg] [--json]
@@ -950,6 +1011,10 @@ Kommandoer:
   projects
   summary [--week|--month]
   add &lt;tekst&gt; [--engine ...] [--yes] [--model M] [--endpoint URL]   AI-forslag; --yes gemmer det
+  config list | get &lt;nøgle&gt; | set &lt;nøgle&gt; &lt;værdi&gt; | unset &lt;nøgle&gt; | path
+                        indstillinger i config.toml (engine.default, engine.claude.model, dates.order,
+                        projects.&lt;navn&gt;, ...); `config list` viser alle nøgler
+  engines               AI-motorerne: installeret eller ej, og den model hver bruger
   skill install [--force]|uninstall   installér/fjern den bundtede agent-skill
   mcp                   MCP-server over stdio (claude mcp add omaplan -- omaplan mcp)
   snapshot [sti]        skriv plan.json til læseudgaven (sker også automatisk efter hver ændring)
@@ -965,6 +1030,8 @@ Eksempler:
   omaplan move &lt;id&gt; &quot;tirsdag kl. 14:00&quot;
   omaplan done &lt;id&gt;
   omaplan undo --json
+  omaplan config set engine.claude.model sonnet
+  omaplan config set projects.Blog blue
   omaplan skill install --force   erstat tilpassede skill-filer
 </translation>
     </message>
@@ -991,6 +1058,14 @@ Eksempler:
     <message>
         <source>Usage: omaplan skill install [--force]|uninstall [--json]</source>
         <translation>Brug: omaplan skill install [--force]|uninstall [--json]</translation>
+    </message>
+    <message>
+        <source>Usage: omaplan config list | get &lt;key&gt; | set &lt;key&gt; &lt;value&gt; | unset &lt;key&gt; | path [--json]</source>
+        <translation>Brug: omaplan config list | get &lt;nøgle&gt; | set &lt;nøgle&gt; &lt;værdi&gt; | unset &lt;nøgle&gt; | path [--json]</translation>
+    </message>
+    <message>
+        <source>Usage: omaplan engines [--json]</source>
+        <translation>Brug: omaplan engines [--json]</translation>
     </message>
     <message>
         <source>Invalid port: %1</source>

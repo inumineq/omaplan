@@ -2753,6 +2753,101 @@ private slots:
         return rpc(id, QStringLiteral("tools/call"), {{QStringLiteral("name"), tool}, {QStringLiteral("arguments"), arguments}});
     }
 
+    void cliConfigGetSetListUnsetAndEngines()
+    {
+        QTemporaryDir dir;
+        const QString cfg = dir.filePath("config.toml");
+        QFile f(cfg);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("# mine\n[engine]\ndefault = \"vibe\"  # keep this comment\n");
+        f.close();
+        qputenv("OMAPLAN_CONFIG", cfg.toLocal8Bit());
+        // Fake tools on PATH: vibe is there, claude is not.
+        const QByteArray oldPath = qgetenv("PATH");
+        QFile vibe(dir.filePath("vibe"));
+        QVERIFY(vibe.open(QIODevice::WriteOnly));
+        vibe.write("#!/bin/sh\nexit 1\n");
+        vibe.close();
+        vibe.setPermissions(QFileDevice::ReadOwner | QFileDevice::ExeOwner);
+        qputenv("PATH", dir.path().toLocal8Bit());
+
+        Store store(dir.filePath("t.db"));
+        QString error;
+        QVERIFY(store.open(&error));
+        QString out, err;
+        int code = 0;
+        QJsonObject set = cliJson(store, {"config", "set", "engine.claude.model", "sonnet", "--json"}, &err, &code);
+        QCOMPARE(code, 0);
+        QCOMPARE(set.value("effective").toString(), QStringLiteral("sonnet"));
+        QCOMPARE(cli(store, {"config", "set", "engine.default", "Claude"}, &out, &err), 0); // case folded
+        QCOMPARE(cli(store, {"config", "set", "projects.Client A", "color2"}, &out, &err), 0);
+        QCOMPARE(cli(store, {"config", "set", "dates.order", "mdy"}, &out, &err), 0);
+        err.clear();
+        QCOMPARE(cli(store, {"config", "set", "engine.default", "gpt"}, &out, &err), 1);
+        QVERIFY2(err.contains("engine.default must be one of"), qPrintable(err));
+        QCOMPARE(cli(store, {"config", "set", "engine.nope", "x"}, &out, &err), 1);
+        QCOMPARE(cli(store, {"config", "set", "projects.Blog", "#ff0000"}, &out, &err), 1);
+
+        QFile back(cfg);
+        QVERIFY(back.open(QIODevice::ReadOnly));
+        const QString text = QString::fromUtf8(back.readAll());
+        QVERIFY2(text.startsWith("# mine\n[engine]\ndefault = \"claude\"  # keep this comment\n"), qPrintable(text));
+        QVERIFY(text.contains("\"Client A\" = \"green\"")); // the alias is stored by its name
+
+        const QJsonObject get = cliJson(store, {"config", "get", "dates.week_start", "--json"}, &err, &code);
+        QCOMPARE(get.value("source").toString(), QStringLiteral("language"));
+        QCOMPARE(get.value("effective").toString(), QStringLiteral("monday"));
+        const QJsonObject list = cliJson(store, {"config", "list", "--json"}, &err, &code);
+        QCOMPARE(list.value("path").toString(), cfg);
+        QCOMPARE(list.value("projects").toObject().value("Client A").toString(), QStringLiteral("green"));
+        QCOMPARE(list.value("settings").toArray().size(), ConfigKeys::all().size());
+        // auto and unset both remove the key.
+        QCOMPARE(cli(store, {"config", "set", "dates.order", "auto"}, &out, &err), 0);
+        QCOMPARE(cli(store, {"config", "unset", "projects.Client A"}, &out, &err), 0);
+        QVERIFY(AppConfig::load(cfg).dateOrder.isEmpty());
+        QVERIFY(AppConfig::load(cfg).projectColors.isEmpty());
+
+        const QJsonObject engines = cliJson(store, {"engines", "--json"}, &err, &code);
+        qputenv("PATH", oldPath);
+        qputenv("OMAPLAN_CONFIG", "");
+        QCOMPARE(code, 0);
+        QCOMPARE(engines.value("default").toString(), QStringLiteral("claude"));
+        QHash<QString, QJsonObject> byId;
+        for (const QJsonValue &e : engines.value("engines").toArray())
+            byId.insert(e.toObject().value("id").toString(), e.toObject());
+        QVERIFY(byId.value("vibe").value("ready").toBool());
+        QCOMPARE(byId.value("vibe").value("path").toString(), dir.filePath("vibe"));
+        QVERIFY(!byId.value("claude").value("ready").toBool());
+        QVERIFY(byId.value("claude").value("problem").toString().contains("PATH"));
+        QCOMPARE(byId.value("claude").value("model").toString(), QStringLiteral("sonnet"));
+        QVERIFY(!byId.value("local").value("ready").toBool());
+    }
+
+    void mcpConfigTools()
+    {
+        QTemporaryDir dir;
+        const QString db = dir.filePath("mcp.db");
+        QString stderrText;
+        const QList<QJsonObject> r = mcpSession(db, {
+            call(1, "config_set", {{"key", "engine.vibe.model"}, {"value", "mistral-medium"}}),
+            call(2, "config_get", {{"key", "engine.vibe.model"}}),
+            call(3, "config_set", {{"key", "dates.clock"}, {"value", "13h"}}),
+            call(4, "config_list"),
+            call(5, "engines"),
+            call(6, "config_set", {{"key", "engine.vibe.model"}}), // value missing
+        }, &stderrText);
+        QCOMPARE(r.size(), 7); // and the parse error of the trailing junk line
+        const auto structured = [&](int i) { return r.at(i).value("result").toObject().value("structuredContent").toObject(); };
+        const auto isError = [&](int i) { return r.at(i).value("result").toObject().value("isError").toBool(); };
+        QVERIFY(!isError(0));
+        QCOMPARE(structured(1).value("value").toString(), QStringLiteral("mistral-medium"));
+        QVERIFY(isError(2));
+        QVERIFY(structured(3).value("settings").toArray().size() > 10);
+        QCOMPARE(structured(4).value("engines").toArray().size(), 4);
+        QVERIFY(isError(5));
+        QCOMPARE(AppConfig::load(dir.filePath("config.toml")).vibeModel, QStringLiteral("mistral-medium"));
+    }
+
     void mcpSpeaksTheProtocolOverStdio()
     {
         QTemporaryDir dir;

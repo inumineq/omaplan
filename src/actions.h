@@ -119,6 +119,22 @@ public:
     Q_INVOKABLE void guiCompare(const QString &text);
     // Display names for the window: {"default": "...", "compare": ["...", "..."]}.
     Q_INVOKABLE QJsonObject guiEngineNames() const;
+
+    // config.toml (actions_config.cpp), the same for `omaplan config`, MCP and
+    // the settings panel. Keys are ConfigKeys names ("engine.claude.model",
+    // "projects.Blog"); an empty value (or "auto" for dates.*) removes the
+    // key, so the default applies again. Comments and unknown keys stay.
+    static ActionResult configList();
+    static ActionResult configGet(const QString &key);
+    static ActionResult configSet(const QString &key, const QString &value);
+    // Each engine: whether its tool is on PATH (or its endpoint/command is
+    // set), and the model or endpoint it would use. Runs nothing.
+    static ActionResult engines();
+    Q_INVOKABLE QJsonObject guiConfigSet(const QString &key, const QString &value);
+    Q_INVOKABLE QJsonObject guiEngines() const;
+    // The settings panel's Test button, and only that: one short real
+    // request to the engine, answered by engineTested. Stores nothing.
+    Q_INVOKABLE void guiTestEngine(const QString &id);
     Q_INVOKABLE QJsonObject guiApprove(const QJsonObject &proposalJson, const QString &captureId);
 
 signals:
@@ -128,6 +144,9 @@ signals:
     void proposalFailed(const QString &message);
     void compareReady(int side, const QJsonObject &proposalJson, const QString &captureId, const QString &engine);
     void compareFailed(int side, const QString &message, const QString &engine);
+    // ok: the engine answered with valid JSON; message: what it proposed, or
+    // the error; ms: how long it took.
+    void engineTested(const QString &id, bool ok, const QString &message, int ms);
 
 private:
     ActionResult locked(const std::function<ActionResult()> &body);
@@ -146,4 +165,5 @@ private:
     Store *m_store;
     std::unique_ptr<AiEngine> m_engine;
     std::unique_ptr<AiEngine> m_compare[2];
+    std::unique_ptr<AiEngine> m_test;
 };

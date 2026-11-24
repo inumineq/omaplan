@@ -7,6 +7,7 @@
 #include <QJsonDocument>
 
 #include "actions.h"
+#include "config.h"
 
 static const QStringList kProtocolVersions = {
     QStringLiteral("2025-06-18"), QStringLiteral("2025-03-26"), QStringLiteral("2024-11-05")};
@@ -62,6 +63,18 @@ QJsonObject McpServer::toolList() {
         {QStringLiteral("engine"), prop(QStringLiteral("string"), QStringLiteral("AI engine: vibe, claude, local or command. "
                                                                                  "Default: the user's config."))}};
 
+    QStringList keyNames;
+    for (const ConfigKey &key : ConfigKeys::all())
+        keyNames << key.name;
+    const QJsonObject configKey{
+        {QStringLiteral("key"), prop(QStringLiteral("string"),
+                                     QStringLiteral("Setting name: %1, or projects.<project name> for a project's colour.")
+                                         .arg(keyNames.join(QStringLiteral(", "))))}};
+    QJsonObject configSet = configKey;
+    configSet.insert(QStringLiteral("value"),
+                     prop(QStringLiteral("string"), QStringLiteral("New value; config_list shows the allowed ones. Empty "
+                                                                   "removes the key.")));
+
     QJsonArray tools;
     tools << tool(QStringLiteral("list"), QStringLiteral("List tasks, optionally filtered by date range, project and status."),
                   {{QStringLiteral("from"), prop(QStringLiteral("string"), QStringLiteral("From date (inclusive), e.g. \"today\"."))},
@@ -101,7 +114,21 @@ QJsonObject McpServer::toolList() {
                   {QStringLiteral("proposal")})
           << tool(QStringLiteral("add"), QStringLiteral("Free text to tasks via AI and store them at once. Only when the user "
                                                         "asked to save directly; otherwise use propose."),
-                  proposeFields, {QStringLiteral("text")});
+                  proposeFields, {QStringLiteral("text")})
+          << tool(QStringLiteral("config_list"),
+                  QStringLiteral("Every setting in the user's config.toml with its value, the value that applies and its "
+                                 "allowed values: the AI engine and model per engine, date notation, project colours."),
+                  {}, {}, true)
+          << tool(QStringLiteral("config_get"), QStringLiteral("One setting, e.g. engine.claude.model or dates.order."),
+                  configKey, {QStringLiteral("key")}, true)
+          << tool(QStringLiteral("config_set"),
+                  QStringLiteral("Change one setting in config.toml (comments and other keys stay). Only when the user asked "
+                                 "for it. An empty value removes the key, so the default applies."),
+                  configSet, {QStringLiteral("key"), QStringLiteral("value")})
+          << tool(QStringLiteral("engines"),
+                  QStringLiteral("The AI engines: whether each tool is installed and the model or endpoint it uses. Runs no "
+                                 "engine."),
+                  {}, {}, true);
     return {{QStringLiteral("tools"), tools}};
 }
 
@@ -250,6 +277,15 @@ QJsonObject McpServer::callTool(const QString &name, const QJsonObject &given) {
         return textResult(m_actions->projects());
     if (name == QLatin1String("summary"))
         return textResult(m_actions->summary(args.value(QStringLiteral("period")).toString() != QLatin1String("month")));
+    if (name == QLatin1String("config_list"))
+        return textResult(Actions::configList());
+    if (name == QLatin1String("config_get"))
+        return textResult(Actions::configGet(args.value(QStringLiteral("key")).toString()));
+    if (name == QLatin1String("config_set"))
+        return textResult(Actions::configSet(args.value(QStringLiteral("key")).toString(),
+                                             args.value(QStringLiteral("value")).toString()));
+    if (name == QLatin1String("engines"))
+        return textResult(Actions::engines());
     if (name == QLatin1String("propose") || name == QLatin1String("add")) {
         const QString text = args.value(QStringLiteral("text")).toString().trimmed();
         if (text.isEmpty())

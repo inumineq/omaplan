@@ -16,6 +16,7 @@ INCLUDEPATH += ../../src
 SOURCES += \
     eval.cpp \
     ../../src/actions.cpp \
+    ../../src/actions_config.cpp \
     ../../src/config.cpp \
     ../../src/dateannotate.cpp \
     ../../src/datewords.cpp \

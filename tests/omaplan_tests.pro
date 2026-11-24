@@ -13,7 +13,7 @@ HEADERS += ../src/task.h ../src/store.h ../src/actions.h ../src/cli.h ../src/pla
            ../src/config.h ../src/dateannotate.h ../src/datewords.h ../src/skill.h \
            ../src/engine.h ../src/prompt.h ../src/proposal.h ../src/uilanguage.h ../src/mcp.h ../src/theme.h \
            ../src/render.h ../src/snapshot.h ../src/server.h ../src/settings.h
-SOURCES += omaplan_tests.cpp ../src/task.cpp ../src/store.cpp ../src/actions.cpp ../src/cli.cpp \
+SOURCES += omaplan_tests.cpp ../src/task.cpp ../src/store.cpp ../src/actions.cpp ../src/actions_config.cpp ../src/cli.cpp \
            ../src/planmodel.cpp ../src/config.cpp ../src/dateannotate.cpp ../src/datewords.cpp ../src/skill.cpp \
            ../src/engine.cpp ../src/engine_vibe.cpp ../src/engine_claude.cpp ../src/engine_local.cpp \
            ../src/engine_command.cpp ../src/prompt.cpp ../src/proposal.cpp ../src/uilanguage.cpp ../src/mcp.cpp ../src/theme.cpp \

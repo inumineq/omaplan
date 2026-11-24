@@ -40,6 +40,7 @@ SOURCES += \
     src/task.cpp \
     src/store.cpp \
     src/actions.cpp \
+    src/actions_config.cpp \
     src/cli.cpp \
     src/planmodel.cpp \
     src/config.cpp \
