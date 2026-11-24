@@ -35,6 +35,7 @@
 #include "store.h"
 #include "task.h"
 #include "theme.h"
+#include "timeline.h"
 #include "settings.h"
 #include "uilanguage.h"
 
@@ -2307,10 +2308,12 @@ private slots:
         QCOMPARE(list.rowCount(), 4);
         QCOMPARE(list.data(list.index(0, 0), PlanModel::StatusRole).toString(), QStringLiteral("todo"));
 
-        // Gantt only scheduled tasks, sorted by start.
-        QCOMPARE(gantt.rowCount(), 2);
-        QVERIFY(gantt.data(gantt.index(0, 0), PlanModel::StartRole).toDateTime()
-                < gantt.data(gantt.index(1, 0), PlanModel::StartRole).toDateTime());
+        // Gantt: tasks with a start or a deadline (the deadline-only one is a
+        // mark), sorted by where they begin.
+        QCOMPARE(gantt.rowCount(), 3);
+        QCOMPARE(gantt.data(gantt.index(0, 0), PlanModel::TitleRole).toString(), QStringLiteral("Forfalden"));
+        QVERIFY(gantt.data(gantt.index(1, 0), PlanModel::StartRole).toDateTime()
+                < gantt.data(gantt.index(2, 0), PlanModel::StartRole).toDateTime());
 
         // Mutating through actions emits planChanged and a reload sees it.
         QSignalSpy spy(&actions, &Actions::planChanged);
@@ -2325,6 +2328,211 @@ private slots:
         QVERIFY(actions.setDone(overdue.id, false, QStringLiteral("gui")).ok);
         model.reload();
         QCOMPARE(overview.data(overview.index(0, 0), PlanModel::TitleRole).toString(), QStringLiteral("Forfalden"));
+    }
+
+    // The timeline's span rule (taskSpan): the duration is the work; without
+    // one a deadline on a later day is the end; a later deadline is a mark.
+    void timelineSpanRule()
+    {
+        const QDate mon(2026, 11, 23);
+        auto task = [&](QDateTime start, bool startTime, int duration, QDateTime deadline, bool deadlineTime) {
+            Task t;
+            t.start = start;
+            t.startHasTime = startTime;
+            t.durationMinutes = duration;
+            t.deadline = deadline;
+            t.deadlineHasTime = deadlineTime;
+            return taskSpan(t);
+        };
+        const QDateTime midnight(mon, QTime(0, 0));
+        // Timed with a duration, also over several days.
+        TaskSpan s = task(QDateTime(mon, QTime(9, 0)), true, 90, {}, false);
+        QCOMPARE(s.end, QDateTime(mon, QTime(10, 30)));
+        QVERIFY(!s.allDay && !s.toDeadline && !s.mark.isValid());
+        s = task(QDateTime(mon, QTime(8, 0)), true, 3000, {}, false);
+        QCOMPARE(s.end, QDateTime(mon.addDays(2), QTime(10, 0)));
+        // Timed without a duration: 30 minutes; to a later day's deadline.
+        QCOMPARE(task(QDateTime(mon, QTime(9, 0)), true, 0, {}, false).end, QDateTime(mon, QTime(9, 30)));
+        s = task(QDateTime(mon, QTime(9, 0)), true, 0, QDateTime(mon.addDays(2), QTime(12, 0)), true);
+        QVERIFY(s.toDeadline);
+        QCOMPARE(s.end, QDateTime(mon.addDays(2), QTime(12, 0)));
+        QVERIFY(!s.mark.isValid());
+        // Whole days: one by default, the duration in days rounded up, a
+        // date-only deadline counts to the end of its day (Monday to Friday = 5 days).
+        s = task(midnight, false, 0, {}, false);
+        QVERIFY(s.allDay);
+        QCOMPARE(s.end, QDateTime(mon.addDays(1), QTime(0, 0)));
+        QCOMPARE(task(midnight, false, 180, {}, false).end, QDateTime(mon.addDays(1), QTime(0, 0)));
+        QCOMPARE(task(midnight, false, 2880, {}, false).end, QDateTime(mon.addDays(2), QTime(0, 0)));
+        QCOMPARE(task(midnight, false, 2881, {}, false).end, QDateTime(mon.addDays(3), QTime(0, 0)));
+        s = task(midnight, false, 0, QDateTime(mon.addDays(4), QTime(0, 0)), false);
+        QVERIFY(s.toDeadline);
+        QCOMPARE(s.end, QDateTime(mon.addDays(5), QTime(0, 0)));
+        // A duration wins; the later deadline becomes a mark.
+        s = task(QDateTime(mon, QTime(10, 0)), true, 120, QDateTime(mon.addDays(2), QTime(0, 0)), false);
+        QVERIFY(!s.toDeadline);
+        QCOMPARE(s.end, QDateTime(mon, QTime(12, 0)));
+        QCOMPARE(s.mark, QDateTime(mon.addDays(2), QTime(0, 0)));
+        QVERIFY(s.markAllDay);
+        // A deadline inside the bar is no mark; a deadline on the same day as a
+        // timed start without a duration is a mark after the 30 minutes.
+        QVERIFY(!task(midnight, false, 2880, QDateTime(mon, QTime(17, 0)), true).mark.isValid());
+        s = task(QDateTime(mon, QTime(9, 0)), true, 0, QDateTime(mon, QTime(17, 0)), true);
+        QVERIFY(!s.toDeadline);
+        QCOMPARE(s.mark, QDateTime(mon, QTime(17, 0)));
+        // Only a deadline: just the mark.
+        s = task({}, false, 0, QDateTime(mon, QTime(0, 0)), false);
+        QVERIFY(!s.start.isValid());
+        QCOMPARE(s.mark, midnight);
+        QVERIFY(!task({}, false, 60, {}, false).mark.isValid());
+    }
+
+    // Timeline::layout for generated plans: no two tasks overlap in a lane,
+    // titles are inside their bar exactly when they fit, never on top of their
+    // own bar or mark, never off the axis, and shortened only when no side
+    // has room for the whole title.
+    void timelineLayoutKeepsTitlesReadable()
+    {
+        const Timeline::Geometry g{1000, 8, 8, 22};
+        // The widest first: a quiet day, a busy day, and widths that force
+        // every side and shortening.
+        for (const int count : {1, 10, 40, 120}) {
+            for (const double total : {150.0, 420.0, 1000.0, 2400.0}) {
+                QRandomGenerator rng(quint32(count * 7919 + int(total)));
+                Timeline::Geometry geo = g;
+                geo.total = total;
+                QList<Timeline::Item> items;
+                for (int i = 0; i < count; ++i) {
+                    Timeline::Item item;
+                    const bool deadlineOnly = rng.bounded(8) == 0;
+                    item.barStart = rng.bounded(total);
+                    item.barEnd = deadlineOnly ? item.barStart
+                                               : std::min(total, item.barStart + 6 + rng.bounded(total / 3));
+                    if (deadlineOnly || rng.bounded(5) == 0) {
+                        const double c = std::min(total - 7, item.barEnd + 7 + (deadlineOnly ? 0 : rng.bounded(total / 4)));
+                        if (c - 7 >= item.barEnd) {
+                            item.hasMark = true;
+                            item.markStart = c - 7;
+                            item.markEnd = c + 7;
+                            if (deadlineOnly)
+                                item.barStart = item.barEnd = item.markStart;
+                        }
+                    }
+                    if (deadlineOnly && !item.hasMark)
+                        continue;
+                    item.labelWidth = 30 + rng.bounded(400);
+                    items << item;
+                }
+                const QList<Timeline::Placement> placed = Timeline::layout(items, geo);
+                QCOMPARE(placed.size(), items.size());
+                const QString at = QStringLiteral("%1 tasks over %2: ").arg(items.size()).arg(total);
+                QHash<int, QList<int>> lanes;
+                for (int i = 0; i < items.size(); ++i) {
+                    const Timeline::Item &it = items[i];
+                    const Timeline::Placement &p = placed[i];
+                    lanes[p.lane] << i;
+                    const bool fits = it.labelWidth + 2 * geo.pad <= it.barEnd - it.barStart;
+                    QVERIFY2((p.side == Timeline::Side::Inside && !p.shortened) == fits, qPrintable(at + "inside iff it fits"));
+                    QVERIFY2(p.labelStart >= -1e-9 && p.labelStart + p.labelWidth <= total + 1e-9, qPrintable(at + "title off the axis"));
+                    QVERIFY2(p.start <= std::min(it.barStart, p.labelStart) + 1e-9
+                                 && p.end >= std::max({it.barEnd, it.hasMark ? it.markEnd : 0.0, p.labelStart + p.labelWidth}) - 1e-9,
+                             qPrintable(at + "the occupied range covers bar, mark and title"));
+                    if (p.side != Timeline::Side::Inside) {
+                        const double ls = p.labelStart, le = p.labelStart + p.labelWidth;
+                        QVERIFY2(le <= it.barStart + 1e-9 || ls >= it.barEnd - 1e-9, qPrintable(at + "a title on its own bar"));
+                        if (it.hasMark && p.labelWidth > 0)
+                            QVERIFY2(le <= it.markStart + 1e-9 || ls >= it.markEnd - 1e-9, qPrintable(at + "a title on its mark"));
+                    } else {
+                        QVERIFY2(p.labelStart >= it.barStart + geo.pad - 1e-9
+                                     && p.labelStart + p.labelWidth <= it.barEnd - geo.pad + 1e-9,
+                                 qPrintable(at + "a title inside runs out of its bar"));
+                    }
+                    if (p.shortened) {
+                        const double afterLimit = it.hasMark ? it.markStart - geo.gap : total;
+                        QVERIFY2(it.barEnd + geo.gap + it.labelWidth > afterLimit
+                                     && (!it.hasMark || it.markEnd + geo.gap + it.labelWidth > total)
+                                     && it.barStart - geo.gap - it.labelWidth < 0,
+                                 qPrintable(at + "shortened although a side had room"));
+                        QVERIFY(p.labelWidth < it.labelWidth);
+                    } else {
+                        QCOMPARE(p.labelWidth, it.labelWidth);
+                    }
+                }
+                for (const QList<int> &lane : std::as_const(lanes))
+                    for (int a : lane)
+                        for (int b : lane)
+                            if (a != b)
+                                QVERIFY2(placed[a].end + geo.spacing <= placed[b].start + 1e-6
+                                             || placed[b].end + geo.spacing <= placed[a].start + 1e-6,
+                                         qPrintable(at + QStringLiteral("tasks %1 and %2 overlap in lane %3").arg(a).arg(b).arg(placed[a].lane)));
+            }
+        }
+        // The lanes are packed: a task that fits after another shares its lane.
+        const QList<Timeline::Placement> two = Timeline::layout({{0, 100, false, 0, 0, 50}, {200, 300, false, 0, 0, 50}}, g);
+        QCOMPARE(two[0].side, Timeline::Side::Inside);
+        QCOMPARE(two[1].lane, 0);
+        // A narrow bar: the title after it, and the next task moves down a
+        // lane when it would run into that title.
+        const QList<Timeline::Placement> narrow =
+            Timeline::layout({{0, 10, false, 0, 0, 200}, {150, 400, false, 0, 0, 50}}, g);
+        QCOMPARE(narrow[0].side, Timeline::Side::AfterBar);
+        QCOMPARE(narrow[0].labelStart, 18.0);
+        QCOMPARE(narrow[1].lane, 1);
+        // At the right edge the title goes before the bar; with a mark, after the mark.
+        QCOMPARE(Timeline::layout({{990, 1000, false, 0, 0, 200}}, g)[0].side, Timeline::Side::Before);
+        QCOMPARE(Timeline::layout({{100, 110, true, 120, 134, 200}}, g)[0].side, Timeline::Side::AfterMark);
+        QCOMPARE(Timeline::layout({{100, 110, true, 400, 414, 200}}, g)[0].side, Timeline::Side::AfterBar);
+    }
+
+    // The timeline's range: a span that began before it still shows; a
+    // deadline-only task shows on its deadline's day.
+    void ganttModelTakesSpansIntoTheRange()
+    {
+        QTemporaryDir dir;
+        Store store(dir.filePath("test.db"));
+        QString error;
+        QVERIFY(store.open(&error));
+        Actions actions(&store);
+        PlanModel model(&store);
+        GanttModel gantt;
+        gantt.setSourceModel(&model);
+        const QDate mon(2026, 11, 23);
+        auto add = [&](const QString &title, QDateTime start, bool hasTime, int duration, QDateTime deadline) {
+            Task t;
+            t.title = title;
+            t.start = start;
+            t.startHasTime = hasTime;
+            t.durationMinutes = duration;
+            t.deadline = deadline;
+            QVERIFY(actions.create(t, QStringLiteral("cli")).ok);
+        };
+        add(QStringLiteral("Workshop week"), QDateTime(mon, QTime(0, 0)), false, 0, QDateTime(mon.addDays(4), QTime(0, 0)));
+        add(QStringLiteral("Read the contract"), {}, false, 0, QDateTime(mon.addDays(2), QTime(0, 0)));
+        add(QStringLiteral("Trip"), QDateTime(mon.addDays(-1), QTime(20, 0)), true, 24 * 60, {});
+        add(QStringLiteral("Last week"), QDateTime(mon.addDays(-7), QTime(9, 0)), true, 60, {});
+        add(QStringLiteral("Undated"), {}, false, 0, {});
+        model.reload();
+        auto titles = [&] {
+            QStringList out;
+            for (int r = 0; r < gantt.rowCount(); ++r)
+                out << gantt.data(gantt.index(r, 0), PlanModel::TitleRole).toString();
+            return out;
+        };
+        gantt.setFrom(mon.addDays(2));
+        gantt.setTo(mon.addDays(2));
+        QCOMPARE(titles(), QStringList({QStringLiteral("Workshop week"), QStringLiteral("Read the contract")}));
+        gantt.setFrom(mon);
+        gantt.setTo(mon);
+        // Trip started on Sunday evening and runs into Monday.
+        QCOMPARE(titles(), QStringList({QStringLiteral("Trip"), QStringLiteral("Workshop week")}));
+        gantt.setFrom(mon.addDays(5));
+        gantt.setTo(mon.addDays(6));
+        QVERIFY(titles().isEmpty());
+        gantt.setFrom(mon);
+        gantt.setTo(mon.addDays(6));
+        const QVariantMap week = gantt.data(gantt.index(1, 0), PlanModel::SpanRole).toMap();
+        QCOMPARE(week.value("end").toDateTime(), QDateTime(mon.addDays(5), QTime(0, 0)));
+        QVERIFY(week.value("toDeadline").toBool());
     }
 
     // ---- Fase 2: regression tests for the review fixes -------------------

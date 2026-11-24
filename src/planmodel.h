@@ -42,6 +42,7 @@ public:
         CreatedRole,
         ModifiedRole,
         DayKeyRole,         // ISO day the task belongs to (start, else deadline); "" when undated
+        SpanRole,           // its extent on the timeline (taskSpan) as a map
     };
 
     explicit PlanModel(Store *store, QObject *parent = nullptr);
@@ -202,13 +203,34 @@ private:
     QString m_grouping;
 };
 
-// Tidslinje: only scheduled tasks (a bar needs a start), sorted by start.
+// Timeline: the tasks whose span (bar or deadline mark, see taskSpan) reaches
+// into [from, to], also those that began before it; every task with a start
+// or a deadline when no range is set. Sorted by where they begin.
 class GanttModel : public SortProxy {
     Q_OBJECT
+    Q_PROPERTY(QDate from READ from WRITE setFrom NOTIFY rangeChanged)
+    Q_PROPERTY(QDate to READ to WRITE setTo NOTIFY rangeChanged)
 public:
     explicit GanttModel(QObject *parent = nullptr);
+
+    QDate from() const { return m_from; }
+    QDate to() const { return m_to; }
+    void setFrom(const QDate &from);
+    void setTo(const QDate &to);
+
+    // Timeline::layout for the view: items are maps {barStart, barEnd,
+    // hasMark, markStart, markEnd, labelWidth}; the answer is one map per item
+    // {lane, side ("inside", "afterBar", "afterMark", "before"), labelStart,
+    // labelWidth, shortened, start, end (all the task occupies)}.
+    Q_INVOKABLE QVariantList pack(const QVariantList &items, double total, double gap, double pad, double spacing) const;
+
+signals:
+    void rangeChanged();
 
 protected:
     bool filterAcceptsRow(int sourceRow, const QModelIndex &sourceParent) const override;
     bool lessThan(const QModelIndex &left, const QModelIndex &right) const override;
+
+private:
+    QDate m_from, m_to;
 };

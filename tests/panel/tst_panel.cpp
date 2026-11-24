@@ -5,6 +5,7 @@
 #include <QFile>
 #include <QGuiApplication>
 #include <QJSValue>
+#include <QRandomGenerator>
 #include <QPointer>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -502,6 +503,143 @@ private slots:
         QVERIFY(hasText(m_window->contentItem(), english));
     }
 
+    // The timeline keeps every title readable: for generated plans of 1, 10
+    // and 40 tasks, at each zoom (stepped with the keys), no bar, mark or
+    // title overlaps another task's, a title is inside its bar exactly when
+    // it fits, never on its own bar or mark, never cut off by the view, and
+    // shortened only when the layout says so.
+    void timelineKeepsTitlesReadable() {
+        QObject *root = m_engine->rootObjects().first();
+        root->setProperty("currentView", 3);
+        QQuickItem *gantt = findType(m_window->contentItem(), "GanttView");
+        QVERIFY(gantt);
+        QMetaObject::invokeMethod(gantt, "goToday");
+        const QDate monday = QDate::currentDate().addDays(1 - QDate::currentDate().dayOfWeek());
+        static const QStringList titles = {
+            QStringLiteral("Write the long feature article about the city budget"), QStringLiteral("Pay the invoice"),
+            QStringLiteral("Record video"), QStringLiteral("Plan the workshop"), QStringLiteral("Call Client A about the draft"),
+            QStringLiteral("Edit the podcast episode with the new intro"), QStringLiteral("Read the contract"),
+            QStringLiteral("Team lunch"), QStringLiteral("Conference trip"), QStringLiteral("Tidy the desk")};
+        for (const int count : {1, 10, 40}) {
+            QStringList ids;
+            QRandomGenerator rng{quint32(count)};
+            for (int i = 0; i < count; ++i) {
+                Task t;
+                t.title = titles[i % titles.size()];
+                t.project = i % 3 ? QStringLiteral("Blog") : QString();
+                t.priority = 1 + i % 3;
+                const QDate day = monday.addDays(rng.bounded(14));
+                switch (i % 6) {
+                case 0: // a span to a later deadline
+                    t.start = QDateTime(day, QTime(0, 0));
+                    t.deadline = QDateTime(day.addDays(1 + rng.bounded(4)), QTime(0, 0));
+                    break;
+                case 1: // only a deadline
+                    t.deadline = QDateTime(day, QTime(0, 0));
+                    break;
+                case 2: // whole days
+                    t.start = QDateTime(day, QTime(0, 0));
+                    t.durationMinutes = rng.bounded(2) ? 2 * 24 * 60 : 0;
+                    break;
+                case 3: // a duration and a later deadline: a mark
+                    t.start = QDateTime(day, QTime(8 + rng.bounded(8), 0));
+                    t.startHasTime = true;
+                    t.durationMinutes = 60;
+                    t.deadline = QDateTime(day.addDays(2), QTime(0, 0));
+                    break;
+                default: // short, timed; some done
+                    t.start = QDateTime(day, QTime(8 + rng.bounded(9), 15 * rng.bounded(4)));
+                    t.startHasTime = true;
+                    t.durationMinutes = 15 + 15 * rng.bounded(8);
+                    t.status = rng.bounded(3) ? Task::Status::Todo : Task::Status::Done;
+                }
+                const ActionResult r = m_actions->create(t, QStringLiteral("cli"));
+                QVERIFY2(r.ok, qPrintable(r.error));
+                ids << r.payload["task"].toObject()["id"].toString();
+            }
+            pump(200);
+            gantt->setProperty("zoomIndex", 3);
+            for (int zoom = 3; zoom >= 0; --zoom) {
+                if (zoom < 3)
+                    key(Qt::Key_Plus);
+                pump(150);
+                QCOMPARE(gantt->property("zoomIndex").toInt(), zoom);
+                verifyTimelineLayout(QStringLiteral("%1 tasks, zoom %2").arg(count).arg(zoom));
+                if (QTest::currentTestFailed())
+                    return;
+            }
+            for (const QString &id : std::as_const(ids))
+                QVERIFY(m_actions->remove(id, QStringLiteral("cli")).ok);
+            pump(100);
+        }
+        gantt->setProperty("zoomIndex", 2);
+        root->setProperty("currentView", 0);
+    }
+
+    // Dragging a bar moves the task (a span to its deadline takes the
+    // deadline along); dragging its right edge changes the duration, or the
+    // deadline it runs to.
+    void timelineDragsMoveAndResize() {
+        QObject *root = m_engine->rootObjects().first();
+        root->setProperty("currentView", 3);
+        QQuickItem *gantt = findType(m_window->contentItem(), "GanttView");
+        QVERIFY(gantt);
+        // Day 3 of the week: room to move a day either way.
+        const QDate monday = QDate::currentDate().addDays(1 - QDate::currentDate().dayOfWeek());
+        gantt->setProperty("anchorDate", QDateTime(monday, QTime(0, 0)));
+        gantt->setProperty("zoomIndex", 2);
+        Task timed;
+        timed.title = QStringLiteral("Drag the timed task");
+        timed.start = QDateTime(monday.addDays(2), QTime(10, 0));
+        timed.startHasTime = true;
+        timed.durationMinutes = 60;
+        Task span;
+        span.title = QStringLiteral("Drag the span");
+        span.start = QDateTime(monday.addDays(1), QTime(0, 0));
+        span.deadline = QDateTime(monday.addDays(3), QTime(0, 0));
+        const QString timedId = m_actions->create(timed, QStringLiteral("cli")).payload["task"].toObject()["id"].toString();
+        const QString spanId = m_actions->create(span, QStringLiteral("cli")).payload["task"].toObject()["id"].toString();
+        pump(300);
+        const qreal dayWidth = gantt->property("dayWidth").toReal();
+        QVERIFY(dayWidth > 50);
+        auto task = [&](const QString &id) { return m_actions->show(id).payload["task"].toObject(); };
+        auto drag = [&](QQuickItem *handle, qreal dx) {
+            QVERIFY(handle && handle->isVisible());
+            const QPoint from = handle->mapToScene(QPointF(handle->width() / 2, handle->height() / 2)).toPoint();
+            QTest::mousePress(m_window, Qt::LeftButton, {}, from);
+            for (int step = 1; step <= 8; ++step) {
+                QTest::mouseMove(m_window, from + QPoint(qRound(dx * step / 8), 0));
+                pump(20);
+            }
+            QTest::mouseRelease(m_window, Qt::LeftButton, {}, from + QPoint(qRound(dx), 0));
+            pump(200);
+        };
+
+        // Move the timed task a day on: same time, next day.
+        drag(timelinePart(QStringLiteral("Drag the timed task"), "timelineGrip"), dayWidth);
+        QCOMPARE(task(timedId)["start"].toString(), QDateTime(monday.addDays(3), QTime(10, 0)).toString("yyyy-MM-ddTHH:mm"));
+        QCOMPARE(task(timedId)["duration_minutes"].toInt(), 60);
+        // Stretch it by about two hours of the day's twelve.
+        drag(timelinePart(QStringLiteral("Drag the timed task"), "timelineResize"), dayWidth / 6);
+        QVERIFY2(task(timedId)["duration_minutes"].toInt() >= 150 && task(timedId)["duration_minutes"].toInt() <= 210,
+                 qPrintable(QString::number(task(timedId)["duration_minutes"].toInt())));
+        QCOMPARE(task(timedId)["start"].toString(), QDateTime(monday.addDays(3), QTime(10, 0)).toString("yyyy-MM-ddTHH:mm"));
+
+        // The span moves back a day and its deadline with it.
+        drag(timelinePart(QStringLiteral("Drag the span"), "timelineGrip"), -dayWidth);
+        QCOMPARE(task(spanId)["start"].toString(), monday.toString(Qt::ISODate));
+        QCOMPARE(task(spanId)["deadline"].toString(), monday.addDays(2).toString(Qt::ISODate));
+        // Its right edge, a day on: a new deadline, still no duration.
+        drag(timelinePart(QStringLiteral("Drag the span"), "timelineResize"), dayWidth);
+        QCOMPARE(task(spanId)["deadline"].toString(), monday.addDays(3).toString(Qt::ISODate));
+        QCOMPARE(task(spanId)["duration_minutes"].toInt(), 0);
+
+        QVERIFY(m_actions->remove(timedId, QStringLiteral("cli")).ok);
+        QVERIFY(m_actions->remove(spanId, QStringLiteral("cli")).ok);
+        root->setProperty("currentView", 0);
+        pump(100);
+    }
+
     // A proposal's task cards follow tasks added and removed in place.
     void proposalCardsFollowEdits() {
         QQuickItem *view = findType(m_window->contentItem(), "ProposalView");
@@ -530,6 +668,90 @@ private slots:
     }
 
 private:
+    static void findAll(QQuickItem *root, const QString &name, QList<QQuickItem *> *out) {
+        for (QQuickItem *child : root->childItems()) {
+            if (child->objectName() == name)
+                out->append(child);
+            findAll(child, name, out);
+        }
+    }
+    // The title of a timeline row (its `task`, a JS object from the model).
+    static QString rowTitle(QQuickItem *row) {
+        const QVariant task = row->property("task");
+        return task.canConvert<QJSValue>() ? task.value<QJSValue>().property(QStringLiteral("title")).toString()
+                                           : task.toMap().value(QStringLiteral("title")).toString();
+    }
+    // A part ("timelineGrip", "timelineResize", ...) of the timeline row showing `title`.
+    QQuickItem *timelinePart(const QString &title, const char *part) const {
+        QList<QQuickItem *> rows;
+        findAll(m_window->contentItem(), QStringLiteral("timelineTask"), &rows);
+        for (QQuickItem *row : std::as_const(rows))
+            if (row->isVisible() && rowTitle(row) == title)
+                return find(row, QString::fromLatin1(part));
+        return nullptr;
+    }
+    // What the timeline draws, checked as drawn (in the lanes' coordinates).
+    void verifyTimelineLayout(const QString &at) {
+        QQuickItem *lanes = item(QStringLiteral("timelineLanes"));
+        QVERIFY(lanes);
+        QList<QQuickItem *> rows;
+        findAll(lanes, QStringLiteral("timelineTask"), &rows);
+        struct Part {
+            QRectF rect;
+            int row;
+            QString what;
+        };
+        QList<Part> parts;
+        const qreal pad = 8;
+        for (int r = 0; r < rows.size(); ++r) {
+            QQuickItem *row = rows[r];
+            const QString title = rowTitle(row);
+            const QString where = at + QStringLiteral(", “%1”: ").arg(title);
+            QQuickItem *bar = find(row, QStringLiteral("timelineBar"));
+            QQuickItem *mark = find(row, QStringLiteral("timelineMark"));
+            QQuickItem *label = find(row, QStringLiteral("timelineLabel"));
+            QVERIFY(bar && mark && label);
+            const auto rectOf = [lanes](QQuickItem *i) { return i->mapRectToItem(lanes, QRectF(0, 0, i->width(), i->height())); };
+            if (bar->isVisible())
+                parts << Part{rectOf(bar), r, QStringLiteral("bar")};
+            if (mark->isVisible())
+                parts << Part{rectOf(mark), r, QStringLiteral("mark")};
+            QVERIFY2(bar->isVisible() || mark->isVisible(), qPrintable(where + "neither bar nor mark"));
+            if (label->width() <= 0)
+                continue;
+            const QRectF text = rectOf(label);
+            const bool inside = label->property("inside").toBool();
+            const bool shortened = label->property("shortened").toBool();
+            QVERIFY2(text.left() >= -0.5 && text.right() <= lanes->width() + 0.5, qPrintable(where + "the title runs out of the view"));
+            if (!shortened) {
+                QVERIFY2(label->implicitWidth() <= label->width() + 0.5 && !label->property("truncated").toBool(),
+                         qPrintable(where + "the title is cut off"));
+                if (bar->isVisible())
+                    QVERIFY2(inside == (label->width() + 2 * pad <= bar->width() + 0.01), qPrintable(where + "inside iff it fits"));
+                else
+                    QVERIFY(!inside);
+            }
+            if (inside) {
+                QVERIFY2(rectOf(bar).contains(text.adjusted(0, 1, 0, -1)), qPrintable(where + "an inside title outside its bar"));
+            } else {
+                if (bar->isVisible())
+                    QVERIFY2(rectOf(bar).intersected(text).width() < 0.5, qPrintable(where + "the title is on its own bar"));
+                if (mark->isVisible())
+                    QVERIFY2(rectOf(mark).intersected(text).width() < 0.5, qPrintable(where + "the title is on its mark"));
+                parts << Part{text, r, QStringLiteral("title")};
+            }
+        }
+        for (int a = 0; a < parts.size(); ++a)
+            for (int b = a + 1; b < parts.size(); ++b) {
+                if (parts[a].row == parts[b].row)
+                    continue;
+                const QRectF overlap = parts[a].rect.intersected(parts[b].rect);
+                QVERIFY2(overlap.width() < 0.5 || overlap.height() < 0.5,
+                         qPrintable(at + QStringLiteral(": the %1 of “%2” overlaps the %3 of “%4”")
+                                             .arg(parts[a].what, rowTitle(rows[parts[a].row]), parts[b].what,
+                                                  rowTitle(rows[parts[b].row]))));
+            }
+    }
     // QML types have class names like "ProposalTask_QMLTYPE_12".
     static bool isType(QQuickItem *item, const char *type) {
         return QByteArray(item->metaObject()->className()).startsWith(QByteArray(type) + "_QML");

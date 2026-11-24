@@ -4,6 +4,8 @@
 #include <QTimer>
 #include <QUrl>
 
+#include "timeline.h"
+
 PlanModel::PlanModel(Store *store, QObject *parent)
     : QAbstractListModel(parent), m_store(store), m_today(QDate::currentDate()) {
     // A window left open overnight must move "today" along: check once a
@@ -100,6 +102,15 @@ QVariant PlanModel::data(const QModelIndex &index, int role) const {
     case ModifiedRole: return task.modified;
     case DayKeyRole:
         return task.start.isValid() || task.deadline.isValid() ? effectiveDate(task).toString(Qt::ISODate) : QString();
+    case SpanRole: {
+        const TaskSpan span = taskSpan(task);
+        return QVariantMap{{QStringLiteral("start"), span.start},
+                           {QStringLiteral("end"), span.end},
+                           {QStringLiteral("allDay"), span.allDay},
+                           {QStringLiteral("toDeadline"), span.toDeadline},
+                           {QStringLiteral("mark"), span.mark},
+                           {QStringLiteral("markAllDay"), span.markAllDay}};
+    }
     default: return {};
     }
 }
@@ -123,6 +134,7 @@ QHash<int, QByteArray> PlanModel::roleNames() const {
         {CreatedRole, "created"},
         {ModifiedRole, "modified"},
         {DayKeyRole, "dayKey"},
+        {SpanRole, "span"},
     };
 }
 
@@ -334,13 +346,73 @@ GanttModel::GanttModel(QObject *parent) : SortProxy(parent) {
     setSortRole(PlanModel::StartRole);
 }
 
+void GanttModel::setFrom(const QDate &from) {
+    if (m_from == from)
+        return;
+    beginFilterChange();
+    m_from = from;
+    emit rangeChanged();
+    endFilterChange();
+}
+
+void GanttModel::setTo(const QDate &to) {
+    if (m_to == to)
+        return;
+    beginFilterChange();
+    m_to = to;
+    emit rangeChanged();
+    endFilterChange();
+}
+
+// Where a task begins on the timeline: its bar, else its deadline mark.
+static QDateTime spanBegin(const TaskSpan &span) {
+    return span.start.isValid() ? span.start : span.mark;
+}
+
 bool GanttModel::filterAcceptsRow(int sourceRow, const QModelIndex &sourceParent) const {
-    const Task task = taskOf(sourceModel(), sourceModel()->index(sourceRow, 0, sourceParent));
-    return task.start.isValid();
+    const TaskSpan span = taskSpan(taskOf(sourceModel(), sourceModel()->index(sourceRow, 0, sourceParent)));
+    if (!span.start.isValid() && !span.mark.isValid())
+        return false;
+    if (!m_from.isValid() || !m_to.isValid())
+        return true;
+    const QDateTime from(m_from, QTime(0, 0)), end(m_to.addDays(1), QTime(0, 0));
+    const bool bar = span.start.isValid() && span.start < end && span.end > from;
+    const bool mark = span.mark.isValid() && span.mark >= from && span.mark < end;
+    return bar || mark;
 }
 
 bool GanttModel::lessThan(const QModelIndex &left, const QModelIndex &right) const {
-    return taskOf(sourceModel(), left).start < taskOf(sourceModel(), right).start;
+    const Task a = taskOf(sourceModel(), left), b = taskOf(sourceModel(), right);
+    const QDateTime beginA = spanBegin(taskSpan(a)), beginB = spanBegin(taskSpan(b));
+    if (beginA != beginB)
+        return beginA < beginB;
+    return a.title.localeAwareCompare(b.title) < 0;
+}
+
+QVariantList GanttModel::pack(const QVariantList &items, double total, double gap, double pad, double spacing) const {
+    QList<Timeline::Item> input;
+    for (const QVariant &value : items) {
+        const QVariantMap map = value.toMap();
+        Timeline::Item item;
+        item.barStart = map.value(QStringLiteral("barStart")).toDouble();
+        item.barEnd = map.value(QStringLiteral("barEnd")).toDouble();
+        item.hasMark = map.value(QStringLiteral("hasMark")).toBool();
+        item.markStart = map.value(QStringLiteral("markStart")).toDouble();
+        item.markEnd = map.value(QStringLiteral("markEnd")).toDouble();
+        item.labelWidth = map.value(QStringLiteral("labelWidth")).toDouble();
+        input << item;
+    }
+    static const char *const sides[] = {"inside", "afterBar", "afterMark", "before"};
+    QVariantList result;
+    for (const Timeline::Placement &p : Timeline::layout(input, {total, gap, pad, spacing}))
+        result << QVariantMap{{QStringLiteral("lane"), p.lane},
+                              {QStringLiteral("side"), QString::fromLatin1(sides[int(p.side)])},
+                              {QStringLiteral("labelStart"), p.labelStart},
+                              {QStringLiteral("labelWidth"), p.labelWidth},
+                              {QStringLiteral("shortened"), p.shortened},
+                              {QStringLiteral("start"), p.start},
+                              {QStringLiteral("end"), p.end}};
+    return result;
 }
 
 QStringList SortProxy::ids() const {

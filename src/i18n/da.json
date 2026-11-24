@@ -228,7 +228,7 @@
   "Sunday": "Søndag",
   "Tab to a project, then ← / → to pick its colour; Delete removes it.": "Tab til et projekt, og vælg farve med ← / →; Delete fjerner den.",
   "Task editor": "Opgave-editor",
-  "Tasks with a start day show up here. h / l pages, + / - zooms.": "Opgaver med en startdag vises her. h / l bladrer, + / - zoomer.",
+  "Tasks with a start day or a deadline show up here. h / l pages, + / - zooms.": "Opgaver med en startdag eller en deadline vises her. h / l bladrer, + / - zoomer.",
   "Tasks: %1 (%2 todo, %3 done)": "Opgaver: %1 (%2 todo, %3 gjort)",
   "Test": "Test",
   "Test sends one short request and stores nothing. Omaplan never stores API keys; the tools keep their own login.": "Test sender én kort forespørgsel og gemmer intet. Omaplan gemmer aldrig API-nøgler; værktøjerne har deres eget login.",
