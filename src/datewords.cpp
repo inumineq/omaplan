@@ -1,4 +1,5 @@
 #include "datewords.h"
+#include "config.h"
 
 #include <QRegularExpression>
 #include <algorithm>
@@ -6,6 +7,8 @@
 static DateWords danish() {
     DateWords w;
     w.code = QStringLiteral("da");
+    // 12/11 is 12 November, 12.12 is a time (kl. 12.12), Monday, 24 hours.
+    w.convention = {true, true, 1, true};
     w.today = {QStringLiteral("i dag")};
     w.tomorrow = {QStringLiteral("i morgen")};
     w.dayAfterTomorrow = {QStringLiteral("i overmorgen")};
@@ -40,6 +43,9 @@ static DateWords danish() {
 static DateWords english() {
     DateWords w;
     w.code = QStringLiteral("en");
+    // British, as the interface's English dates (en_GB): 12/11 is 12
+    // November, 12.12 a time, Monday, 24 hours. US habits are one setting away.
+    w.convention = {true, true, 1, true};
     w.today = {QStringLiteral("today")};
     w.tomorrow = {QStringLiteral("tomorrow")};
     w.dayAfterTomorrow = {QStringLiteral("day after tomorrow"), QStringLiteral("the day after tomorrow")};
@@ -74,6 +80,39 @@ static DateWords english() {
 const QList<DateWords> &dateLanguages() {
     static const QList<DateWords> languages = {danish(), english()};
     return languages;
+}
+
+DateConvention DateConvention::forLanguage(const QString &language) {
+    const QString code = language.left(2).toLower();
+    for (const DateWords &w : dateLanguages())
+        if (w.code == code)
+            return w.convention;
+    return dateLanguages().first().convention;
+}
+
+DateConvention DateConvention::resolve(const AppConfig &config, const QString &language) {
+    DateConvention c = forLanguage(language);
+    if (!config.dateOrder.isEmpty())
+        c.dayFirst = config.dateOrder != QLatin1String("mdy");
+    if (!config.dateDotted.isEmpty())
+        c.dottedIsTime = config.dateDotted != QLatin1String("date");
+    if (!config.weekStart.isEmpty())
+        c.weekStart = config.weekStart == QLatin1String("sunday") ? 7 : 1;
+    if (!config.clock.isEmpty())
+        c.clock24 = config.clock != QLatin1String("12h");
+    return c;
+}
+
+static DateConvention &activeConvention() {
+    static DateConvention convention;
+    return convention;
+}
+
+const DateConvention &DateConvention::active() { return activeConvention(); }
+void DateConvention::setActive(const DateConvention &convention) { activeConvention() = convention; }
+
+QDate DateConvention::weekStartOf(const QDate &date) const {
+    return date.addDays(-((date.dayOfWeek() - weekStart + 7) % 7));
 }
 
 namespace DateVocabulary {

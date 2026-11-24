@@ -24,6 +24,13 @@
             <numerusform>%n tasks</numerusform>
         </translation>
     </message>
+    <message numerus="yes">
+        <source>Answered with %n task(s): %1</source>
+        <translation>
+            <numerusform>Answered with %n task: %1</numerusform>
+            <numerusform>Answered with %n tasks: %1</numerusform>
+        </translation>
+    </message>
 </context>
 <context>
     <name>PlanList</name>

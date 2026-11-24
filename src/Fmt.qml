@@ -3,16 +3,26 @@ import QtQuick
 
 // Dates, times and durations in the interface language. Every binding that
 // calls these reads `lang`, so it re-renders on a language switch.
-// Danish: "mandag 24. november", the week starts on Monday.
+// Danish: "mandag 24. november". The first day of the week and the clock
+// follow the date convention (the language's, or [dates] in config.toml),
+// and a binding that formats a time also reads `clock24`, so it re-renders
+// when the setting changes.
 QtObject {
     readonly property string lang: uiLanguage.language
     readonly property bool danish: lang.indexOf("da") === 0
     readonly property var locale: Qt.locale(danish ? "da_DK" : "en_GB")
+    readonly property bool clock24: settings.clock24
+    readonly property int weekStart: settings.weekStart // 1 = Monday, 7 = Sunday
 
     function startOfDay(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()) }
     function addDays(d, n) { var x = new Date(d); x.setDate(x.getDate() + n); return x }
     function addMonths(d, n) { return new Date(d.getFullYear(), d.getMonth() + n, 1) }
-    function mondayOf(d) { var x = startOfDay(d); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x }
+    // The first day of the week `d` lies in (getDay: 0 = Sunday).
+    function weekStartOf(d) {
+        var x = startOfDay(d)
+        x.setDate(x.getDate() - ((x.getDay() - weekStart % 7 + 7) % 7))
+        return x
+    }
     function sameDay(a, b) {
         return a && b && a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth()
                && a.getDate() === b.getDate()
@@ -38,7 +48,14 @@ QtObject {
         return Math.ceil(((x - yearStart) / 86400000 + 1) / 7)
     }
 
-    function time(d) { return valid(d) ? d.toLocaleTimeString(locale, "HH:mm") : "" }
+    // "14:30", or "2:30 PM" on a 12-hour clock.
+    // An hour on an axis: "13:00" ("13" when short), or "1 PM" on a 12-hour clock.
+    function hour(h, short) {
+        if (clock24)
+            return String(h).padStart(2, "0") + (short ? "" : ":00")
+        return new Date(2000, 0, 1, h).toLocaleTimeString(locale, "h AP")
+    }
+    function time(d) { return valid(d) ? d.toLocaleTimeString(locale, clock24 ? "HH:mm" : "h:mm AP") : "" }
     // "mandag 24. november" / "Monday 24 November"
     function dayLong(d) { return d.toLocaleDateString(locale, danish ? "dddd d. MMMM" : "dddd d MMMM") }
     // "man. 24." / "Mon 24"
@@ -82,14 +99,15 @@ QtObject {
         if (!minutes) return time(start)
         return time(start) + "–" + time(new Date(start.getTime() + minutes * 60000))
     }
-    // "Week 48 · 23–29 November" (Danish: "Uge 48 · 23.–29. november")
-    function weekTitle(monday) {
-        var sunday = addDays(monday, 6)
-        var range = monday.getMonth() === sunday.getMonth()
-                ? (danish ? dayNumber(monday) + ".–" + sunday.toLocaleDateString(locale, "d. MMMM yyyy")
-                          : dayNumber(monday) + "–" + sunday.toLocaleDateString(locale, "d MMMM yyyy"))
-                : dateShort(monday) + " – " + sunday.toLocaleDateString(locale, danish ? "d. MMM yyyy" : "d MMM yyyy")
-        return qsTr("Week %1").arg(isoWeek(monday)) + " · " + range
+    // "Week 48 · 23–29 November" (Danish: "Uge 48 · 23.–29. november").
+    // `first` is the week's first day; the number is the ISO week of its Monday.
+    function weekTitle(first) {
+        var last = addDays(first, 6)
+        var range = first.getMonth() === last.getMonth()
+                ? (danish ? dayNumber(first) + ".–" + last.toLocaleDateString(locale, "d. MMMM yyyy")
+                          : dayNumber(first) + "–" + last.toLocaleDateString(locale, "d MMMM yyyy"))
+                : dateShort(first) + " – " + last.toLocaleDateString(locale, danish ? "d. MMM yyyy" : "d MMM yyyy")
+        return qsTr("Week %1").arg(isoWeek(addDays(first, first.getDay() === 0 ? 1 : 0))) + " · " + range
     }
     function priorityLabel(p) { return p === 1 ? qsTr("High") : p === 2 ? qsTr("Medium") : "" }
 }

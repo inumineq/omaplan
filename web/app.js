@@ -27,6 +27,32 @@ function fill(template, vars) {
   return template.replace(/\{(\w+)\}/g, (m, key) => (Object.prototype.hasOwnProperty.call(vars, key) ? String(vars[key]) : m));
 }
 
+// The page's settings from plan.json on top of the dictionary: the clock ("clock": "12h") and the
+// project colours ("project_colors": { "Blog": "color4" }).
+function pageTexts(plan, t) {
+  return Object.assign({}, t, { clock12: plan.clock === '12h', projectColors: plan.project_colors || {} });
+}
+
+// "14:30", or "2:30 PM" when the plan's clock is 12h
+function clockTime(t, time) {
+  if (!t.clock12) return time;
+  const h = Number(time.slice(0, 2));
+  return ((h + 11) % 12 + 1) + ':' + time.slice(3, 5) + (h < 12 ? ' AM' : ' PM');
+}
+
+// A project colour is a slot of the theme palette, as Omarchy's colors.toml names them (CSS: --red,
+// --bright-blue, ...).
+const PALETTE_SLOTS = ['red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'magenta', 'brown',
+  'bright_red', 'bright_yellow', 'bright_green', 'bright_cyan', 'bright_blue', 'bright_magenta'];
+const PALETTE_SLOT = /^(red|orange|yellow|green|cyan|blue|magenta|brown|bright_(red|yellow|green|cyan|blue|magenta))$/;
+
+// ' data-color="blue"' when the task's project has a colour, else ''
+function colorAttr(t, o) {
+  const colors = t.projectColors || {};
+  const slot = o.project && Object.prototype.hasOwnProperty.call(colors, o.project) ? colors[o.project] : '';
+  return typeof slot === 'string' && PALETTE_SLOT.test(slot) ? ' data-color="' + slot + '"' : '';
+}
+
 // The supported language for a BCP 47 tag ("da-DK" -> "da"), else 'en'.
 function pickLanguage(tag) {
   const primary = String(tag || '').toLowerCase().split(/[-_]/)[0];
@@ -90,13 +116,13 @@ function formatDateShort(t, date) {
 function formatDeadline(t, deadline) {
   const p = parseStart(deadline);
   const date = fill(t.dateInText, dateVars(t, p.date));
-  return p.time ? fill(t.atTime, { date, time: p.time }) : date;
+  return p.time ? fill(t.atTime, { date, time: clockTime(t, p.time) }) : date;
 }
 
 // "23 November 2026 at 13:57": the wall time as written in the file (no time zone conversion)
 function formatTimestamp(t, iso) {
   const p = parseStart(iso.slice(0, 16));
-  return fill(t.timestamp, Object.assign(dateVars(t, p.date), { time: p.time }));
+  return fill(t.timestamp, Object.assign(dateVars(t, p.date), { time: clockTime(t, p.time) }));
 }
 
 // "45 min", "2 h", "2 h 30 min"
@@ -177,7 +203,7 @@ function renderTask(o, t) {
     timeText = t.timeNone;
     timeClass += ' time-none';
   } else if (s.time) {
-    timeText = o.duration_min ? s.time + '–' + endTime(s.time, o.duration_min) : s.time;
+    timeText = o.duration_min ? clockTime(t, s.time) + '–' + clockTime(t, endTime(s.time, o.duration_min)) : clockTime(t, s.time);
   } else {
     timeText = t.allDay;
     timeClass += ' time-all-day';
@@ -195,7 +221,7 @@ function renderTask(o, t) {
   const projectAttr = o.project ? ' data-project="' + esc(o.project) + '"' : '';
   const notes = o.notes ? '\n    <details class="notes"><summary>' + esc(t.notes) + '</summary><p>' + esc(o.notes) + '</p></details>' : '';
   return (
-    '<li class="task status-' + esc(o.status) + '" data-id="' + esc(o.id) + '" data-priority="' + o.priority + '"' + projectAttr + '>\n' +
+    '<li class="task status-' + esc(o.status) + '" data-id="' + esc(o.id) + '" data-priority="' + o.priority + '"' + projectAttr + colorAttr(t, o) + '>\n' +
     '    <p class="task-row"><span class="' + timeClass + '">' + esc(timeText) + '</span><span class="task-title">' + esc(o.title) + '</span></p>\n' +
     '    <p class="task-meta">' + meta.join('') + '</p>' + notes + '\n' +
     '  </li>'
@@ -222,6 +248,7 @@ function viewClass(id, active) {
 }
 
 function renderOverview(plan, today, t, active) {
+  t = pageTexts(plan, t);
   const tasks = plan.tasks;
   const groups = new Map();
   for (const o of tasks.filter((o) => isOverdue(o, today))) {
@@ -258,6 +285,7 @@ function renderGroup(dataGroup, heading, tasks, t) {
 }
 
 function renderListByDate(plan, t, active) {
+  t = pageTexts(plan, t);
   const groups = new Map();
   const undated = [];
   for (const o of plan.tasks) {
@@ -286,6 +314,7 @@ function renderListByDate(plan, t, active) {
 }
 
 function renderListByProject(plan, t, active) {
+  t = pageTexts(plan, t);
   const none = t.noProject;
   const groups = new Map();
   for (const o of plan.tasks) {
@@ -315,6 +344,7 @@ function renderListByProject(plan, t, active) {
 const CHARS_PER_DAY = 64; // characters that fit at most in an all-day bar at the column's minimum width (34rem)
 
 function renderTimeline(plan, today, t, active) {
+  t = pageTexts(plan, t);
   const dated = plan.tasks.filter((o) => o.start);
   const dates = new Set();
   for (const o of dated) dates.add(o.start.slice(0, 10));
@@ -383,10 +413,10 @@ function renderTimeline(plan, today, t, active) {
     const tracks = Math.max(1, trackEnd.length);
     const lines = [];
     for (const b of bars) {
-      const title = b.o.title + ' – ' + formatDateShort(t, day) + (b.s.time ? ' ' + b.s.time + (b.o.duration_min ? '–' + endTime(b.s.time, b.o.duration_min) : '') : ' (' + t.allDay + ')');
+      const title = b.o.title + ' – ' + formatDateShort(t, day) + (b.s.time ? ' ' + clockTime(t, b.s.time) + (b.o.duration_min ? '–' + clockTime(t, endTime(b.s.time, b.o.duration_min)) : '') : ' (' + t.allDay + ')');
       const pos = '--start:' + num(b.start) + ';--length:' + num(b.length) + ';--track:' + b.track;
       const bar =
-        '        <div class="bar' + (b.allDay ? ' bar-all-day' : '') + (b.o.status === 'done' ? ' status-done' : '') + '" style="' + pos + '" data-id="' + esc(b.o.id) + '" title="' + esc(title) + '">';
+        '        <div class="bar' + (b.allDay ? ' bar-all-day' : '') + (b.o.status === 'done' ? ' status-done' : '') + '" style="' + pos + '" data-id="' + esc(b.o.id) + '"' + colorAttr(t, b.o) + ' title="' + esc(title) + '">';
       // The title goes beside the bar when it cannot fit inside it. A bar's pixel width shrinks with the
       // window (to - from); at the column's minimum width (34rem) about 64 characters fit across a whole-day
       // bar. Estimate conservatively: a title behind the estimate would be clipped by overflow:hidden.
@@ -454,6 +484,7 @@ function renderNav(t) {
 }
 
 function renderMeta(plan, t) {
+  t = pageTexts(plan, t);
   return (
     esc(t.exported) + ' <time datetime="' + esc(plan.exported) + '">' + esc(formatTimestamp(t, plan.exported)) + '</time>' +
     ' <span class="dot">·</span> <span class="timezone">' + esc(plan.timezone) + '</span>'
@@ -506,6 +537,8 @@ const THEME_TO_CSS = {
   danger: '--danger',
   ok: '--ok',
 };
+// The palette slots project colours name, lifted to read as text: blue -> --blue, bright_red -> --bright-red.
+for (const slot of PALETTE_SLOTS) THEME_TO_CSS[slot] = '--' + slot.replace('_', '-');
 
 // The same rule as isFontFamily() in src/snapshot.cpp: safe to quote in CSS.
 const FONT_FAMILY = /^[A-Za-z0-9 ._-]{1,64}$/;

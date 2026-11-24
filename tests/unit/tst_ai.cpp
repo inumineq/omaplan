@@ -835,6 +835,8 @@ private slots:
         QVERIFY(argsText.contains(QStringLiteral("--enabled-tools")));
         QVERIFY(argsText.contains(QStringLiteral("__omaplan_no_tools__")));
         QVERIFY(argsText.contains(QStringLiteral("--max-turns")));
+        // No model configured: vibe's own active_model.
+        QVERIFY(!argsText.contains(QStringLiteral("--model")));
         // The user prompt goes in a private file, not in the arguments.
         QVERIFY(!argsText.contains(QStringLiteral("køb mælk")));
         QVERIFY(!argsText.contains(QStringLiteral("/dev/stdin")));
@@ -875,7 +877,7 @@ private slots:
         const QByteArray oldPath = qgetenv("PATH");
         qputenv("PATH", dir.path().toLocal8Bit() + ":" + oldPath);
         {
-            auto engine = createClaudeEngine();
+            auto engine = createClaudeEngine(QStringLiteral("sonnet"));
             Proposal proposal;
             QString error;
             QVERIFY2(runEngine(*engine, QStringLiteral("skriv blogindlæg"), &proposal, &error), qPrintable(error));
@@ -910,6 +912,9 @@ private slots:
         QVERIFY(!argLines.contains(QStringLiteral("--mcp-config")));
         QVERIFY(argLines.contains(QStringLiteral("--disable-slash-commands")));
         QVERIFY(argLines.contains(QStringLiteral("--no-session-persistence")));
+        // The configured model.
+        const int model = argLines.indexOf(QStringLiteral("--model"));
+        QVERIFY(model >= 0 && argLines.value(model + 1) == QStringLiteral("sonnet"));
     }
 
     // A text too long for any engine fails up front with its length, instead
@@ -1090,6 +1095,12 @@ private slots:
         f.write(QStringLiteral("[engine]\n"
                                "default = \"command\"\n"
                                "command = \"cat %1\"\n"
+                               "timeout = 30\n"
+                               "\n"
+                               "[engine.vibe]\n"
+                               "model = \"vibe-alias\"\n"
+                               "[engine.claude]\n"
+                               "model = \"opus\"\n"
                                "\n"
                                "[engine.local]\n"
                                "api = \"openai\"\n"
@@ -1104,6 +1115,12 @@ private slots:
             auto cmd = createEngine(QStringLiteral("command"), {}, {}, &error);
             QVERIFY2(cmd != nullptr, qPrintable(error));
             QCOMPARE(cmd->id(), QStringLiteral("command"));
+            QCOMPARE(cmd->timeoutMs(), 30000);
+            QCOMPARE(createEngine(QStringLiteral("vibe"), {}, {}, &error)->modelInfo(), QStringLiteral("vibe-alias"));
+            QCOMPARE(createEngine(QStringLiteral("claude"), {}, {}, &error)->modelInfo(), QStringLiteral("opus"));
+            // --model on the command line wins.
+            QCOMPARE(createEngine(QStringLiteral("claude"), QStringLiteral("haiku"), {}, &error)->modelInfo(),
+                     QStringLiteral("haiku"));
 
             auto local = createEngine(QStringLiteral("local"), {}, {}, &error);
             QVERIFY2(local != nullptr, qPrintable(error));

@@ -12,7 +12,10 @@
 
 #include "actions.h"
 #include "cli.h"
+#include "config.h"
+#include "datewords.h"
 #include "planmodel.h"
+#include "settings.h"
 #include "snapshot.h"
 #include "store.h"
 #include "theme.h"
@@ -48,6 +51,8 @@ int main(int argc, char *argv[]) {
         // Text output and error messages in the interface language; --json
         // stays English.
         UiLanguage uiLanguage(&app, language, false);
+        // How 12/11 and 12.12 are read: the language's convention and [dates].
+        DateConvention::setActive(DateConvention::resolve(AppConfig::load(), uiLanguage.language()));
         Store store(dbPath);
         QTextStream out(stdout);
         QTextStream err(stderr);
@@ -77,6 +82,9 @@ int main(int argc, char *argv[]) {
 
     registerQmlTypes();
 
+    // config.toml, followed live; also sets the date convention.
+    Settings settings(&uiLanguage);
+
     Theme theme;
     // Omarchy's font, live: omarchy-font-set takes effect without a restart.
     theme.followSystemFont();
@@ -97,8 +105,10 @@ int main(int argc, char *argv[]) {
         if (storeOpen)
             snapshotter.write();
     });
-    if (storeOpen)
+    if (storeOpen) {
         snapshotter.write();
+        snapshotter.follow(&settings);
+    }
     PlanModel planModel(&store);
     // The window still opens, and says why the plan is missing.
     if (!storeOpen)
@@ -112,6 +122,7 @@ int main(int argc, char *argv[]) {
     QObject::connect(&uiLanguage, &UiLanguage::changed, &engine, &QQmlEngine::retranslate);
     engine.rootContext()->setContextProperty("uiLanguage", &uiLanguage);
     engine.rootContext()->setContextProperty("theme", &theme);
+    engine.rootContext()->setContextProperty("settings", &settings);
     engine.rootContext()->setContextProperty("actions", &actions);
     engine.rootContext()->setContextProperty("planModel", &planModel);
     engine.load(QUrl("qrc:/Main.qml"));

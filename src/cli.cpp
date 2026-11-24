@@ -11,6 +11,7 @@
 #include <QTextStream>
 
 #include "actions.h"
+#include "config.h"
 #include "mcp.h"
 #include "server.h"
 #include "snapshot.h"
@@ -41,6 +42,10 @@ static void printHelp(QTextStream &out) {
         "  projects\n"
         "  summary [--week|--month]\n"
         "  add <text> [--engine ...] [--yes] [--model M] [--endpoint URL]   AI proposal; --yes stores it\n"
+        "  config list | get <key> | set <key> <value> | unset <key> | path\n"
+        "                        settings in config.toml (engine.default, engine.claude.model, dates.order,\n"
+        "                        projects.<name>, ...); `config list` shows every key\n"
+        "  engines               the AI engines: installed or not, and the model each one uses\n"
         "  skill install [--force]|uninstall   install/remove the bundled agent skill\n"
         "  mcp                   MCP server over stdio (claude mcp add omaplan -- omaplan mcp)\n"
         "  snapshot [path]       write plan.json for the read-only edition (also automatic after every change)\n"
@@ -56,6 +61,8 @@ static void printHelp(QTextStream &out) {
         "  omaplan move <id> \"tuesday at 14:00\"\n"
         "  omaplan done <id>\n"
         "  omaplan undo --json\n"
+        "  omaplan config set engine.claude.model sonnet\n"
+        "  omaplan config set projects.Blog blue\n"
         "  omaplan skill install --force   replace customized skill files\n");
 }
 
@@ -133,7 +140,8 @@ static const QHash<QString, QStringList> &commandFlags() {
         map.insert(QStringLiteral("serve"), {QStringLiteral("port"), QStringLiteral("bind"), QStringLiteral("host"),
                                              QStringLiteral("snapshot")});
         map.insert(QStringLiteral("summary"), {QStringLiteral("week"), QStringLiteral("month")});
-        for (const char *command : {"show", "move", "done", "undone", "rm", "undo", "redo", "projects", "mcp", "snapshot"})
+        for (const char *command : {"show", "move", "done", "undone", "rm", "undo", "redo", "projects", "mcp", "snapshot",
+                                    "config", "engines"})
             map.insert(QLatin1String(command), {});
         return map;
     }();
@@ -240,6 +248,44 @@ int runCli(const QStringList &args, Store *store, QTextStream &out, QTextStream 
         }
         err << QObject::tr("Usage: omaplan skill install [--force]|uninstall [--json]") << "\n";
         return 1;
+    }
+
+    // Settings: config.toml only, no database.
+    if (command == QLatin1String("config")) {
+        QStringList positional;
+        parseFlags(rest, &positional);
+        const QString sub = positional.value(0);
+        ActionResult result;
+        if ((sub == QLatin1String("list") || sub.isEmpty()) && positional.size() <= 1) {
+            result = Actions::configList();
+        } else if (sub == QLatin1String("get") && positional.size() == 2) {
+            result = Actions::configGet(positional.at(1));
+        } else if (sub == QLatin1String("set") && positional.size() == 3) {
+            result = Actions::configSet(positional.at(1), positional.at(2));
+        } else if (sub == QLatin1String("unset") && positional.size() == 2) {
+            result = Actions::configSet(positional.at(1), QString());
+        } else if (sub == QLatin1String("path") && positional.size() == 1) {
+            result = {true, {}, AppConfig::defaultPath(), {{QStringLiteral("path"), AppConfig::defaultPath()}}};
+        } else {
+            err << QObject::tr("Usage: omaplan config list | get <key> | set <key> <value> | unset <key> | path [--json]")
+                << "\n";
+            return 1;
+        }
+        if (!result.ok) {
+            err << result.error << "\n";
+            return 1;
+        }
+        return emitResult(out, json, result);
+    }
+
+    if (command == QLatin1String("engines")) {
+        QStringList positional;
+        parseFlags(rest, &positional);
+        if (!positional.isEmpty()) {
+            err << QObject::tr("Usage: omaplan engines [--json]") << "\n";
+            return 1;
+        }
+        return emitResult(out, json, Actions::engines());
     }
 
     // The read-only edition's web server reads plan.json only, never the

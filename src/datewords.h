@@ -1,9 +1,56 @@
 #pragma once
 
+#include <QDate>
 #include <QHash>
 #include <QList>
 #include <QString>
 #include <QStringList>
+
+struct AppConfig;
+
+// How dates and times are written in a language: the order of day and month
+// in "12/11", whether "12.12" is a time or a date, the first day of the week
+// and the clock. Each DateWords carries its language's convention; [dates]
+// in config.toml overrides it key by key.
+struct DateConvention {
+    bool dayFirst = true;      // 12/11 = 12 November (false: December 11)
+    bool dottedIsTime = true;  // 12.12 = 12:12 (false: a date, in the order above)
+    int weekStart = 1;         // 1 = Monday, 7 = Sunday
+    bool clock24 = true;       // 14:30 (false: 2:30 PM)
+
+    bool operator==(const DateConvention &o) const {
+        return dayFirst == o.dayFirst && dottedIsTime == o.dottedIsTime && weekStart == o.weekStart
+               && clock24 == o.clock24;
+    }
+    bool operator!=(const DateConvention &o) const { return !(*this == o); }
+
+    // The convention of a language code ("da", "en"); Danish for an unknown one.
+    static DateConvention forLanguage(const QString &language);
+    // The language's convention with config.toml's [dates] on top.
+    static DateConvention resolve(const AppConfig &config, const QString &language);
+    // The one the parser and annotation use in this process: set at start
+    // (main.cpp) and again when config.toml changes while the window is open.
+    static const DateConvention &active();
+    static void setActive(const DateConvention &convention);
+
+    // Whether "a.b" (two numbers with a dot) is a time: always when dotted
+    // values are times; otherwise only when a time prefix ("kl.", "at") comes
+    // before it, am/pm after it, or it cannot be a date in this order
+    // ("14.30": there is no month 30).
+    bool dottedReadsAsTime(int a, int b, bool prefixed, bool meridiem) const {
+        if (dottedIsTime || prefixed || meridiem)
+            return true;
+        const int day = dayFirst ? a : b, month = dayFirst ? b : a;
+        return day < 1 || day > 31 || month < 1 || month > 12;
+    }
+    // The first day of the week `date` lies in.
+    QDate weekStartOf(const QDate &date) const;
+    // The config values ("dmy", "time", "monday", "24h") of each setting.
+    QString orderName() const { return dayFirst ? QStringLiteral("dmy") : QStringLiteral("mdy"); }
+    QString dottedName() const { return dottedIsTime ? QStringLiteral("time") : QStringLiteral("date"); }
+    QString weekStartName() const { return weekStart == 7 ? QStringLiteral("sunday") : QStringLiteral("monday"); }
+    QString clockName() const { return clock24 ? QStringLiteral("24h") : QStringLiteral("12h"); }
+};
 
 // The words of one language that the date parser (Actions::parseDateTime) and
 // the date annotation (annotateDates) understand. User input may be in any
@@ -11,6 +58,7 @@
 // matter of adding a DateWords entry in datewords.cpp and a test.
 struct DateWords {
     QString code; // ISO 639-1, e.g. "da"
+    DateConvention convention; // how the language writes dates and times
 
     // Whole phrases, lower case.
     QStringList today;            // "i dag", "today"

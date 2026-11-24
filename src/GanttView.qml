@@ -18,12 +18,14 @@ Item {
     readonly property int dayCount: zoomLevels[zoomIndex]
     readonly property var today: { planModel.today; return Fmt.startOfDay(new Date()) }
     property var anchorDate: Fmt.startOfDay(new Date())
-    readonly property var rangeStart: dayCount >= 7 ? Fmt.mondayOf(anchorDate) : anchorDate
+    readonly property var rangeStart: dayCount >= 7 ? Fmt.weekStartOf(anchorDate) : anchorDate
 
     function page(step) { anchorDate = Fmt.addDays(anchorDate, step * Math.min(dayCount, 7)) }
     function goToday() { anchorDate = Fmt.startOfDay(new Date()) }
     function zoom(step) { zoomIndex = Math.max(0, Math.min(zoomLevels.length - 1, zoomIndex + step)) }
     function taskIds() { return bars.map(b => b.task.taskId) }
+    // A task's project colour (a palette slot from the settings), "" without one.
+    function projectColorOf(t) { settings.projectColors; return theme.palette[settings.projectColor(t.project)] || "" }
 
     CalendarModel {
         id: rangeModel
@@ -184,7 +186,7 @@ Item {
                             visible: index > 0 && (gantt.dayWidth / (gantt.lastHour - gantt.firstHour) > 44 || index % 2 === 0)
                             x: index / (gantt.lastHour - gantt.firstHour) * gantt.dayWidth - width / 2
                             y: 22
-                            text: String(gantt.firstHour + index).padStart(2, "0")
+                            text: Fmt.hour(gantt.firstHour + index, true)
                             color: theme.muted
                             font.pixelSize: 10
                         }
@@ -228,6 +230,8 @@ Item {
                         readonly property var task: modelData.task
                         readonly property bool done: task.status === "done"
                         readonly property bool selected: win.selectedId === task.taskId
+                        readonly property string projectColor: gantt.projectColorOf(task)
+                        readonly property color tint: projectColor !== "" ? projectColor : theme.accent
                         x: modelData.x
                         y: 8 + modelData.lane * 34
                         width: modelData.w
@@ -238,7 +242,7 @@ Item {
                             anchors.fill: parent
                             radius: Math.min(4, theme.radius)
                             color: barItem.done ? theme.surface
-                                 : barItem.task.startHasTime ? theme.accent : Qt.alpha(theme.accent, 0.28)
+                                 : barItem.task.startHasTime ? barItem.tint : Qt.alpha(barItem.tint, 0.28)
                             border.color: barItem.selected ? theme.foreground : barItem.done ? theme.border : "transparent"
                             border.width: barItem.selected ? 2 : 1
                             Rectangle {
@@ -257,12 +261,16 @@ Item {
                             anchors.verticalCenter: parent.verticalCenter
                             width: inside ? barItem.width - 12 : implicitWidth
                             elide: Text.ElideRight
+                            textFormat: Text.PlainText
                             text: {
                                 Fmt.lang
                                 const t = barItem.task
                                 return (t.startHasTime ? Fmt.time(t.start) + "  " : "") + t.title
                             }
-                            color: inside && barItem.task.startHasTime && !barItem.done ? theme.accentForeground
+                            // On a project colour (lifted to read on the background) the
+                            // background reads in turn.
+                            color: inside && barItem.task.startHasTime && !barItem.done
+                                   ? (barItem.projectColor !== "" ? theme.background : theme.accentForeground)
                                  : barItem.done ? theme.muted : theme.foreground
                             font.strikeout: barItem.done
                             font.pixelSize: 12

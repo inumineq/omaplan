@@ -104,8 +104,9 @@ private:
 };
 
 // Factories; the concrete classes live in their own engine_*.cpp files.
-std::unique_ptr<AiEngine> createVibeEngine(QObject *parent = nullptr);
-std::unique_ptr<AiEngine> createClaudeEngine(QObject *parent = nullptr);
+// model: passed as --model; empty = the tool's own default.
+std::unique_ptr<AiEngine> createVibeEngine(const QString &model = QString(), QObject *parent = nullptr);
+std::unique_ptr<AiEngine> createClaudeEngine(const QString &model = QString(), QObject *parent = nullptr);
 // One generic local engine ("local") speaking Ollama's /api/chat and
 // OpenAI-compatible /v1/chat/completions; endpoint/model/api are the user's
 // choice (config.toml or CLI flags), nothing is hardcoded.

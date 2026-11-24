@@ -13,7 +13,7 @@ Rules that apply throughout:
 - **No external resources**: only `style.css` and `app.js` (relative paths), and `plan.json` and
   `i18n/<language>.json` from the same origin. No CDNs, no web fonts, no other network requests.
 - All task text (`title`, `notes`, `project`) and every dictionary text is HTML-escaped: `&` `<` `>` `"` `'`.
-- The week starts on Monday. `data-*` dates are always ISO `YYYY-MM-DD` / `YYYY-MM-DDTHH:MM`.
+- The week starts on Monday (the page shows days, not weeks, so `dates.week_start` does not change it). `data-*` dates are always ISO `YYYY-MM-DD` / `YYYY-MM-DDTHH:MM`.
 
 ## Languages
 
@@ -43,7 +43,9 @@ template with placeholders: `{weekday}`/`{Weekday}` (the weekday as written in `
 | duration (`minutes`, `hours`, `hoursMinutes`) | `45 min`, `2 h`, `2 h 30 min` | `45 min`, `2 t.`, `2 t. 30 min` |
 | count (`taskOne`, `taskMany`) | `1 task`, `3 tasks` | `1 opgave`, `3 opgaver` |
 
-Times are `09:00` (24-hour, colon) in both; an interval is `09:00–10:30` (U+2013 en dash). The export time is the
+Times are `09:00` (24-hour, colon) in both; an interval is `09:00–10:30` (U+2013 en dash). With `"clock": "12h"`
+in `plan.json` every time on the page (task times, deadlines, the export time, timeline titles) is written
+`9:00 AM` / `2:30 PM` instead, in both languages; the timeline's hour axis stays numbers. The export time is the
 wall time as written in `exported` (no time zone conversion).
 
 The examples below are the English rendering.
@@ -134,7 +136,10 @@ Every view shows tasks with the same `<li>`:
 </li>
 ```
 
-- `class="task status-todo|status-done"`; `data-priority` 1–3; `data-project` only when there is a project.
+- `class="task status-todo|status-done"`; `data-priority` 1–3; `data-project` only when there is a project;
+  `data-color` (after `data-project`) only when `project_colors` gives the project a palette slot (`blue`,
+  `bright_red`, …; any other value is left out). The CSS maps it to `--project` (`var(--blue)` …), which colours the
+  project tag; a timeline `.bar` of the task carries the same `data-color` (before `title`) and is filled with it.
 - `.time` = `HH:MM–HH:MM` (or `HH:MM` without a duration); all-day tasks have `.time.time-all-day` with the text
   `all day`; tasks without a date have `.time.time-none` with the text `no date`.
 - `.task-meta` holds only the fields that exist: `project-tag`, `deadline`, `duration`, `guessed` (the field

@@ -1,6 +1,7 @@
 // Theme watching follows the Omacut/Monologue app templates; see LICENSE for
 // the attribution.
 #include "theme.h"
+#include "config.h"
 
 #include <QColor>
 #include <QDir>
@@ -151,6 +152,28 @@ void Theme::deriveTextColors() {
     m_danger = readable(color("red", "#e5534b"));
     m_success = readable(color("green", "#57ab5a"));
     m_accentText = readable(m_accent);
+    // A theme without a slot (some leave out orange or brown) gets Tokyo
+    // Night's, lifted the same way.
+    static const QHash<QString, const char *> fallback = {
+        {"red", "#f7768e"},          {"orange", "#eb927b"},        {"yellow", "#e0af68"},
+        {"green", "#9ece6a"},        {"cyan", "#449dab"},          {"blue", "#7aa2f7"},
+        {"magenta", "#ad8ee6"},      {"brown", "#75493d"},         {"bright_red", "#ff7a93"},
+        {"bright_yellow", "#ff9e64"}, {"bright_green", "#b9f27c"}, {"bright_cyan", "#0db9d7"},
+        {"bright_blue", "#7da6ff"},  {"bright_magenta", "#bb9af7"}};
+    m_palette.clear();
+    for (const QString &slot : ConfigKeys::paletteSlots())
+        m_palette.insert(slot, readable(color(slot.toLatin1().constData(), fallback.value(slot))));
+}
+
+QString Theme::paletteColor(const QString &slot) const {
+    return m_palette.value(ConfigKeys::paletteSlot(slot));
+}
+
+QVariantMap Theme::palette() const {
+    QVariantMap map;
+    for (auto it = m_palette.cbegin(); it != m_palette.cend(); ++it)
+        map.insert(it.key(), it.value());
+    return map;
 }
 
 // Black or white, whichever reads on the accent.

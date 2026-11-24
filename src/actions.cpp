@@ -30,11 +30,19 @@ static QJsonObject changeToJson(const Store::Change &change) {
     return json;
 }
 
+// A date, with its time on the clock of the date convention, for the CLI's
+// human output ("2026-12-04 14:30" or "2026-12-04 2:30 PM"); --json stays ISO.
+static QString dateTimeText(const QDateTime &when, bool hasTime) {
+    if (!hasTime)
+        return when.date().toString(Qt::ISODate);
+    return QLocale::c().toString(when, DateConvention::active().clock24 ? QStringLiteral("yyyy-MM-dd HH:mm")
+                                                                        : QStringLiteral("yyyy-MM-dd h:mm AP"));
+}
+
 static QString startText(const Task &task) {
     if (!task.start.isValid())
         return QStringLiteral("-");
-    return task.startHasTime ? task.start.toString(QStringLiteral("yyyy-MM-dd HH:mm"))
-                             : task.start.date().toString(Qt::ISODate);
+    return dateTimeText(task.start, task.startHasTime);
 }
 
 // effectiveDate() lives in task.h so models and actions share it.
@@ -126,8 +134,7 @@ ActionResult Actions::moveLocked(const QString &id, const QDateTime &when, bool 
         return {false, error, {}, {}};
     QJsonObject payload;
     payload["task"] = task.toJson();
-    const QString whenText = hasTime ? when.toString(QStringLiteral("yyyy-MM-dd HH:mm"))
-                                     : when.date().toString(Qt::ISODate);
+    const QString whenText = dateTimeText(when, hasTime);
     return {true, {}, tr("Moved %1 to %2").arg(id, whenText), payload};
 }
 
@@ -375,6 +382,7 @@ static QStringList existingTaskLines(Store *store) {
             continue;
         QString line = task.title;
         if (task.start.isValid())
+            // ISO for the engine, whatever the user's clock: it answers in ISO.
             line += QStringLiteral(" | %1").arg(task.startHasTime
                                                    ? task.start.toString(QStringLiteral("yyyy-MM-dd HH:mm"))
                                                    : task.start.date().toString(Qt::ISODate));
@@ -685,9 +693,7 @@ ActionResult Actions::show(const QString &id) {
     if (task.durationMinutes > 0)
         lines << tr("duration: %1 min").arg(task.durationMinutes);
     if (task.deadline.isValid())
-        lines << tr("deadline: %1").arg(task.deadlineHasTime
-                                             ? task.deadline.toString(QStringLiteral("yyyy-MM-dd HH:mm"))
-                                             : task.deadline.date().toString(Qt::ISODate));
+        lines << tr("deadline: %1").arg(dateTimeText(task.deadline, task.deadlineHasTime));
     if (!task.guesses.isEmpty())
         lines << tr("guessed fields: %1").arg(task.guesses.join(QLatin1String(", ")));
     return {true, {}, lines.join(QLatin1Char('\n')), payload};
@@ -722,7 +728,7 @@ ActionResult Actions::summary(bool week) {
     const QDate today = QDateTime::currentDateTime().date();
     QDate from, to;
     if (week) {
-        from = today.addDays(1 - today.dayOfWeek()); // Monday, the Danish week start
+        from = DateConvention::active().weekStartOf(today); // Monday, or Sunday (dates.week_start)
         to = from.addDays(6);
     } else {
         from = QDate(today.year(), today.month(), 1);
@@ -998,18 +1004,49 @@ bool Actions::parseDateTime(const QString &text, const QDate &today, QDateTime *
     // above 23 without minutes is not a time; it stays for the date part
     // ("25" = the 25th), and so does a bare number right after a day article
     // ("fredag den 12", "the 12" = the 12th). The prefixes come from every
-    // language in datewords.
-    static const QRegularExpression timeRe(
-        QStringLiteral("(?:^|\\s)(?:\\b(?:%1)(?=\\s|\\d|$))?\\s*(\\d{1,2})(?:[:.](\\d{2}))?\\s*$")
-            .arg(DateVocabulary::timePrefixPattern()));
+    // language in datewords. Whether "14.30" is a time follows the date
+    // convention (dates.dotted); "14:30" always is. "2pm", "2:30 pm" and
+    // "2.30 p.m." are understood in every language.
+    const DateConvention &convention = DateConvention::active();
+    static const QString timePattern = QStringLiteral(
+        "(?:^|\\s)(?:\\b(?:%1)(?=\\s|\\d|$))?\\s*(\\d{1,2})(?:%2(\\d{2}))?\\s*(am|pm|a\\.m\\.|p\\.m\\.)?\\s*$");
+    static const QRegularExpression timeDotted(timePattern.arg(DateVocabulary::timePrefixPattern(), QStringLiteral("[:.]")));
+    static const QRegularExpression timeColon(timePattern.arg(DateVocabulary::timePrefixPattern(), QStringLiteral(":")));
     QTime time(0, 0);
     bool withTime = false;
-    const auto timeMatch = timeRe.match(rest);
-    const bool dayAfterArticle = timeMatch.hasMatch() && timeMatch.captured(2).isEmpty()
+    auto timeMatch = (convention.dottedIsTime ? timeDotted : timeColon).match(rest);
+    if (!timeMatch.hasMatch() && !convention.dottedIsTime) {
+        // Dotted numbers are dates here, but "kl. 14.30", "2.30 pm" and
+        // "14.30" (no month 30) can only be times, and so can the last one
+        // after a date ("12.12 10.05", "friday 9.05"): one date is enough.
+        const auto dotted = timeDotted.match(rest);
+        if (dotted.hasMatch() && !dotted.captured(2).isEmpty()) {
+            const QString before = rest.left(dotted.capturedStart()).trimmed();
+            QDateTime dateBefore;
+            bool timeBefore = false;
+            const bool afterDate = !before.isEmpty() && parseDateTime(before, today, &dateBefore, &timeBefore, nullptr, reading)
+                                   && !timeBefore;
+            if (afterDate
+                || convention.dottedReadsAsTime(
+                       dotted.captured(1).toInt(), dotted.captured(2).toInt(),
+                       !rest.mid(dotted.capturedStart(), dotted.capturedStart(1) - dotted.capturedStart()).trimmed().isEmpty(),
+                       !dotted.captured(3).isEmpty()))
+                timeMatch = dotted;
+        }
+    }
+    const QString meridiem = timeMatch.captured(3);
+    const bool dayAfterArticle = timeMatch.hasMatch() && timeMatch.captured(2).isEmpty() && meridiem.isEmpty()
             && DateVocabulary::isDayArticle(rest.left(timeMatch.capturedStart(1)).trimmed().section(QLatin1Char(' '), -1));
     if (timeMatch.hasMatch() && !dayAfterArticle) {
-        const int hour = timeMatch.captured(1).toInt();
+        int hour = timeMatch.captured(1).toInt();
         const int minute = timeMatch.captured(2).isEmpty() ? 0 : timeMatch.captured(2).toInt();
+        if (!meridiem.isEmpty()) {
+            if (hour < 1 || hour > 12) {
+                if (error) *error = QCoreApplication::translate("Actions", "invalid time: %1").arg(trimmed);
+                return false;
+            }
+            hour = hour % 12 + (meridiem.startsWith(QLatin1Char('p')) ? 12 : 0);
+        }
         if (hour <= 23) {
             time = QTime(hour, minute);
             if (!time.isValid()) {
@@ -1033,7 +1070,7 @@ bool Actions::parseDateTime(const QString &text, const QDate &today, QDateTime *
     } else if (isDayAfterTomorrow(rest)) {
         date = today.addDays(2);
     } else if (isNextWeek(rest)) {
-        date = today.addDays(8 - today.dayOfWeek()); // Monday of next week
+        date = convention.weekStartOf(today).addDays(7); // the first day of next week
     } else if (isWeekend(rest)) {
         date = today.addDays((6 - today.dayOfWeek() + 7) % 7); // Saturday
     } else if (const int days = inDays(rest); days >= 0) {
@@ -1057,7 +1094,19 @@ bool Actions::parseDateTime(const QString &text, const QDate &today, QDateTime *
         bool hasDen = false, bad = false;
         static const QRegularExpression dayDot(QStringLiteral("^(\\d{1,2})(?:\\.|st|nd|rd|th)$"));
         static const QRegularExpression daySlash(QStringLiteral("^(\\d{1,2})/(\\d{1,2})$"));
+        // "12.12." is a date in any convention; "12.12" only when dotted
+        // numbers are dates (dates.dotted = date), else it was a time above.
+        static const QRegularExpression dotDate(QStringLiteral("^(\\d{1,2})\\.(\\d{1,2})\\.$"));
+        static const QRegularExpression dotDateBare(QStringLiteral("^(\\d{1,2})\\.(\\d{1,2})\\.?$"));
         static const QRegularExpression bareNumber(QStringLiteral("^\\d{1,2}$"));
+        // Day and month in the convention's order (dates.order).
+        const auto dayAndMonth = [&](const QRegularExpressionMatch &m) {
+            const int first = m.captured(1).toInt(), second = m.captured(2).toInt();
+            day = convention.dayFirst ? first : second;
+            month = convention.dayFirst ? second : first;
+            if (month < 1 || month > 12)
+                bad = true;
+        };
         const QStringList parts = rest.split(QLatin1Char(' '), Qt::SkipEmptyParts);
         for (const QString &part : parts) {
             if (DateVocabulary::weekday(part)) {
@@ -1067,10 +1116,9 @@ bool Actions::parseDateTime(const QString &text, const QDate &today, QDateTime *
             } else if (auto m = dayDot.match(part); m.hasMatch()) {
                 day = m.captured(1).toInt();
             } else if (auto m = daySlash.match(part); m.hasMatch()) {
-                day = m.captured(1).toInt();
-                month = m.captured(2).toInt();
-                if (month < 1 || month > 12)
-                    bad = true;
+                dayAndMonth(m);
+            } else if (auto m = (convention.dottedIsTime ? dotDate : dotDateBare).match(part); m.hasMatch()) {
+                dayAndMonth(m);
             } else if (DateVocabulary::month(part)) {
                 month = DateVocabulary::month(part);
             } else if (bareNumber.match(part).hasMatch()) {
@@ -1141,7 +1189,8 @@ bool Actions::parseDateTime(const QString &text, const QDate &today, QDateTime *
             if (delta == 0 && (strictlyNext || !todayMentioned))
                 delta = 7;
             if (!upcoming && !strictlyNext)
-                delta = weekday - today.dayOfWeek();
+                delta = int(today.daysTo(convention.weekStartOf(today)))
+                        + (weekday - convention.weekStart + 7) % 7; // this week's
             date = today.addDays(delta);
         }
     }

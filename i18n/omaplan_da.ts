@@ -172,6 +172,61 @@
         <source>%1 is not a %2</source>
         <translation>%1 er ikke en %2</translation>
     </message>
+    <message>
+        <source>(not set)</source>
+        <translation>(ikke sat)</translation>
+    </message>
+    <message>
+        <source>(the language&apos;s)</source>
+        <translation>(sprogets)</translation>
+    </message>
+    <message>
+        <source>(default)</source>
+        <translation>(standard)</translation>
+    </message>
+    <message>
+        <source>Settings in %1</source>
+        <translation>Indstillinger i %1</translation>
+    </message>
+    <message>
+        <source>Unknown setting: %1 (see omaplan config list)</source>
+        <translation>Ukendt indstilling: %1 (se omaplan config list)</translation>
+    </message>
+    <message>
+        <source>&apos;%1&apos; was not found on PATH</source>
+        <translation>&apos;%1&apos; blev ikke fundet på PATH</translation>
+    </message>
+    <message>
+        <source>needs an endpoint and a model</source>
+        <translation>mangler et endpoint og en model</translation>
+    </message>
+    <message>
+        <source>needs a command line</source>
+        <translation>mangler en kommandolinje</translation>
+    </message>
+    <message>
+        <source>ready</source>
+        <translation>klar</translation>
+    </message>
+    <message>
+        <source>model: %1</source>
+        <translation>model: %1</translation>
+    </message>
+    <message>
+        <source>the tool&apos;s default</source>
+        <translation>værktøjets standard</translation>
+    </message>
+    <message>
+        <source>Answered, but proposed no tasks.</source>
+        <translation>Svarede, men foreslog ingen opgaver.</translation>
+    </message>
+    <message numerus="yes">
+        <source>Answered with %n task(s): %1</source>
+        <translation>
+            <numerusform>Svarede med %n opgave: %1</numerusform>
+            <numerusform>Svarede med %n opgaver: %1</numerusform>
+        </translation>
+    </message>
 </context>
 <context>
     <name>AiEngine</name>
@@ -408,6 +463,10 @@ Råt svar:
         <translation>Denne oversigt</translation>
     </message>
     <message>
+        <source>Settings: AI engine, date and time, project colours</source>
+        <translation>Indstillinger: AI-motor, dato og tid, projektfarver</translation>
+    </message>
+    <message>
         <source>Quit</source>
         <translation>Luk</translation>
     </message>
@@ -520,6 +579,26 @@ Råt svar:
         <translation>Luk / kassér / afbryd motoren</translation>
     </message>
     <message>
+        <source>Settings</source>
+        <translation>Indstillinger</translation>
+    </message>
+    <message>
+        <source>AI engine, date and time, project colours</source>
+        <translation>AI-motor, dato og tid, projektfarver</translation>
+    </message>
+    <message>
+        <source>Next field; change a choice or a project&apos;s colour</source>
+        <translation>Næste felt; skift et valg eller et projekts farve</translation>
+    </message>
+    <message>
+        <source>Open config.toml in the editor</source>
+        <translation>Åbn config.toml i editoren</translation>
+    </message>
+    <message>
+        <source>Close (every change is already saved)</source>
+        <translation>Luk (alle ændringer er allerede gemt)</translation>
+    </message>
+    <message>
         <source>Task editor</source>
         <translation>Opgave-editor</translation>
     </message>
@@ -624,6 +703,10 @@ Råt svar:
     <message>
         <source>New task</source>
         <translation>Ny opgave</translation>
+    </message>
+    <message>
+        <source>Settings</source>
+        <translation>Indstillinger</translation>
     </message>
     <message>
         <source>Keyboard shortcuts</source>
@@ -917,6 +1000,10 @@ Commands:
   projects
   summary [--week|--month]
   add &lt;text&gt; [--engine ...] [--yes] [--model M] [--endpoint URL]   AI proposal; --yes stores it
+  config list | get &lt;key&gt; | set &lt;key&gt; &lt;value&gt; | unset &lt;key&gt; | path
+                        settings in config.toml (engine.default, engine.claude.model, dates.order,
+                        projects.&lt;name&gt;, ...); `config list` shows every key
+  engines               the AI engines: installed or not, and the model each one uses
   skill install [--force]|uninstall   install/remove the bundled agent skill
   mcp                   MCP server over stdio (claude mcp add omaplan -- omaplan mcp)
   snapshot [path]       write plan.json for the read-only edition (also automatic after every change)
@@ -932,6 +1019,8 @@ Examples:
   omaplan move &lt;id&gt; &quot;tuesday at 14:00&quot;
   omaplan done &lt;id&gt;
   omaplan undo --json
+  omaplan config set engine.claude.model sonnet
+  omaplan config set projects.Blog blue
   omaplan skill install --force   replace customized skill files
 </source>
         <translation>Brug: omaplan [--db &lt;sti&gt;] [--lang da|en] &lt;kommando&gt; [tilvalg] [--json]
@@ -950,6 +1039,10 @@ Kommandoer:
   projects
   summary [--week|--month]
   add &lt;tekst&gt; [--engine ...] [--yes] [--model M] [--endpoint URL]   AI-forslag; --yes gemmer det
+  config list | get &lt;nøgle&gt; | set &lt;nøgle&gt; &lt;værdi&gt; | unset &lt;nøgle&gt; | path
+                        indstillinger i config.toml (engine.default, engine.claude.model, dates.order,
+                        projects.&lt;navn&gt;, ...); `config list` viser alle nøgler
+  engines               AI-motorerne: installeret eller ej, og den model hver bruger
   skill install [--force]|uninstall   installér/fjern den bundtede agent-skill
   mcp                   MCP-server over stdio (claude mcp add omaplan -- omaplan mcp)
   snapshot [sti]        skriv plan.json til læseudgaven (sker også automatisk efter hver ændring)
@@ -965,6 +1058,8 @@ Eksempler:
   omaplan move &lt;id&gt; &quot;tirsdag kl. 14:00&quot;
   omaplan done &lt;id&gt;
   omaplan undo --json
+  omaplan config set engine.claude.model sonnet
+  omaplan config set projects.Blog blue
   omaplan skill install --force   erstat tilpassede skill-filer
 </translation>
     </message>
@@ -991,6 +1086,14 @@ Eksempler:
     <message>
         <source>Usage: omaplan skill install [--force]|uninstall [--json]</source>
         <translation>Brug: omaplan skill install [--force]|uninstall [--json]</translation>
+    </message>
+    <message>
+        <source>Usage: omaplan config list | get &lt;key&gt; | set &lt;key&gt; &lt;value&gt; | unset &lt;key&gt; | path [--json]</source>
+        <translation>Brug: omaplan config list | get &lt;nøgle&gt; | set &lt;nøgle&gt; &lt;værdi&gt; | unset &lt;nøgle&gt; | path [--json]</translation>
+    </message>
+    <message>
+        <source>Usage: omaplan engines [--json]</source>
+        <translation>Brug: omaplan engines [--json]</translation>
     </message>
     <message>
         <source>Invalid port: %1</source>
@@ -1085,6 +1188,259 @@ command = &quot;...&quot;</translation>
     <message>
         <source>Could not open the plan (%1): %2</source>
         <translation>Kunne ikke åbne planen (%1): %2</translation>
+    </message>
+</context>
+<context>
+    <name>SettingsOverlay</name>
+    <message>
+        <source>Could not open %1</source>
+        <translation>Kunne ikke åbne %1</translation>
+    </message>
+    <message>
+        <source>Settings</source>
+        <translation>Indstillinger</translation>
+    </message>
+    <message>
+        <source>Esc closes</source>
+        <translation>Esc lukker</translation>
+    </message>
+    <message>
+        <source>AI engine</source>
+        <translation>AI-motor</translation>
+    </message>
+    <message>
+        <source>Date and time</source>
+        <translation>Dato og tid</translation>
+    </message>
+    <message>
+        <source>Project colours</source>
+        <translation>Projektfarver</translation>
+    </message>
+    <message>
+        <source>Default engine</source>
+        <translation>Standardmotor</translation>
+    </message>
+    <message>
+        <source>found: %1</source>
+        <translation>fundet: %1</translation>
+    </message>
+    <message>
+        <source>ready</source>
+        <translation>klar</translation>
+    </message>
+    <message>
+        <source>Cancelled.</source>
+        <translation>Afbrudt.</translation>
+    </message>
+    <message>
+        <source>Test</source>
+        <translation>Test</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Afbryd</translation>
+    </message>
+    <message>
+        <source>Send one short request to %1</source>
+        <translation>Send én kort forespørgsel til %1</translation>
+    </message>
+    <message>
+        <source>Stop the test</source>
+        <translation>Stop testen</translation>
+    </message>
+    <message>
+        <source>API</source>
+        <translation>API</translation>
+    </message>
+    <message>
+        <source>OpenAI-compatible</source>
+        <translation>OpenAI-kompatibel</translation>
+    </message>
+    <message>
+        <source>Endpoint</source>
+        <translation>Endpoint</translation>
+    </message>
+    <message>
+        <source>Model</source>
+        <translation>Model</translation>
+    </message>
+    <message>
+        <source>the tool&apos;s default</source>
+        <translation>værktøjets standard</translation>
+    </message>
+    <message>
+        <source>Command line (prompt on stdin, JSON on stdout)</source>
+        <translation>Kommandolinje (prompt på stdin, JSON på stdout)</translation>
+    </message>
+    <message>
+        <source>%1 (%2 s)</source>
+        <translation>%1 (%2 s)</translation>
+    </message>
+    <message>
+        <source>Compare (Alt+S)</source>
+        <translation>Sammenlign (Alt+S)</translation>
+    </message>
+    <message>
+        <source>Left</source>
+        <translation>Venstre</translation>
+    </message>
+    <message>
+        <source>Right</source>
+        <translation>Højre</translation>
+    </message>
+    <message>
+        <source>Timeout in seconds (10–600)</source>
+        <translation>Tidsgrænse i sekunder (10–600)</translation>
+    </message>
+    <message>
+        <source>Test sends one short request and stores nothing. Omaplan never stores API keys; the tools keep their own login.</source>
+        <translation>Test sender én kort forespørgsel og gemmer intet. Omaplan gemmer aldrig API-nøgler; værktøjerne har deres eget login.</translation>
+    </message>
+    <message>
+        <source>Language</source>
+        <translation>Sprog</translation>
+    </message>
+    <message>
+        <source>Automatic</source>
+        <translation>Automatisk</translation>
+    </message>
+    <message>
+        <source>Reading dates</source>
+        <translation>Når du skriver datoer</translation>
+    </message>
+    <message>
+        <source>12/11 is</source>
+        <translation>12/11 er</translation>
+    </message>
+    <message>
+        <source>Day/month</source>
+        <translation>Dag/måned</translation>
+    </message>
+    <message>
+        <source>Month/day</source>
+        <translation>Måned/dag</translation>
+    </message>
+    <message>
+        <source>12.12 is</source>
+        <translation>12.12 er</translation>
+    </message>
+    <message>
+        <source>A time</source>
+        <translation>Et klokkeslæt</translation>
+    </message>
+    <message>
+        <source>A date</source>
+        <translation>En dato</translation>
+    </message>
+    <message>
+        <source>Showing dates</source>
+        <translation>Når datoer vises</translation>
+    </message>
+    <message>
+        <source>Week starts</source>
+        <translation>Ugen starter</translation>
+    </message>
+    <message>
+        <source>Monday</source>
+        <translation>Mandag</translation>
+    </message>
+    <message>
+        <source>Sunday</source>
+        <translation>Søndag</translation>
+    </message>
+    <message>
+        <source>Clock</source>
+        <translation>Ur</translation>
+    </message>
+    <message>
+        <source>24-hour</source>
+        <translation>24 timer</translation>
+    </message>
+    <message>
+        <source>12-hour</source>
+        <translation>12 timer</translation>
+    </message>
+    <message>
+        <source>Now: %1 · 12.12 is %2 · the week starts on %3 · %4. Automatic follows the language.</source>
+        <translation>Nu: %1 · 12.12 er %2 · ugen starter %3 · %4. Automatisk følger sproget.</translation>
+    </message>
+    <message>
+        <source>day/month</source>
+        <translation>dag/måned</translation>
+    </message>
+    <message>
+        <source>month/day</source>
+        <translation>måned/dag</translation>
+    </message>
+    <message>
+        <source>a time</source>
+        <translation>et klokkeslæt</translation>
+    </message>
+    <message>
+        <source>a date</source>
+        <translation>en dato</translation>
+    </message>
+    <message>
+        <source>Sunday</source>
+        <comment>mid-sentence</comment>
+        <translation>søndag</translation>
+    </message>
+    <message>
+        <source>Monday</source>
+        <comment>mid-sentence</comment>
+        <translation>mandag</translation>
+    </message>
+    <message>
+        <source>24-hour clock</source>
+        <translation>24-timersur</translation>
+    </message>
+    <message>
+        <source>12-hour clock</source>
+        <translation>12-timersur</translation>
+    </message>
+    <message>
+        <source>Preview</source>
+        <translation>Sådan læses det</translation>
+    </message>
+    <message>
+        <source>friday 14.30</source>
+        <translation>fredag 14.30</translation>
+    </message>
+    <message>
+        <source>tomorrow at 9.05</source>
+        <translation>i morgen kl. 9.05</translation>
+    </message>
+    <message>
+        <source>Try it</source>
+        <translation>Prøv selv</translation>
+    </message>
+    <message>
+        <source>e.g. friday 10</source>
+        <translation>fx fredag 10</translation>
+    </message>
+    <message>
+        <source>The colour shows on the project&apos;s tag and on its blocks in the calendar and timeline. The colours come from the theme&apos;s palette and follow a theme switch.</source>
+        <translation>Farven ses på projektets mærke og på dets blokke i kalender og tidslinje. Farverne kommer fra temaets palet og følger med, når du skifter tema.</translation>
+    </message>
+    <message>
+        <source>No projects yet. Give a task a project, and it shows up here.</source>
+        <translation>Ingen projekter endnu. Giv en opgave et projekt, så dukker det op her.</translation>
+    </message>
+    <message>
+        <source>No colour</source>
+        <translation>Ingen farve</translation>
+    </message>
+    <message>
+        <source>Tab to a project, then ← / → to pick its colour; Delete removes it.</source>
+        <translation>Tab til et projekt, og vælg farve med ← / →; Delete fjerner den.</translation>
+    </message>
+    <message>
+        <source>Saved at once in %1</source>
+        <translation>Gemmes med det samme i %1</translation>
+    </message>
+    <message>
+        <source>Open config.toml</source>
+        <translation>Åbn config.toml</translation>
     </message>
 </context>
 <context>

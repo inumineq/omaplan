@@ -11,7 +11,11 @@ AbstractButton {
     property string toolTip: ""      // what the tooltip names; the label by default
     property bool primary: false
     property bool active: false
-    focusPolicy: Qt.NoFocus
+    // In the settings panel, Tab reaches the button and Space/Enter presses it.
+    property bool focusable: false
+    focusPolicy: focusable ? Qt.StrongFocus : Qt.NoFocus
+    Keys.onReturnPressed: clicked()
+    Keys.onEnterPressed: clicked()
     implicitHeight: 30
     leftPadding: 12
     rightPadding: 12
@@ -44,7 +48,8 @@ AbstractButton {
         color: button.primary ? theme.accent
              : button.active ? theme.raised
              : button.hovered ? theme.raised : "transparent"
-        border.color: button.primary || button.active ? "transparent" : theme.border
+        border.color: button.visualFocus ? theme.foreground : button.primary || button.active ? "transparent" : theme.border
+        border.width: button.visualFocus ? 2 : 1
         opacity: button.primary && button.hovered ? 0.88 : 1
     }
 }

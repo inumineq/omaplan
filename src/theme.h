@@ -5,6 +5,7 @@
 #include <QObject>
 #include <QProcess>
 #include <QTimer>
+#include <QVariantMap>
 
 class Theme : public QObject {
     Q_OBJECT
@@ -29,6 +30,9 @@ class Theme : public QObject {
     // family. Followed live once followSystemFont() is called; until then,
     // the generic monospace.
     Q_PROPERTY(QString fontFamily READ fontFamily NOTIFY fontChanged)
+    // Every palette slot ("blue", "bright_red") -> paletteColor(slot), for
+    // bindings: theme.palette[slot] re-evaluates on a theme switch.
+    Q_PROPERTY(QVariantMap palette READ palette NOTIFY changed)
 
 public:
     explicit Theme(const QString &currentDirectory = {}, QObject *parent = nullptr, const QString &hyprctl = {});
@@ -53,6 +57,12 @@ public:
     QString success() const { return m_success; }
     QString accentText() const { return m_accentText; }
     QString fontFamily() const { return m_fontFamily; }
+    // A palette slot of colors.toml ("blue", "bright_red"; "color4" as an
+    // alias) as a text colour: the theme's own, lifted like the other text
+    // colours until it reads on the background. Empty for an unknown slot.
+    // Project colours name these, so they follow a theme switch.
+    Q_INVOKABLE QString paletteColor(const QString &slot) const;
+    QVariantMap palette() const;
 
     // Follows Omarchy's font from now on, as the application's font and
     // through fontFamily: omarchy-font-set rewrites
@@ -86,6 +96,7 @@ private:
     QProcess m_roundingProcess;
     QTimer m_roundingPoll, m_roundingTimeout;
     QString m_muted, m_danger, m_success, m_accentText;
+    QHash<QString, QString> m_palette; // slot -> readable colour
     QString m_fontFamily = "monospace";
     bool m_followingFont = false;
     QFileSystemWatcher m_fontWatcher;

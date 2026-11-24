@@ -10,7 +10,7 @@ Build with `bin/build`, run the tests with `bin/test`, install as an Arch packag
 ## Keys (in the window)
 
 Everything can be done with the keyboard. `?` (or the small `?` at the top right) shows every key in the window, and
-hovering a button shows its key.
+hovering a button shows its key. `,` (or the gear beside it) opens the settings.
 
 | Key | Action |
 | --- | --- |
@@ -40,6 +40,7 @@ hovering a button shows its key.
 | `Ctrl+Delete` in the editor | Delete the task |
 | `Esc` | Close / discard / cancel the engine (the draft is kept) |
 | `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / redo (works across GUI, CLI and MCP) |
+| `,` or `Ctrl+,` | Settings; there `Alt+1`/`2`/`3` picks the section, Tab and ← / → change a value, `Ctrl+E` opens `config.toml` |
 | `q` | Quit |
 
 With the mouse, tasks can be dragged to another day in the calendar, in the week view also to another time. In the
@@ -61,6 +62,9 @@ omaplan show <id>  ·  omaplan edit <id> --deadline friday
 omaplan move <id> "tuesday at 14:00"  ·  omaplan done <id>  ·  omaplan rm <id>
 omaplan projects  ·  omaplan summary --week --json
 omaplan undo --json
+omaplan config list           # every setting, its value and the allowed values (also config get|set|unset|path)
+omaplan config set engine.claude.model sonnet
+omaplan engines --json        # which AI tools are installed, and the model each one uses
 omaplan skill install         # bundled agent skill in ~/.claude/skills, ~/.codex/skills, ~/.vibe/skills, ...
 omaplan skill install --force # also replace customized SKILL.md files
 omaplan snapshot              # write plan.json for the read-only edition now
@@ -80,7 +84,11 @@ about the source ("Changed from the command line"). Concurrent writes are safe (
 
 `omaplan mcp` is an MCP server over stdio (JSON-RPC 2.0) with the same actions as the command line as tools:
 `list`, `show`, `new`, `edit`, `move`, `done`, `undone`, `rm`, `undo`, `redo`, `projects`, `summary`, `propose`,
-`approve` and `add`. The arguments are named like the CLI flags (`title`, `start`, `duration`, `deadline`,
+`approve` and `add`, plus `config_list`, `config_get`, `config_set` and `engines` for the settings. An agent may
+set the language, `dates.*`, `projects.*`, the model names, the timeout, the default engine and compare, but not
+what runs or where data goes (`engine.command`, `engine.local.endpoint`, `engine.local.api`, `snapshot.path`);
+those take `omaplan config set` or the settings panel. It can pick the `command` engine only once you have set its
+command line yourself. The arguments are named like the CLI flags (`title`, `start`, `duration`, `deadline`,
 `project`, `from`, `to`, ...; `when` for `move`, `period` = `week`|`month` for `summary`, `text` and `engine` for
 `propose`/`add`), and dates accept the same expressions. Changes get the source `mcp`, show up live in the window
 and can be undone from there.
@@ -163,7 +171,16 @@ Before the text goes to the engine, Omaplan resolves date expressions itself and
 "tomorrow at 14:30" becomes "tomorrow at 14:30 [Tuesday 2026-11-24 14:30]", so small models only have to copy the
 date. The prompt is in English and tells the model to keep titles and notes in the language you wrote them in.
 
-The configuration is in `~/.config/omaplan/config.toml`:
+## Settings
+
+The settings live in `~/.config/omaplan/config.toml` (or `$OMAPLAN_CONFIG`), and nowhere else. There are three
+ways to change them, and all three write the same file, keeping its comments and any keys Omaplan does not know:
+
+- the settings panel in the window (`,`), which saves every change at once;
+- `omaplan config set <key> <value>` (or the MCP tool `config_set`); `omaplan config list` shows every key;
+- your editor (`Ctrl+E` in the panel opens it with `$EDITOR`).
+
+The open window follows the file live, whichever way it changed.
 
 ```toml
 language = "da"            # interface language: da | en (default: see Language)
@@ -172,12 +189,39 @@ language = "da"            # interface language: da | en (default: see Language)
 default = "vibe"           # default engine: vibe | claude | local | command
 command = "..."            # the command for default = "command"
 compare = "vibe, claude"   # the two engines Compare (Alt+S) sends the text to
+timeout = 90               # seconds an engine may take (10-600)
+
+[engine.vibe]
+model = ""                 # passed to vibe --model; empty uses vibe's own
+
+[engine.claude]
+model = "sonnet"           # passed to claude --model; empty uses claude's default
 
 [engine.local]
 api = "ollama"             # ollama | openai (OpenAI-compatible endpoint)
 endpoint = "http://127.0.0.1:11434"
 model = "your-choice"      # free choice -- nothing is hardcoded or built in
+
+[dates]                    # each one: leave it out to follow the language
+order = "dmy"              # how 12/11 is read: dmy (12 November) | mdy (11 December)
+dotted = "time"            # what 12.12 is: time (12:12) | date (12 December; "14.30", "kl. 9.05"
+                           # and "2.30 pm" are still times, as they cannot be dates, and so is
+                           # a last one after a date: "12.12 10.05", "friday 9.05")
+week_start = "monday"      # monday | sunday
+clock = "24h"              # 24h | 12h (2:30 PM)
+
+[projects]                 # a colour per project: a slot in the theme's palette
+Blog = "blue"
+"Client A" = "green"
 ```
+
+Project colours are slots in the Omarchy theme's palette (`red`, `orange`, `yellow`, `green`, `cyan`, `blue`,
+`magenta`, `brown` and their `bright_` variants; `color1`..`color14` are read as the same slots), so they follow a
+theme switch and are lifted until they read on the background. A project's colour shows on its tag and on its blocks
+and bars in the calendar and timeline, in the window and in the read-only edition; the priority edge stays as it is.
+
+Both languages read 12/11 as day/month and 12.12 as a time, start the week on Monday and use a 24-hour clock; the
+`[dates]` keys change that. Omaplan never stores API keys: the `vibe` and `claude` tools keep their own login.
 
 The section and key names of 0.1 (`[motor]`, `engine = ...`, `[motor.lokal]`, the engine id `lokal`) are
 still read.
@@ -191,6 +235,9 @@ your llama-server/LM Studio provides. Omaplan does not download or build any mod
 **Compare:** Press `Alt+S` in the input, and the text goes to both `compare` engines at once. The two proposals are
 shown side by side, and you approve one with `Ctrl+1` or `Ctrl+2`. Both answers are stored in `captures`, so they can
 be compared afterwards.
+
+In the settings panel, **Test** next to an engine sends one short request and shows the answer and the time, or why
+the engine cannot run (for example that the tool is not on `PATH`). It runs only when pressed, and stores nothing.
 
 `bin/smoke-ai [engine]` calls a real engine by hand with a short Danish text and prints the answer and the time. It
 is not run by `bin/test`.

@@ -3,6 +3,7 @@
 #include <QDateTime>
 #include <QJsonObject>
 #include <QList>
+#include <QMap>
 #include <QObject>
 #include <QString>
 
@@ -30,8 +31,12 @@ QJsonObject omarchyTheme(const QString &directory = {});
 QString themeStyle(const QJsonObject &theme);
 
 // `language` is the app's user interface language (BCP 47, e.g. "en").
+// `clock` ("24h"/"12h", empty = left out) and `projectColors` (project ->
+// palette slot) come from config.toml; only the colours of projects in
+// `tasks` are written.
 QJsonObject build(const QList<Task> &tasks, const QDateTime &exported, const QJsonObject &theme,
-                  const QString &language);
+                  const QString &language, const QString &clock = {},
+                  const QMap<QString, QString> &projectColors = {});
 // Reads the plan from the store and writes it to `path` atomically.
 bool write(Store *store, const QString &path, QString *error = nullptr,
            const QString &language = QStringLiteral("en"));
@@ -40,6 +45,8 @@ bool write(Store *store, const QString &path, QString *error = nullptr,
 
 // Rewrites the snapshot after every outermost commit of `store`. A failed
 // snapshot never fails the change itself; it is reported on stderr.
+class Settings;
+
 class Snapshotter : public QObject {
     Q_OBJECT
 public:
@@ -48,6 +55,8 @@ public:
     // The `language` written into plan.json; "en" until set.
     void setLanguage(const QString &language) { m_language = language; }
     void write();
+    // Writes again whenever config.toml changes (project colours, the clock).
+    void follow(Settings *settings);
 
 private:
     Store *m_store;

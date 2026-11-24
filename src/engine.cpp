@@ -202,25 +202,30 @@ std::unique_ptr<AiEngine> createEngine(const QString &id, const QString &modelOv
                                        const QString &endpointOverride, QString *error)
 {
     const AppConfig config = AppConfig::load();
-    if (id == QLatin1String("vibe"))
-        return createVibeEngine();
-    if (id == QLatin1String("claude"))
-        return createClaudeEngine();
-    if (id == QLatin1String("local") || id == QLatin1String("lokal")) { // "lokal" until 0.1
-        const QString model = !modelOverride.isEmpty() ? modelOverride : config.localModel;
+    const auto pick = [&](const QString &configured) {
+        return !modelOverride.isEmpty() ? modelOverride : configured;
+    };
+    std::unique_ptr<AiEngine> engine;
+    if (id == QLatin1String("vibe")) {
+        engine = createVibeEngine(pick(config.vibeModel));
+    } else if (id == QLatin1String("claude")) {
+        engine = createClaudeEngine(pick(config.claudeModel));
+    } else if (id == QLatin1String("local") || id == QLatin1String("lokal")) { // "lokal" until 0.1
         const QString endpoint = !endpointOverride.isEmpty() ? endpointOverride : config.localEndpoint;
-        return createLocalEngine(endpoint, model, config.localApi);
-    }
-    if (id == QLatin1String("command")) {
+        engine = createLocalEngine(endpoint, pick(config.localModel), config.localApi);
+    } else if (id == QLatin1String("command")) {
         if (config.command.isEmpty()) {
             if (error)
                 *error = QObject::tr("Engine 'command' needs a command in ~/.config/omaplan/config.toml: "
                                         "[engine]\ncommand = \"...\"");
             return nullptr;
         }
-        return createCommandEngine(config.command);
+        engine = createCommandEngine(config.command);
+    } else {
+        if (error)
+            *error = QObject::tr("Unknown engine '%1'. Choose vibe, claude, local or command.").arg(id);
+        return nullptr;
     }
-    if (error)
-        *error = QObject::tr("Unknown engine '%1'. Choose vibe, claude, local or command.").arg(id);
-    return nullptr;
+    engine->setTimeoutMs(config.timeoutSeconds * 1000);
+    return engine;
 }

@@ -17,11 +17,13 @@
 #include <QtTest>
 
 #include <sys/stat.h>
+#include <thread>
 
 #include "actions.h"
 #include "cli.h"
 #include "config.h"
 #include "dateannotate.h"
+#include "datewords.h"
 #include "mcp.h"
 #include "planmodel.h"
 #include "proposal.h"
@@ -32,7 +34,15 @@
 #include "store.h"
 #include "task.h"
 #include "theme.h"
+#include "settings.h"
 #include "uilanguage.h"
+
+// Sets the active date convention for one test and puts the old one back.
+struct ConventionGuard {
+    DateConvention saved = DateConvention::active();
+    explicit ConventionGuard(const DateConvention &c) { DateConvention::setActive(c); }
+    ~ConventionGuard() { DateConvention::setActive(saved); }
+};
 
 // Runs the CLI in-process against an already-constructed store, capturing
 // stdout and stderr.
@@ -93,6 +103,8 @@ static void validateSchema(const QJsonValue &node, const QJsonObject &schema, co
                 validateSchema(it.value(), properties.value(it.key()).toObject(), at + "." + it.key(), errors);
             else if (schema.value("additionalProperties") == QJsonValue(false))
                 *errors << at + ": extra " + it.key();
+            else if (schema.value("additionalProperties").isObject())
+                validateSchema(it.value(), schema.value("additionalProperties").toObject(), at + "." + it.key(), errors);
         }
     }
     if (node.isArray() && schema.contains("items")) {
@@ -264,7 +276,7 @@ private slots:
         QStringList errors;
         validateSchema(plan, readJsonFile(repoFile(QStringLiteral("docs/export-schema.json"))), QStringLiteral("$"), &errors);
         QVERIFY2(errors.isEmpty(), qPrintable(errors.join('\n')));
-        QCOMPARE(plan.value("version").toInt(), 2);
+        QCOMPARE(plan.value("version").toInt(), 3);
         QCOMPARE(plan.value("language").toString(), QStringLiteral("en"));
         QCOMPARE(plan.value("tasks").toArray().size(), 3);
         QHash<QString, QJsonObject> byId;
@@ -368,7 +380,9 @@ private slots:
         const QJsonObject theme = Snapshot::omarchyTheme(dir.path());
         QCOMPARE(theme.value("accent").toString(), QStringLiteral("#7aa2f7"));
         QCOMPARE(theme.value("bg").toString(), QStringLiteral("#1a1b26"));
-        QCOMPARE(theme.size() - theme.contains("font"), 10);
+        // Ten colours and the 14 palette slots of project colours.
+        QCOMPARE(theme.size() - theme.contains("font"), 10 + int(ConfigKeys::paletteSlots().size()));
+        QVERIFY(Snapshot::themeStyle(theme).contains("--bright-magenta:#"));
         const QString style = Snapshot::themeStyle(theme);
         QVERIFY(style.contains(QStringLiteral("--accent:#7aa2f7")));
         QVERIFY(style.contains(QStringLiteral("--bg:#1a1b26")));
@@ -450,6 +464,40 @@ private slots:
                     QFAIL(qPrintable(QStringLiteral("line %1:\n  C++: %2\n  JS:  %3").arg(i + 1).arg(a.value(i), e.value(i))));
         }
         QCOMPARE(actual, expected);
+    }
+
+    // The same 12-hour and project colour cases as web/test.mjs.
+    void renderFollowsClockAndProjectColors() {
+        QJsonObject plan = readJsonFile(repoFile(QStringLiteral("web/example/plan.json")));
+        QVERIFY(!plan.isEmpty());
+        const QString normal = Render::page(plan, QDate(2026, 11, 23), "en");
+        QVERIFY(normal.contains("data-project=\"Podcast\" data-color=\"magenta\""));
+        QVERIFY(!normal.contains("data-project=\"Blog\" data-color"));
+        QVERIFY(!normal.contains(" PM"));
+        plan["clock"] = "12h";
+        plan["project_colors"] = QJsonObject{{"Podcast", "url(x)"}, {"Blog", "color4"}};
+        const QString twelve = Render::page(plan, QDate(2026, 11, 23), "en");
+        QVERIFY(twelve.contains(">2:00 PM–"));
+        QVERIFY(twelve.contains(">10:00 AM"));
+        QVERIFY(twelve.contains("1:57 PM"));
+        QVERIFY(!twelve.contains("data-color"));
+    }
+
+    void snapshotCarriesClockProjectColorsAndPalette() {
+        Task blog;
+        blog.title = "Post";
+        blog.project = "Blog";
+        Task other;
+        other.title = "Call";
+        other.project = "Client A";
+        const QMap<QString, QString> colors{{"Blog", "blue"}, {"Unused", "red"}};
+        const QJsonObject plan = Snapshot::build({blog, other}, QDateTime::currentDateTime(), {}, "en", "12h", colors);
+        QCOMPARE(plan.value("clock").toString(), QStringLiteral("12h"));
+        // Only projects in the plan.
+        QCOMPARE(plan.value("project_colors").toObject(), (QJsonObject{{"Blog", "blue"}}));
+        QVERIFY(!Snapshot::build({}, QDateTime::currentDateTime(), {}, "en").contains("project_colors"));
+        // The palette as CSS variables for serve.
+        QVERIFY(Snapshot::themeStyle({{"bright_blue", "#7da6ff"}, {"blue", "javascript:"}}) == "--bright-blue:#7da6ff");
     }
 
     // The page follows src/task.h like web/app.js (web/test.mjs has the same
@@ -2077,6 +2125,127 @@ private slots:
         QCOMPARE(actions.show(id).payload["task"].toObject()["title"].toString(), QStringLiteral("Titel"));
     }
 
+    void dateConventionsFollowLanguageAndConfig()
+    {
+        // Danish and (British) English: D/M, 12.12 is a time, Monday, 24 h.
+        const DateConvention da = DateConvention::forLanguage("da");
+        QVERIFY(da.dayFirst && da.dottedIsTime && da.weekStart == 1 && da.clock24);
+        QVERIFY(DateConvention::forLanguage("en") == da);
+        // [dates] overrides key by key; empty keeps the language's.
+        AppConfig config;
+        config.dateOrder = "mdy";
+        config.clock = "12h";
+        const DateConvention us = DateConvention::resolve(config, "en");
+        QVERIFY(!us.dayFirst && us.dottedIsTime && us.weekStart == 1 && !us.clock24);
+        config.weekStart = "sunday";
+        config.dateDotted = "date";
+        const DateConvention all = DateConvention::resolve(config, "da");
+        QCOMPARE(all.weekStart, 7);
+        QVERIFY(!all.dottedIsTime);
+        QCOMPARE(all.weekStartOf(QDate(2026, 11, 25)), QDate(2026, 11, 22)); // Wednesday -> Sunday
+        QCOMPARE(da.weekStartOf(QDate(2026, 11, 22)), QDate(2026, 11, 16));  // Sunday -> Monday before
+    }
+
+    void dateParsingFollowsTheConvention()
+    {
+        const QDate today(2026, 11, 23); // Monday
+        QDateTime out;
+        bool hasTime = false;
+        QString error;
+        DateConvention c;
+
+        {
+            ConventionGuard guard(c); // the default: Danish
+            QVERIFY(Actions::parseDateTime("12/11", today, &out, &hasTime, &error));
+            QCOMPARE(out.date(), QDate(2027, 11, 12));
+            QVERIFY(Actions::parseDateTime("12.12", today, &out, &hasTime, &error));
+            QCOMPARE(out, QDateTime(today, QTime(12, 12)));
+            QVERIFY(hasTime);
+            // "12.12." with the final dot is a date in every convention.
+            QVERIFY(Actions::parseDateTime("12.12.", today, &out, &hasTime, &error));
+            QCOMPARE(out.date(), QDate(2026, 12, 12));
+            QVERIFY(!hasTime);
+            QVERIFY(Actions::parseDateTime("fredag 14.30", today, &out, &hasTime, &error));
+            QCOMPARE(out, QDateTime(QDate(2026, 11, 27), QTime(14, 30)));
+            // 2pm in any language and convention.
+            QVERIFY(Actions::parseDateTime("tomorrow 2pm", today, &out, &hasTime, &error));
+            QCOMPARE(out, QDateTime(today.addDays(1), QTime(14, 0)));
+            QVERIFY(Actions::parseDateTime("friday at 12:30 am", today, &out, &hasTime, &error));
+            QCOMPARE(out.time(), QTime(0, 30));
+            QVERIFY(Actions::parseDateTime("12 pm", today, &out, &hasTime, &error));
+            QCOMPARE(out.time(), QTime(12, 0));
+            QVERIFY(!Actions::parseDateTime("14pm", today, &out, &hasTime, &error));
+        }
+        {
+            c.dayFirst = false; // M/D
+            ConventionGuard guard(c);
+            QVERIFY(Actions::parseDateTime("12/11", today, &out, &hasTime, &error));
+            QCOMPARE(out.date(), QDate(2026, 12, 11));
+            QVERIFY(Actions::parseDateTime("11/30 9:15", today, &out, &hasTime, &error));
+            QCOMPARE(out, QDateTime(QDate(2026, 11, 30), QTime(9, 15)));
+            QVERIFY(!Actions::parseDateTime("30/11", today, &out, &hasTime, &error)); // month 30
+        }
+        {
+            c = DateConvention();
+            c.dottedIsTime = false; // 12.12 is a date
+            ConventionGuard guard(c);
+            QVERIFY(Actions::parseDateTime("12.12", today, &out, &hasTime, &error));
+            QCOMPARE(out.date(), QDate(2026, 12, 12));
+            QVERIFY(!hasTime);
+            QVERIFY(Actions::parseDateTime("24.12 14:30", today, &out, &hasTime, &error));
+            QCOMPARE(out, QDateTime(QDate(2026, 12, 24), QTime(14, 30)));
+            // A time with a colon stays a time.
+            QVERIFY(Actions::parseDateTime("fredag 14:30", today, &out, &hasTime, &error));
+            QCOMPARE(out.time(), QTime(14, 30));
+            // A dotted value that cannot be a date (month 30), or one after a
+            // time prefix or before am/pm, is still a time.
+            QVERIFY2(Actions::parseDateTime("fredag 14.30", today, &out, &hasTime, &error), qPrintable(error));
+            QCOMPARE(out, QDateTime(QDate(2026, 11, 27), QTime(14, 30)));
+            QVERIFY2(Actions::parseDateTime("fredag kl. 10.15", today, &out, &hasTime, &error), qPrintable(error));
+            QCOMPARE(out, QDateTime(QDate(2026, 11, 27), QTime(10, 15)));
+            QVERIFY2(Actions::parseDateTime("tomorrow 2.30 p.m.", today, &out, &hasTime, &error), qPrintable(error));
+            QCOMPARE(out, QDateTime(today.addDays(1), QTime(14, 30)));
+            QVERIFY(Actions::parseDateTime("tomorrow at 9.05", today, &out, &hasTime, &error));
+            QCOMPARE(out.time(), QTime(9, 5));
+            // ...but a value that can be a date stays one.
+            QVERIFY(Actions::parseDateTime("10.12", today, &out, &hasTime, &error));
+            QCOMPARE(out.date(), QDate(2026, 12, 10));
+            QVERIFY(!hasTime);
+            QCOMPARE(annotateDates("deadline 24.12", today), QStringLiteral("deadline 24.12 [Thursday 2026-12-24]"));
+            QCOMPARE(annotateDates("ring kl. 14.30", today), QStringLiteral("ring kl. 14.30 [14:30]"));
+            // N2: after a date, a last dotted value is its time.
+            QVERIFY2(Actions::parseDateTime("12.12 10.05", today, &out, &hasTime, &error), qPrintable(error));
+            QCOMPARE(out, QDateTime(QDate(2026, 12, 12), QTime(10, 5)));
+            QVERIFY2(Actions::parseDateTime("friday 9.05", today, &out, &hasTime, &error), qPrintable(error));
+            QCOMPARE(out, QDateTime(QDate(2026, 11, 27), QTime(9, 5)));
+            QVERIFY2(Actions::parseDateTime("tomorrow 10.12", today, &out, &hasTime, &error), qPrintable(error));
+            QCOMPARE(out, QDateTime(today.addDays(1), QTime(10, 12)));
+            // Month/day: 14 cannot be a month, so 14.30 is a time; 3.04 can be a date.
+            c.dayFirst = false;
+            ConventionGuard mdy(c);
+            QVERIFY(Actions::parseDateTime("14.30", today, &out, &hasTime, &error));
+            QCOMPARE(out.time(), QTime(14, 30));
+            QVERIFY(Actions::parseDateTime("3.04", today, &out, &hasTime, &error));
+            QVERIFY(!hasTime);
+        }
+        {
+            c = DateConvention();
+            c.weekStart = 7; // Sunday
+            ConventionGuard guard(c);
+            QVERIFY(Actions::parseDateTime("next week", today, &out, &hasTime, &error));
+            QCOMPARE(out.date(), QDate(2026, 11, 29)); // Sunday
+            // In a period (a filter) "saturday" is this week's: Sunday 22 to Saturday 28.
+            QDate filter;
+            QVERIFY(Actions::parseFilterDate("sunday", today, &filter, &error));
+            QCOMPARE(filter, QDate(2026, 11, 22));
+            QVERIFY(Actions::parseFilterDate("saturday", today, &filter, &error));
+            QCOMPARE(filter, QDate(2026, 11, 28));
+        }
+        // The annotation follows the default convention too.
+        QCOMPARE(annotateDates("ring kl. 14.30", today), QStringLiteral("ring kl. 14.30 [14:30]"));
+        QCOMPARE(annotateDates("call at 3pm", today), QStringLiteral("call at 3pm [15:00]"));
+    }
+
     void planModelAndProxies()
     {
         QTemporaryDir dir;
@@ -2474,6 +2643,107 @@ private slots:
         QCOMPARE(config.localModel, QStringLiteral("old"));
     }
 
+    void configWriteKeepsCommentsUnknownKeysAndOldNames()
+    {
+        QTemporaryDir dir;
+        const QString path = dir.filePath("config.toml");
+        QFile f(path);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        const QByteArray original = "# Omaplan settings, written by hand\n"
+                                    "language = \"da\"   # interface\n"
+                                    "\n"
+                                    "[motor]\n"
+                                    "engine = \"vibe\"   # the default engine\n"
+                                    "custom = \"keep me\"\n"
+                                    "\n"
+                                    "# where the snapshot goes\n"
+                                    "[snapshot]\n"
+                                    "path = \"~/plan.json\"\n";
+        f.write(original);
+        f.close();
+
+        // Nothing changed: written back byte for byte.
+        {
+            ConfigFile same(path);
+            QVERIFY(same.save());
+            QFile back(path);
+            QVERIFY(back.open(QIODevice::ReadOnly));
+            QCOMPARE(back.readAll(), original);
+        }
+
+        ConfigFile file(path);
+        bool found = false;
+        QCOMPARE(file.value("engine", "default", &found), QStringLiteral("vibe")); // through the 0.1 names
+        QVERIFY(found);
+        file.set("engine", "default", "claude");
+        file.set("engine", "timeout", "120");
+        file.set("engine.claude", "model", "sonnet");
+        file.set("projects", "Client A", "green");
+        file.set("projects", "Blog", "color4"); // the terminal number of blue
+        file.set("engine", "command", "tool --flag \"quoted\" back\\slash");
+        file.unset("", "language");
+        QVERIFY(file.save());
+
+        const QString text = file.text();
+        QVERIFY2(text.startsWith("# Omaplan settings, written by hand\n"), qPrintable(text));
+        QVERIFY2(text.contains("engine = \"claude\"   # the default engine"), qPrintable(text));
+        QVERIFY(text.contains("custom = \"keep me\""));
+        QVERIFY(text.contains("# where the snapshot goes\n[snapshot]"));
+        QVERIFY(text.contains("\"Client A\" = \"green\""));
+        QVERIFY(!text.contains("language"));
+        // A new key lands in its section (here the old [motor]), not at the end.
+        QVERIFY(text.indexOf("timeout = 120") < text.indexOf("[snapshot]"));
+        QCOMPARE(text.count("[engine.claude]"), 1);
+
+        const AppConfig config = AppConfig::load(path);
+        QCOMPARE(config.engine, QStringLiteral("claude"));
+        QCOMPARE(config.timeoutSeconds, 120);
+        QCOMPARE(config.claudeModel, QStringLiteral("sonnet"));
+        QCOMPARE(config.command, QStringLiteral("tool --flag \"quoted\" back\\slash"));
+        QCOMPARE(config.projectColors.value("Client A"), QStringLiteral("green"));
+        QCOMPARE(config.projectColors.value("Blog"), QStringLiteral("blue"));
+        QVERIFY(config.language.isEmpty());
+        QCOMPARE(file.keys("projects"), (QStringList{"Client A", "Blog"}));
+
+        // Setting a value again replaces it in place.
+        ConfigFile again(path);
+        again.set("projects", "Blog", "bright_red");
+        QCOMPARE(again.text().count("Blog"), 1);
+
+        // A file that does not exist yet is created with the section.
+        ConfigFile fresh(dir.filePath("sub/new.toml"));
+        fresh.set("dates", "order", "mdy");
+        QVERIFY(fresh.save());
+        QCOMPARE(fresh.text(), QStringLiteral("[dates]\norder = \"mdy\""));
+        QCOMPARE(AppConfig::load(dir.filePath("sub/new.toml")).dateOrder, QStringLiteral("mdy"));
+    }
+
+    void configKeysValidateValues()
+    {
+        ConfigKey key;
+        QVERIFY(ConfigKeys::find("engine.default", &key));
+        QVERIFY(ConfigKeys::validate(key, "claude").isEmpty());
+        QVERIFY(!ConfigKeys::validate(key, "gpt").isEmpty());
+        QVERIFY(ConfigKeys::find("engine.timeout", &key));
+        QVERIFY(ConfigKeys::validate(key, "90").isEmpty());
+        QVERIFY(!ConfigKeys::validate(key, "5").isEmpty());
+        QVERIFY(!ConfigKeys::validate(key, "soon").isEmpty());
+        QVERIFY(ConfigKeys::find("engine.compare", &key));
+        QVERIFY(ConfigKeys::validate(key, "vibe, local").isEmpty());
+        QVERIFY(!ConfigKeys::validate(key, "vibe").isEmpty());
+        QVERIFY(ConfigKeys::find("projects.Client A", &key));
+        QCOMPARE(key.key, QStringLiteral("Client A"));
+        QVERIFY(ConfigKeys::validate(key, "bright_magenta").isEmpty());
+        QVERIFY(ConfigKeys::validate(key, "color14").isEmpty());
+        QCOMPARE(ConfigKeys::paletteSlot("color14"), QStringLiteral("bright_cyan"));
+        QCOMPARE(ConfigKeys::paletteSlot("Blue"), QStringLiteral("blue"));
+        QVERIFY(!ConfigKeys::validate(key, "color15").isEmpty()); // white: no text colour
+        QVERIFY(!ConfigKeys::validate(key, "color0").isEmpty());
+        QVERIFY(!ConfigKeys::validate(key, "#ff0000").isEmpty());
+        QVERIFY(ConfigKeys::validate(key, "").isEmpty()); // unset
+        QVERIFY(!ConfigKeys::find("engine.nothing", &key));
+    }
+
     // Runs `omaplan mcp` (the real binary) with the given JSON-RPC lines on
     // stdin and returns the response lines from stdout.
     static QList<QJsonObject> mcpSession(const QString &db, const QList<QJsonObject> &messages, QString *stderrText)
@@ -2511,6 +2781,409 @@ private slots:
     static QJsonObject call(int id, const QString &tool, const QJsonObject &arguments = {})
     {
         return rpc(id, QStringLiteral("tools/call"), {{QStringLiteral("name"), tool}, {QStringLiteral("arguments"), arguments}});
+    }
+
+    void cliConfigGetSetListUnsetAndEngines()
+    {
+        QTemporaryDir dir;
+        const QString cfg = dir.filePath("config.toml");
+        QFile f(cfg);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("# mine\n[engine]\ndefault = \"vibe\"  # keep this comment\n");
+        f.close();
+        qputenv("OMAPLAN_CONFIG", cfg.toLocal8Bit());
+        // Fake tools on PATH: vibe is there, claude is not.
+        const QByteArray oldPath = qgetenv("PATH");
+        QFile vibe(dir.filePath("vibe"));
+        QVERIFY(vibe.open(QIODevice::WriteOnly));
+        vibe.write("#!/bin/sh\nexit 1\n");
+        vibe.close();
+        vibe.setPermissions(QFileDevice::ReadOwner | QFileDevice::ExeOwner);
+        qputenv("PATH", dir.path().toLocal8Bit());
+
+        Store store(dir.filePath("t.db"));
+        QString error;
+        QVERIFY(store.open(&error));
+        QString out, err;
+        int code = 0;
+        QJsonObject set = cliJson(store, {"config", "set", "engine.claude.model", "sonnet", "--json"}, &err, &code);
+        QCOMPARE(code, 0);
+        QCOMPARE(set.value("effective").toString(), QStringLiteral("sonnet"));
+        QCOMPARE(cli(store, {"config", "set", "engine.default", "Claude"}, &out, &err), 0); // case folded
+        QCOMPARE(cli(store, {"config", "set", "projects.Client A", "color2"}, &out, &err), 0);
+        QCOMPARE(cli(store, {"config", "set", "dates.order", "mdy"}, &out, &err), 0);
+        err.clear();
+        QCOMPARE(cli(store, {"config", "set", "engine.default", "gpt"}, &out, &err), 1);
+        QVERIFY2(err.contains("engine.default must be one of"), qPrintable(err));
+        QCOMPARE(cli(store, {"config", "set", "engine.nope", "x"}, &out, &err), 1);
+        QCOMPARE(cli(store, {"config", "set", "projects.Blog", "#ff0000"}, &out, &err), 1);
+
+        QFile back(cfg);
+        QVERIFY(back.open(QIODevice::ReadOnly));
+        const QString text = QString::fromUtf8(back.readAll());
+        QVERIFY2(text.startsWith("# mine\n[engine]\ndefault = \"claude\"  # keep this comment\n"), qPrintable(text));
+        QVERIFY(text.contains("\"Client A\" = \"green\"")); // the alias is stored by its name
+
+        const QJsonObject get = cliJson(store, {"config", "get", "dates.week_start", "--json"}, &err, &code);
+        QCOMPARE(get.value("source").toString(), QStringLiteral("language"));
+        QCOMPARE(get.value("effective").toString(), QStringLiteral("monday"));
+        const QJsonObject list = cliJson(store, {"config", "list", "--json"}, &err, &code);
+        QCOMPARE(list.value("path").toString(), cfg);
+        QCOMPARE(list.value("projects").toObject().value("Client A").toString(), QStringLiteral("green"));
+        QCOMPARE(list.value("settings").toArray().size(), ConfigKeys::all().size());
+        // auto and unset both remove the key.
+        QCOMPARE(cli(store, {"config", "set", "dates.order", "auto"}, &out, &err), 0);
+        QCOMPARE(cli(store, {"config", "unset", "projects.Client A"}, &out, &err), 0);
+        QVERIFY(AppConfig::load(cfg).dateOrder.isEmpty());
+        QVERIFY(AppConfig::load(cfg).projectColors.isEmpty());
+
+        const QJsonObject engines = cliJson(store, {"engines", "--json"}, &err, &code);
+        qputenv("PATH", oldPath);
+        qputenv("OMAPLAN_CONFIG", "");
+        QCOMPARE(code, 0);
+        QCOMPARE(engines.value("default").toString(), QStringLiteral("claude"));
+        QHash<QString, QJsonObject> byId;
+        for (const QJsonValue &e : engines.value("engines").toArray())
+            byId.insert(e.toObject().value("id").toString(), e.toObject());
+        QVERIFY(byId.value("vibe").value("ready").toBool());
+        QCOMPARE(byId.value("vibe").value("path").toString(), dir.filePath("vibe"));
+        QVERIFY(!byId.value("claude").value("ready").toBool());
+        QVERIFY(byId.value("claude").value("problem").toString().contains("PATH"));
+        QCOMPARE(byId.value("claude").value("model").toString(), QStringLiteral("sonnet"));
+        QVERIFY(!byId.value("local").value("ready").toBool());
+    }
+
+    // N1: the prompt keeps ISO times on a 12-hour clock; only text for the user follows it.
+    void promptKeepsIsoTimesOnA12HourClock()
+    {
+        QTemporaryDir dir;
+        QFile script(dir.filePath("fake.sh"));
+        QVERIFY(script.open(QIODevice::WriteOnly));
+        script.write(QStringLiteral("cat > '%1'; echo '{\"tasks\":[{\"title\":\"Proof the post\"}],\"unresolved\":[]}'")
+                         .arg(dir.filePath("prompt.txt")).toUtf8());
+        script.close();
+        QFile cfg(dir.filePath("config.toml"));
+        QVERIFY(cfg.open(QIODevice::WriteOnly));
+        cfg.write(QStringLiteral("[engine]\ncommand = \"sh %1\"\n").arg(script.fileName()).toUtf8());
+        cfg.close();
+        qputenv("OMAPLAN_CONFIG", cfg.fileName().toLocal8Bit());
+        DateConvention c;
+        c.clock24 = false;
+        ConventionGuard guard(c);
+        Store store(dir.filePath("t.db"));
+        QString error;
+        QVERIFY(store.open(&error));
+        Actions actions(&store);
+        Task task;
+        task.title = QStringLiteral("Write the blog post");
+        task.start = QDateTime(QDate::currentDate().addDays(1), QTime(14, 30));
+        task.startHasTime = true;
+        QVERIFY(actions.create(task, "test").ok);
+        const ActionResult r = actions.propose(QStringLiteral("proof the post"), QStringLiteral("command"));
+        qputenv("OMAPLAN_CONFIG", "");
+        QVERIFY2(r.ok, qPrintable(r.error));
+        QFile prompt(dir.filePath("prompt.txt"));
+        QVERIFY(prompt.open(QIODevice::ReadOnly));
+        const QString text = QString::fromUtf8(prompt.readAll());
+        const QString iso = task.start.toString(QStringLiteral("yyyy-MM-dd HH:mm"));
+        QVERIFY2(text.contains(QStringLiteral("Write the blog post | ") + iso), qPrintable(text.right(400)));
+        QVERIFY(!text.contains(QStringLiteral(" PM |")));
+    }
+
+    void testButtonAnswersWithTimeOrAClearError()
+    {
+        QTemporaryDir dir;
+        QFile script(dir.filePath("fake.sh"));
+        QVERIFY(script.open(QIODevice::WriteOnly));
+        script.write(R"(cat >/dev/null; echo '{"tasks":[{"title":"Write the blog post"}],"unresolved":[]}')");
+        script.close();
+        QFile cfg(dir.filePath("config.toml"));
+        QVERIFY(cfg.open(QIODevice::WriteOnly));
+        cfg.write(QStringLiteral("[engine]\ncommand = \"sh %1\"\n").arg(script.fileName()).toUtf8());
+        cfg.close();
+        qputenv("OMAPLAN_CONFIG", cfg.fileName().toLocal8Bit());
+        const QByteArray oldPath = qgetenv("PATH");
+        qputenv("PATH", "/usr/bin:/bin"); // no claude here
+
+        Store store(dir.filePath("t.db"));
+        QString error;
+        QVERIFY(store.open(&error));
+        Actions actions(&store);
+        QSignalSpy spy(&actions, &Actions::engineTested);
+        actions.guiTestEngine(QStringLiteral("command"));
+        actions.guiTestEngine(QStringLiteral("claude")); // must not cancel the first
+        QTRY_COMPARE_WITH_TIMEOUT(spy.size(), 2, 5000);
+        qputenv("PATH", oldPath);
+        qputenv("OMAPLAN_CONFIG", "");
+        QHash<QString, QList<QVariant>> byId;
+        for (const QList<QVariant> &args : spy)
+            byId.insert(args.at(0).toString(), args);
+        QVERIFY(!byId.value("claude").at(1).toBool());
+        QVERIFY2(byId.value("claude").at(2).toString().contains("claude"), qPrintable(byId.value("claude").at(2).toString()));
+        QVERIFY(byId.value("command").at(1).toBool());
+        QVERIFY(byId.value("command").at(2).toString().contains("Write the blog post"));
+        QVERIFY(byId.value("command").at(3).toInt() >= 0);
+        QCOMPARE(store.tasks().size(), 0); // a test stores nothing
+    }
+
+    void mcpConfigTools()
+    {
+        QTemporaryDir dir;
+        const QString db = dir.filePath("mcp.db");
+        QString stderrText;
+        const QList<QJsonObject> r = mcpSession(db, {
+            call(1, "config_set", {{"key", "engine.vibe.model"}, {"value", "mistral-medium"}}),
+            call(2, "config_get", {{"key", "engine.vibe.model"}}),
+            call(3, "config_set", {{"key", "dates.clock"}, {"value", "13h"}}),
+            call(4, "config_list"),
+            call(5, "engines"),
+            call(6, "config_set", {{"key", "engine.vibe.model"}}), // value missing
+        }, &stderrText);
+        QCOMPARE(r.size(), 7); // and the parse error of the trailing junk line
+        const auto structured = [&](int i) { return r.at(i).value("result").toObject().value("structuredContent").toObject(); };
+        const auto isError = [&](int i) { return r.at(i).value("result").toObject().value("isError").toBool(); };
+        QVERIFY(!isError(0));
+        QCOMPARE(structured(1).value("value").toString(), QStringLiteral("mistral-medium"));
+        QVERIFY(isError(2));
+        QVERIFY(structured(3).value("settings").toArray().size() > 10);
+        QCOMPARE(structured(4).value("engines").toArray().size(), 4);
+        QVERIFY(isError(5));
+        QCOMPARE(AppConfig::load(dir.filePath("config.toml")).vibeModel, QStringLiteral("mistral-medium"));
+    }
+
+    // L3: the CLI's human output follows the 12-hour clock; --json stays ISO.
+    void cliTextFollowsTheClock()
+    {
+        QTemporaryDir dir;
+        Store store(dir.filePath("t.db"));
+        QString error, out, err;
+        QVERIFY(store.open(&error));
+        DateConvention c;
+        c.clock24 = false;
+        ConventionGuard guard(c);
+        QCOMPARE(cli(store, {"new", "--title", "Write the blog post", "--start", "2026-12-04 14:30",
+                             "--deadline", "2026-12-05 00:15"}, &out, &err), 0);
+        out.clear();
+        QCOMPARE(cli(store, {"list"}, &out, &err), 0);
+        QVERIFY2(out.contains("2026-12-04 2:30 PM"), qPrintable(out));
+        const QString id = store.tasks().first().id;
+        out.clear();
+        QCOMPARE(cli(store, {"show", id}, &out, &err), 0);
+        QVERIFY2(out.contains("2026-12-05 12:15 AM"), qPrintable(out));
+        out.clear();
+        QCOMPARE(cli(store, {"move", id, "2026-12-07 09:00"}, &out, &err), 0);
+        QVERIFY2(out.contains("2026-12-07 9:00 AM"), qPrintable(out));
+        int code = 0;
+        const QJsonObject json = cliJson(store, {"show", id, "--json"}, &err, &code);
+        QVERIFY(json.value("task").toObject().value("start").toString().startsWith("2026-12-07T09:00"));
+    }
+
+    // M2: picking the language in the panel switches the open window.
+    void languageSettingAppliesLive()
+    {
+        QTemporaryDir dir;
+        const QString cfg = dir.filePath("config.toml");
+        qputenv("OMAPLAN_CONFIG", cfg.toLocal8Bit());
+        UiLanguage language(nullptr, QString(), false, dir.filePath("no-omarchy-language"));
+        const QString before = language.language();
+        const QString other = before == QLatin1String("da") ? QStringLiteral("en") : QStringLiteral("da");
+        Settings settings(&language, cfg);
+        QVERIFY(Actions::configSet("language", other).ok);
+        settings.reload(); // what the file watcher does
+        QCOMPARE(language.language(), other);
+        QVERIFY(Actions::configSet("language", "").ok);
+        settings.reload();
+        qputenv("OMAPLAN_CONFIG", "");
+        QCOMPARE(language.language(), before);
+    }
+
+    // L2: a settings change (a colour, the clock) reaches plan.json at once,
+    // not only with the next change to the plan.
+    void snapshotFollowsSettings()
+    {
+        QTemporaryDir dir;
+        const QString cfg = dir.filePath("config.toml");
+        qputenv("OMAPLAN_CONFIG", cfg.toLocal8Bit());
+        Store store(dir.filePath("t.db"));
+        QString error;
+        QVERIFY(store.open(&error));
+        Task task;
+        task.title = QStringLiteral("Write the blog post");
+        task.project = QStringLiteral("Blog");
+        QVERIFY(Actions(&store).create(task, "test").ok);
+        UiLanguage language(nullptr, QStringLiteral("en"), false, dir.filePath("no-omarchy-language"));
+        Settings settings(&language, cfg);
+        Snapshotter snapshotter(&store, dir.filePath("plan.json"));
+        snapshotter.follow(&settings);
+        snapshotter.write();
+        QVERIFY(!readJsonFile(dir.filePath("plan.json")).contains("project_colors"));
+        QVERIFY(Actions::configSet("projects.Blog", "green").ok);
+        QVERIFY(Actions::configSet("dates.clock", "12h").ok);
+        settings.reload(); // what the file watcher does
+        const QJsonObject plan = readJsonFile(dir.filePath("plan.json"));
+        qputenv("OMAPLAN_CONFIG", "");
+        DateConvention::setActive(DateConvention::forLanguage(UiLanguage::current()));
+        QCOMPARE(plan.value("project_colors").toObject().value("Blog").toString(), QStringLiteral("green"));
+        QCOMPARE(plan.value("clock").toString(), QStringLiteral("12h"));
+    }
+
+    // N4: a directory Omaplan may not write to is not "locked by another writer".
+    void configSetInAReadOnlyDirectorySaysSo()
+    {
+        QTemporaryDir dir;
+        const QString cfg = dir.filePath("config.toml");
+        QFile::setPermissions(dir.path(), QFileDevice::ReadOwner | QFileDevice::ExeOwner);
+        qputenv("OMAPLAN_CONFIG", cfg.toLocal8Bit());
+        QElapsedTimer timer;
+        timer.start();
+        const ActionResult r = Actions::configSet("engine.vibe.model", "small");
+        qputenv("OMAPLAN_CONFIG", "");
+        QFile::setPermissions(dir.path(), QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner);
+        if (QFileInfo(dir.path()).isWritable() && r.ok)
+            QSKIP("running as a user who may write anywhere (root)");
+        QVERIFY(!r.ok);
+        QVERIFY2(r.error.contains("permission") && !r.error.contains("another writer"), qPrintable(r.error));
+        QVERIFY(timer.elapsed() < 5000); // no waiting for a lock that can never be taken
+    }
+
+    // M3: set/get/unset act on the line the program reads, the last one.
+    void configWritesTheOccurrenceThatApplies()
+    {
+        QTemporaryDir dir;
+        const QString cfg = dir.filePath("config.toml");
+        QFile f(cfg);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("[motor]\nengine = \"vibe\"\n\n[engine]\ndefault = \"claude\"\n\n[dates]\nclock = \"12h\"\nclock = \"24h\"\n");
+        f.close();
+        qputenv("OMAPLAN_CONFIG", cfg.toLocal8Bit());
+        QCOMPARE(Actions::configGet("engine.default").payload.value("value").toString(), QStringLiteral("claude"));
+        QCOMPARE(Actions::configGet("dates.clock").payload.value("value").toString(), QStringLiteral("24h"));
+        QVERIFY(Actions::configSet("engine.default", "local").ok);
+        QCOMPARE(AppConfig::load(cfg).engine, QStringLiteral("local"));
+        QVERIFY(ConfigFile(cfg).text().contains("[motor]\nengine = \"vibe\"")); // the old line stays as it was
+        QVERIFY(Actions::configSet("dates.clock", "").ok); // unset removes both
+        qputenv("OMAPLAN_CONFIG", "");
+        QVERIFY(AppConfig::load(cfg).clock.isEmpty());
+        QVERIFY2(!ConfigFile(cfg).text().contains("clock"), qPrintable(ConfigFile(cfg).text()));
+    }
+
+    // M4: two writers at once lose nothing.
+    void configSetFromParallelWritersKeepsEveryKey()
+    {
+        QTemporaryDir dir;
+        const QString cfg = dir.filePath("config.toml");
+        qputenv("OMAPLAN_CONFIG", cfg.toLocal8Bit());
+        auto writer = [](const QString &prefix) {
+            for (int i = 0; i < 40; ++i)
+                Actions::configSet(QStringLiteral("projects.%1%2").arg(prefix).arg(i), QStringLiteral("blue"));
+        };
+        std::thread a(writer, QStringLiteral("A")), b(writer, QStringLiteral("B"));
+        a.join();
+        b.join();
+        qputenv("OMAPLAN_CONFIG", "");
+        QCOMPARE(AppConfig::load(cfg).projectColors.size(), 80);
+    }
+
+    // M5: a running process (omaplan mcp) reads dates as it just set them.
+    void configSetOfDatesAppliesInTheRunningProcess()
+    {
+        QTemporaryDir dir;
+        qputenv("OMAPLAN_CONFIG", dir.filePath("config.toml").toLocal8Bit());
+        ConventionGuard guard(DateConvention::forLanguage(QStringLiteral("en")));
+        QVERIFY(Actions::configSet("dates.order", "mdy").ok);
+        QDateTime when;
+        bool hasTime = false;
+        QVERIFY(Actions::parseDateTime(QStringLiteral("12/11"), QDate(2026, 11, 24), &when, &hasTime));
+        QCOMPARE(when.date(), QDate(2026, 12, 11));
+        QVERIFY(Actions::configSet("dates.order", "").ok);
+        QVERIFY(Actions::parseDateTime(QStringLiteral("12/11"), QDate(2026, 11, 24), &when, &hasTime));
+        qputenv("OMAPLAN_CONFIG", "");
+        QCOMPARE(when.date(), QDate(2027, 11, 12));
+    }
+
+    // H1: over MCP an agent may not choose what runs or where data goes.
+    void mcpConfigSetIsLimitedToSafeKeys()
+    {
+        QTemporaryDir dir;
+        const QString db = dir.filePath("mcp.db");
+        const QString cfg = dir.filePath("config.toml");
+        QString stderrText;
+        QList<QJsonObject> r = mcpSession(db, {
+            call(1, "config_set", {{"key", "engine.command"}, {"value", "sh -c 'touch x'"}}),
+            call(2, "config_set", {{"key", "snapshot.path"}, {"value", dir.filePath("victim.txt")}}),
+            call(3, "config_set", {{"key", "engine.local.endpoint"}, {"value", "http://example.invalid"}}),
+            call(4, "config_set", {{"key", "engine.local.api"}, {"value", "openai"}}),
+            call(5, "config_set", {{"key", "engine.default"}, {"value", "command"}}),
+            call(6, "config_set", {{"key", "engine.compare"}, {"value", "vibe, command"}}),
+            call(7, "config_set", {{"key", "engine.claude.model"}, {"value", "opus"}}),
+            call(8, "config_set", {{"key", "projects.Blog"}, {"value", "blue"}}),
+            call(9, "config_set", {{"key", "dates.clock"}, {"value", "12h"}}),
+        }, &stderrText);
+        QCOMPARE(r.size(), 10);
+        const auto isError = [&](int i) { return r.at(i).value("result").toObject().value("isError").toBool(); };
+        const auto text = [&](int i) {
+            return r.at(i).value("result").toObject().value("content").toArray().at(0).toObject().value("text").toString();
+        };
+        for (int i = 0; i < 6; ++i)
+            QVERIFY2(isError(i), qPrintable(QString::number(i) + ": " + text(i)));
+        QVERIFY2(text(0).contains("omaplan config set"), qPrintable(text(0)));
+        QVERIFY2(text(4).contains("engine.command"), qPrintable(text(4)));
+        for (int i = 6; i < 9; ++i)
+            QVERIFY2(!isError(i), qPrintable(text(i)));
+        const AppConfig after = AppConfig::load(cfg);
+        QVERIFY(after.command.isEmpty());
+        QVERIFY(after.snapshotPath.isEmpty());
+        QVERIFY(after.localEndpoint.isEmpty());
+        QCOMPARE(after.claudeModel, QStringLiteral("opus"));
+
+        // Once the user has set a command line themselves, an agent may pick that engine.
+        Store store(db);
+        QString error, out, err;
+        QVERIFY(store.open(&error));
+        qputenv("OMAPLAN_CONFIG", cfg.toLocal8Bit());
+        QCOMPARE(cli(store, {"config", "set", "engine.command", "my-engine --json"}, &out, &err), 0);
+        qputenv("OMAPLAN_CONFIG", "");
+        r = mcpSession(db, {call(1, "config_set", {{"key", "engine.default"}, {"value", "command"}})}, &stderrText);
+        QVERIFY2(!isError(0), qPrintable(text(0)));
+        QCOMPARE(AppConfig::load(cfg).engine, QStringLiteral("command"));
+    }
+
+    // H2: a control character would break the file into new lines (and keys).
+    void configRejectsControlCharacters()
+    {
+        QTemporaryDir dir;
+        const QString cfg = dir.filePath("config.toml");
+        qputenv("OMAPLAN_CONFIG", cfg.toLocal8Bit());
+        Store store(dir.filePath("t.db"));
+        QString error, out, err;
+        QVERIFY(store.open(&error));
+        const QString smuggled = QStringLiteral("x\n[engine]\ndefault = \"command\"\ncommand = \"touch y\"\n#");
+        QCOMPARE(cli(store, {"config", "set", "engine.vibe.model", smuggled}, &out, &err), 1);
+        QVERIFY2(err.contains("control character"), qPrintable(err));
+        QCOMPARE(cli(store, {"config", "set", "engine.vibe.model", "a\rb"}, &out, &err), 1);
+        QCOMPARE(cli(store, {"config", "set", "engine.vibe.model", QStringLiteral("a") + QChar(0x7f)}, &out, &err), 1);
+        QCOMPARE(cli(store, {"config", "set", "projects.A\nB", "blue"}, &out, &err), 1);
+        QCOMPARE(cli(store, {"config", "set", "projects.A\tB", "blue"}, &out, &err), 1);
+        // N3: C1 controls and Unicode line breaks too; an editor may break the line there.
+        for (const char16_t c : {u'\u0080', u'\u0085', u'\u009f', u' ', u' '}) {
+            QCOMPARE(cli(store, {"config", "set", "engine.vibe.model", QStringLiteral("a") + QChar(c) + "b"}, &out, &err), 1);
+            QCOMPARE(cli(store, {"config", "set", QStringLiteral("projects.A") + QChar(c) + "B", "blue"}, &out, &err), 1);
+        }
+        QCOMPARE(cli(store, {"config", "set", "projects.Café Ø", "blue"}, &out, &err), 0); // ordinary non-ASCII is fine
+        QCOMPARE(cli(store, {"config", "set", "projects.Café Ø", ""}, &out, &err), 0);
+        QVERIFY(!QFile::exists(cfg) || AppConfig::load(cfg).command.isEmpty());
+        qputenv("OMAPLAN_CONFIG", "");
+
+        QString stderrText;
+        const QList<QJsonObject> r = mcpSession(dir.filePath("t.db"), {
+            call(1, "config_set", {{"key", "engine.claude.model"}, {"value", smuggled}}),
+            call(2, "config_set", {{"key", "projects.A\nB"}, {"value", "blue"}}),
+        }, &stderrText);
+        QCOMPARE(r.size(), 3);
+        QVERIFY(r.at(0).value("result").toObject().value("isError").toBool());
+        QVERIFY(r.at(1).value("result").toObject().value("isError").toBool());
+        QVERIFY(AppConfig::load(cfg).command.isEmpty());
+        QVERIFY(AppConfig::load(cfg).projectColors.isEmpty());
     }
 
     void mcpSpeaksTheProtocolOverStdio()
@@ -2914,10 +3587,16 @@ private slots:
             f.write(palette);
             f.close();
             Theme theme(dir.path());
-            for (const QString &text : {theme.muted(), theme.danger(), theme.success(), theme.accentText()}) {
+            QStringList texts{theme.muted(), theme.danger(), theme.success(), theme.accentText()};
+            // Project colours: every palette slot, also those the theme lacks.
+            for (const QString &slot : ConfigKeys::paletteSlots())
+                texts << theme.paletteColor(slot);
+            for (const QString &text : texts) {
                 QVERIFY2(Theme::contrast(text, theme.background()) >= 4.5, qPrintable(palette + text));
                 QVERIFY2(Theme::contrast(text, theme.surface()) >= 4.5, qPrintable(palette + text));
             }
+            QCOMPARE(theme.paletteColor("color1"), theme.paletteColor("red"));
+            QVERIFY(theme.paletteColor("white").isEmpty());
             // Secondary text stays quieter than the foreground.
             QVERIFY(Theme::contrast(theme.muted(), theme.background())
                     < Theme::contrast(theme.foreground(), theme.background()));
@@ -3250,6 +3929,22 @@ private slots:
                      &cliOut, &cliErr), 0);
         const Skill::Result forced = Skill::install(home, true);
         QVERIFY2(forced.ok, qPrintable(forced.error));
+        QVERIFY(customized.open(QIODevice::ReadOnly));
+        QCOMPARE(customized.readAll(), Skill::markdown().toUtf8());
+        customized.close();
+
+        // An unchanged skill from an earlier release is not "customized": it is
+        // replaced by the new one without --force.
+        QFile previous(QStringLiteral(OMAPLAN_SRC "/../tests/fixtures/skill-main.md"));
+        QVERIFY(previous.open(QIODevice::ReadOnly));
+        const QByteArray previousText = previous.readAll();
+        QVERIFY(previousText != Skill::markdown().toUtf8());
+        QVERIFY(customized.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        customized.write(previousText);
+        customized.close();
+        const Skill::Result upgraded = Skill::install(home);
+        QVERIFY2(upgraded.ok, qPrintable(upgraded.error));
+        QCOMPARE(upgraded.conflicts.size(), 0);
         QVERIFY(customized.open(QIODevice::ReadOnly));
         QCOMPARE(customized.readAll(), Skill::markdown().toUtf8());
         customized.close();

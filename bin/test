@@ -12,6 +12,17 @@ unset QT_QPA_PLATFORMTHEME
 # Every UI string has a translation in each i18n/omaplan_*.ts.
 "$ROOT/bin/i18n-check"
 
+# A changed skill must list main's text as released (src/skill.cpp,
+# wasBundled), or upgrading users get "Customized skill preserved".
+if git -C "$ROOT" rev-parse -q --verify main >/dev/null 2>&1; then
+    released="$(git -C "$ROOT" show main:src/skill/SKILL.md | sha256sum | cut -d' ' -f1)"
+    current="$(sha256sum "$ROOT/src/skill/SKILL.md" | cut -d' ' -f1)"
+    if [ "$released" != "$current" ] && ! grep -q "$released" "$ROOT/src/skill.cpp"; then
+        echo "skill: add $released (main's SKILL.md) to wasBundled in src/skill.cpp" >&2
+        exit 1
+    fi
+fi
+
 # Core tests (store, actions, CLI, models, date annotation).
 mkdir -p "$ROOT/build/tests"
 cd "$ROOT/build/tests"
@@ -26,6 +37,13 @@ cd "$ROOT/build/ai-tests"
 qmake6 "$ROOT/tests/unit/unit.pro"
 make -j"$(nproc)"
 QT_QPA_PLATFORM=offscreen ./ai-unit-tests
+
+# The settings panel in the real window, offscreen, with a fake engine.
+mkdir -p "$ROOT/build/panel-tests"
+cd "$ROOT/build/panel-tests"
+qmake6 "$ROOT/tests/panel/panel.pro"
+make -j"$(nproc)"
+QT_QPA_PLATFORM=offscreen ./panel-tests
 
 # The read-only page's JavaScript against the same reference pages, when
 # Node is installed (it is not a build dependency).

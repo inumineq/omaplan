@@ -155,6 +155,7 @@ Item {
                     font.pixelSize: 13
                     font.bold: true
                     color: theme.accentText
+                    textFormat: Text.PlainText
                     text: {
                         Fmt.lang
                         if (root.grouping === "project")

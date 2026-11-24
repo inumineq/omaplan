@@ -15,9 +15,9 @@ Item {
     readonly property bool canPage: true
     readonly property var today: { planModel.today; return Fmt.startOfDay(new Date()) }
     property var anchorDate: Fmt.startOfDay(new Date())
-    readonly property var weekStart: Fmt.mondayOf(anchorDate)
+    readonly property var weekStart: Fmt.weekStartOf(anchorDate)
     readonly property var monthStart: new Date(anchorDate.getFullYear(), anchorDate.getMonth(), 1)
-    readonly property var gridStart: Fmt.mondayOf(monthStart)
+    readonly property var gridStart: Fmt.weekStartOf(monthStart)
     readonly property var rangeStart: mode === "week" ? weekStart : gridStart
     readonly property int rangeDays: mode === "week" ? 7 : 42
 
@@ -53,6 +53,9 @@ Item {
         }
         return out
     }
+
+    // A task's colour: its project's (a palette slot from the settings), else the accent.
+    function tintOf(t) { settings.projectColors; return theme.palette[settings.projectColor(t.project)] || theme.accent }
 
     function chipText(t) {
         return (t.startHasTime ? Fmt.time(t.start) + "  " : "") + (t.deadlineOnly ? "⚑ " : "") + t.title
@@ -147,16 +150,18 @@ Item {
         property var task
         readonly property bool done: task.status === "done"
         readonly property bool selected: win.selectedId === task.taskId
+        // The project's colour (settings), else the accent.
+        readonly property color tint: cal.tintOf(task)
         height: 20
         radius: Math.min(3, theme.radius)
-        color: done ? theme.surface : task.deadlineOnly ? Qt.alpha(theme.danger, 0.16) : Qt.alpha(theme.accent, 0.22)
+        color: done ? theme.surface : task.deadlineOnly ? Qt.alpha(theme.danger, 0.16) : Qt.alpha(chip.tint, 0.22)
         border.color: selected ? theme.accent : done ? theme.border : "transparent"
         opacity: drag.dragging ? 0.35 : 1
         Rectangle {
             width: 3
             height: parent.height
             radius: 1
-            color: chip.task.priority === 1 ? theme.danger : theme.accent
+            color: chip.task.priority === 1 ? theme.danger : chip.tint
             visible: !chip.done
         }
         Text {
@@ -165,6 +170,7 @@ Item {
             anchors.leftMargin: 7
             anchors.rightMargin: 4
             verticalAlignment: Text.AlignVCenter
+            textFormat: Text.PlainText
             text: cal.chipText(chip.task)
             elide: Text.ElideRight
             font.pixelSize: 11
@@ -340,7 +346,7 @@ Item {
                                 y: -7
                                 visible: parent.index > 0
                                 horizontalAlignment: Text.AlignRight
-                                text: (parent.index < 10 ? "0" : "") + parent.index + ":00"
+                                text: Fmt.hour(parent.index, false)
                                 color: theme.muted
                                 font.pixelSize: 10
                             }
@@ -383,15 +389,16 @@ Item {
                             width: (cal.weekCol - 4) / modelData.lanes - 2
                             height: Math.max(20, modelData.minutes / 60 * cal.hourHeight - 2)
                             radius: Math.min(4, theme.radius)
-                            color: done ? theme.surface : Qt.alpha(theme.accent, 0.24)
-                            border.color: selected ? theme.accent : done ? theme.border : Qt.alpha(theme.accent, 0.5)
+                            readonly property color tint: cal.tintOf(task)
+                            color: done ? theme.surface : Qt.alpha(block.tint, 0.24)
+                            border.color: selected ? theme.accent : done ? theme.border : Qt.alpha(block.tint, 0.5)
                             border.width: selected ? 2 : 1
                             opacity: blockDrag.dragging ? 0.35 : 1
                             clip: true
                             Rectangle {
                                 width: 3
                                 height: parent.height
-                                color: block.task.priority === 1 ? theme.danger : theme.accent
+                                color: block.task.priority === 1 ? theme.danger : block.tint
                                 visible: !block.done
                             }
                             Column {
@@ -401,6 +408,7 @@ Item {
                                 Text {
                                     font.family: theme.fontFamily
                                     width: parent.width
+                                    textFormat: Text.PlainText
                                     text: block.task.title
                                     color: block.done ? theme.muted : theme.foreground
                                     font.strikeout: block.done
@@ -412,6 +420,7 @@ Item {
                                     font.family: theme.fontFamily
                                     width: parent.width
                                     visible: block.height > 34
+                                    textFormat: Text.PlainText
                                     text: { Fmt.lang; return Fmt.timeRange(block.task.start, block.task.durationMinutes)
                                             + (block.task.project !== "" ? " · " + block.task.project : "") }
                                     color: theme.muted
@@ -603,6 +612,7 @@ Item {
             font.family: theme.fontFamily
             anchors.fill: parent
             anchors.margins: 5
+            textFormat: Text.PlainText
             text: ghost.text
             color: theme.accentForeground
             font.pixelSize: 12

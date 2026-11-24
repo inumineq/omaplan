@@ -66,11 +66,14 @@ public:
     static QString defaultOmarchyFile();
     static QString readOmarchyLanguage(const QString &path);
 
+    // Picks the language again from every source; emits changed() only when
+    // it differs. Settings calls it when `language` in config.toml changes.
+    void reload();
+
 signals:
     void changed();
 
 private:
-    void reload();
     void install(const QString &language);
 
     QCoreApplication *m_app;

@@ -16,7 +16,38 @@
   --danger: #f7768e;
   --ok: #9ece6a;
   --radius: 0px; /* sharp, like Omarchy's default windows (decoration:rounding = 0) */
+  /* The theme palette that project colours name (data-color), lifted to read on --bg. */
+  --red: #f7768e;
+  --orange: #eb927b;
+  --yellow: #e0af68;
+  --green: #9ece6a;
+  --cyan: #5fb3c1;
+  --blue: #7aa2f7;
+  --magenta: #ad8ee6;
+  --brown: #b0897e;
+  --bright-red: #ff7a93;
+  --bright-yellow: #ff9e64;
+  --bright-green: #b9f27c;
+  --bright-cyan: #0db9d7;
+  --bright-blue: #7da6ff;
+  --bright-magenta: #bb9af7;
 }
+
+/* A project's colour: its tag, and its bar in the timeline. */
+[data-color="red"] { --project: var(--red); }
+[data-color="orange"] { --project: var(--orange); }
+[data-color="yellow"] { --project: var(--yellow); }
+[data-color="green"] { --project: var(--green); }
+[data-color="cyan"] { --project: var(--cyan); }
+[data-color="blue"] { --project: var(--blue); }
+[data-color="magenta"] { --project: var(--magenta); }
+[data-color="brown"] { --project: var(--brown); }
+[data-color="bright_red"] { --project: var(--bright-red); }
+[data-color="bright_yellow"] { --project: var(--bright-yellow); }
+[data-color="bright_green"] { --project: var(--bright-green); }
+[data-color="bright_cyan"] { --project: var(--bright-cyan); }
+[data-color="bright_blue"] { --project: var(--bright-blue); }
+[data-color="bright_magenta"] { --project: var(--bright-magenta); }
 
 * {
   box-sizing: border-box;
@@ -248,6 +279,11 @@ body:has(#timeline.active) .views a[href="#timeline"],
   color: var(--fg);
 }
 
+[data-color] .project-tag {
+  color: var(--project);
+  border-color: var(--project);
+}
+
 .guessed {
   font-style: italic;
 }
@@ -391,10 +427,21 @@ body:has(#timeline.active) .views a[href="#timeline"],
   white-space: nowrap;
 }
 
+.bar[data-color] {
+  background: var(--project);
+  color: var(--bg);
+}
+
 .bar-all-day {
   background: transparent;
   color: var(--fg);
   border: 1px dashed var(--muted);
+}
+
+.bar-all-day[data-color] {
+  background: transparent;
+  color: var(--project);
+  border-color: var(--project);
 }
 
 .bar.status-done {

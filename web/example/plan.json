@@ -1,6 +1,6 @@
 {
   "format": "omaplan-plan",
-  "version": 2,
+  "version": 3,
   "exported": "2026-11-23T13:57:00+01:00",
   "timezone": "Europe/Copenhagen",
   "language": "en",
@@ -16,6 +16,11 @@
     "danger": "#f7768e",
     "ok": "#9ece6a",
     "font": "JetBrainsMono Nerd Font"
+  },
+  "clock": "24h",
+  "project_colors": {
+    "Podcast": "magenta",
+    "Client A": "green"
   },
   "tasks": [
     {
